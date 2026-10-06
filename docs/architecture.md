@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phase 1 — foundation. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–2 done, Phase 3 (Reviewer) in progress. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -33,7 +33,7 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Terraform module | `terraform/modules/target-repository` | Onboard an existing repo: labels, Actions variables, later rulesets / permissions / environments |
 | Terraform root | `terraform/` | Onboards targets that have **no** Terraform of their own (one module block per target) |
 | Reusable workflow | `.github/workflows/agent-develop.yml` | Resolve the issue context, run Claude Code, produce branch + Draft PR |
-| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent |
+| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md` (operational), `reviewer.md` (defined, not yet wired) |
 | Caller template | `examples/target-repository/` | What a target repository copies |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
 
@@ -95,6 +95,29 @@ Human review → merge (never by the agent)
 > 💡 **Note**: a reusable workflow runs in the **caller's** context: `github.repository`,
 > `github.token` and the checkout all refer to the target repository. FlowForge itself is
 > only the source of the workflow definition.
+
+### 2.3 Review flow (Phase 3 target)
+
+> **Status**: Reviewer **DEFINED** in [`agents/reviewer.md`](../agents/reviewer.md); no
+> workflow runs it yet (`agent-review.yml` comes next).
+
+```text
+Issue
+  ↓
+Developer
+  ↓
+Draft PR
+  ↓
+Reviewer   ◄── agents/reviewer.md + target CLAUDE.md + issue + diff + CI results
+  ↓            (read-only: findings + verdict, never commits nor merges)
+  ├── APPROVE          → human review → merge (never by an agent)
+  ├── REQUEST_CHANGES  → structured findings
+  └── BLOCKED          → reliable review impossible, missing information stated
+```
+
+Later, an **Iterator** agent will consume the structured findings and push corrections,
+forming a **bounded** `Reviewer ↔ Iterator` loop. Its limits and orchestration are not
+decided yet.
 
 ------
 
