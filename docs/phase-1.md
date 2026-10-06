@@ -23,7 +23,7 @@
 | 2 | Create the POC `demo-api` (Python, FastAPI, pytest, CI, `CLAUDE.md`) — `GET /health` deliberately absent | `demo-api` | ⏭️ Next |
 | 3 | Onboard `demo-api` with Terraform (embedded `module "flowforge"`, labels; ruleset decided here) | `demo-api` IaC | 🔄 Integrated, not applied |
 | 4 | Add the minimal caller workflow `flowforge-agent.yml` in `demo-api` | `demo-api` | ⏳ |
-| 5 | Integrate Claude Code in `agent-develop.yml` (runner choice, secret, write permissions, agent rules loading) | `flowforge` | ⏳ |
+| 5 | Integrate Claude Code in `agent-develop.yml` (runner choice, secret, write permissions, agent rules loading) | `flowforge` | ✅ Done (not run yet) |
 | 6 | First real end-to-end run | both | ⏳ |
 | 7 | Create the Issue *"Add GET /health"* | `demo-api` | ⏳ |
 | 8 | Add the `agent:ready` label | `demo-api` | ⏳ |
@@ -58,12 +58,12 @@ demo-api/
 
 ### Step 5 — Claude Code integration
 
-Decisions to take (see [architecture.md §5](architecture.md#5--open-design-decisions)):
+Decisions taken: see [architecture.md §5](architecture.md#5--decisions-taken-phase-1-step-5).
 
-- execution mechanism for Claude Code;
-- credentials (`ANTHROPIC_API_KEY` or equivalent) stored as a target secret;
-- job permissions raised to `contents: write`, `pull-requests: write`, `issues: write`;
-- how `agents/developer.md` is delivered to the run.
+- `anthropics/claude-code-action` in automation mode, `--max-turns 40`, Bash allowlist;
+- `CLAUDE_CODE_OAUTH_TOKEN` organization secret (Selected repositories), passed explicitly;
+- job permissions `contents: write`, `pull-requests: write`, `issues: write`;
+- `agents/developer.md` fetched at the workflow's own commit and embedded in the prompt.
 
 ------
 

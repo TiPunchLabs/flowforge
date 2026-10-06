@@ -1,0 +1,7 @@
+# actionlint configuration (picked up automatically by the pre-commit hook and CI).
+paths:
+  .github/workflows/agent-develop.yml:
+    ignore:
+      # `job.workflow_repository` / `job.workflow_sha` are documented GitHub contexts
+      # (the reusable workflow's own repo and commit) not yet known to actionlint v1.7.12.
+      - 'property "workflow_(repository|sha)" is not defined in object type'

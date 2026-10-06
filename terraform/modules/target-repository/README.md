@@ -12,10 +12,11 @@ The module never creates, renames, archives or deletes the repository itself.
 | Existence check of the target repo | ✅ Implemented | `data.github_repository` |
 | FlowForge labels | ✅ Implemented | `github_issue_label` |
 | Non-secret Actions variables | ✅ Implemented (empty by default) | `github_actions_variable` |
+| Workflow token permissions (`GITHUB_TOKEN` default `write`, Actions may create PRs) | ✅ Implemented | `github_workflow_repository_permissions` |
 | Branch protection on the default branch | 📝 Planned | `github_repository_ruleset` |
 | Actions permissions / allowed actions | 📝 Planned | `github_actions_repository_permissions` |
 | Deployment environments | 📝 Planned, only if needed | `github_repository_environment` |
-| Actions secrets (`ANTHROPIC_API_KEY`, …) | 🚫 Out of Terraform | provisioned manually or via `gh secret set` |
+| Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`, …) | 🚫 Out of Terraform | organization secret (Selected repositories), set manually or via `gh secret set --org` |
 
 > ⚠️ **Warning**: secrets are deliberately kept out of Terraform. Anything passed to a
 > `github_actions_secret` resource ends up in plain text in the Terraform state.
@@ -27,12 +28,11 @@ The module never creates, renames, archives or deletes the repository itself.
 | Label | Phase | Meaning |
 |---|---|---|
 | `agent:ready` | **1** | Issue is refined; adding this label triggers the Developer agent |
-| `agent:running` | 2+ | An agent is currently working on the issue |
-| `agent:review` | 2+ | A Draft PR is waiting for human review |
-| `agent:blocked` | 2+ | The agent cannot proceed and needs human input |
+| `agent:running` | **1** | An agent is currently working on the issue |
+| `agent:review` | **1** | A Draft PR is waiting for human review |
+| `agent:blocked` | **1** | The agent cannot proceed and needs human input |
 
-Only `agent:ready` is used by the Phase 1 workflow. The others are created now so
-that the label set is stable when later phases start using them.
+`agent:ready` is set by a human; the Developer workflow switches the other three.
 
 ------
 
@@ -78,7 +78,7 @@ Fine-grained personal access token (or GitHub App) scoped to the target reposito
 | Metadata | Read | Read the repository |
 | Issues | Read & write | Manage labels |
 | Variables | Read & write | Manage Actions variables |
-| Administration | Read & write | Rulesets (only once implemented) |
+| Administration | Read & write | Workflow token permissions; rulesets (once implemented) |
 
 ------
 
@@ -93,3 +93,28 @@ To be decided with the first real target. Intended shape:
 - no bypass actor for the agent identity.
 
 This is what technically enforces "agents never push to `main`" and "a human merges".
+
+------
+
+## 🔑 Workflow token permissions
+
+`can_approve_pull_request_reviews = true` is required: the Developer agent opens its Draft
+PR with the workflow `GITHUB_TOKEN`, which GitHub otherwise forbids from creating PRs.
+
+> ⚠️ **Warning**: the same setting also lets workflows **approve** PRs. The planned ruleset
+> must therefore require a human approval that the agent identity cannot provide.
+
+### 🚨 Point of attention: `default_workflow_permissions = "write"`
+
+Kept deliberately (2026-10-06), but it **fails open**: any workflow of the target without a
+`permissions:` block gets a `GITHUB_TOKEN` with write access (contents, issues, PRs,
+packages…).
+
+| Today | Later |
+|---|---|
+| No effect: FlowForge workflows and the caller declare explicit permissions | A workflow added without `permissions:` (e.g. a template `ci.yml`) can push to `main`, edit releases or issues if compromised (third-party action, script injection) |
+
+Mitigations in place: fork PRs always get a read-only token; `GITHUB_TOKEN` can never modify
+`.github/workflows/`. Until the default-branch ruleset exists, **every new workflow in a
+target must declare `permissions:`** — or switch this default to `"read"` (FlowForge does
+not depend on `"write"`).

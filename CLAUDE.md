@@ -63,7 +63,8 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 ## Current phase: Phase 1
 
 Step 1 (initialization) done. Next: step 2, create the POC `demo-api` (separate repository).
-The Claude Code step in `agent-develop.yml` is an explicit, unimplemented integration point.
+Step 5 done: `agent-develop.yml` runs `anthropics/claude-code-action` (OAuth token, automation mode).
+Next: step 6, first real end-to-end run on `demo-api`.
 
 ## Out of scope for now
 
