@@ -1,3 +1,5 @@
+![FlowForge](assets/flowforge.png)
+
 # 🔥 FlowForge
 
 > **Status: experimental — Phase 2 (Developer E2E) done.** Nothing here is production-ready.
@@ -117,6 +119,18 @@ request and on pushes to `main`.
 No token or secret is ever committed; Terraform reads `GITHUB_TOKEN` from the environment;
 workflows use minimal permissions; agents only open Draft PRs. See
 [docs/architecture.md §4](docs/architecture.md#4--security-model).
+
+## 💡 Inspiration
+
+FlowForge is inspired by [big-emotion/ferry](https://github.com/big-emotion/ferry), a
+GitHub Actions–native agent pipeline that turns Jira column moves into reviewed draft PRs,
+with no server and no daemon.
+
+Ideas borrowed from ferry: the split into specialized agents (Refiner, Developer, Reviewer,
+Iterator) and the rule that agents open Draft PRs but never merge. FlowForge reimplements them
+independently on GitHub Issues: a label (`agent:ready`) replaces the Jira column move, and one
+central repository serves several target repositories through reusable workflows. No ferry
+code is included.
 
 ## 📄 License
 
