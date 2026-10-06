@@ -87,4 +87,7 @@ actionlint                                         # pre-commit hook (also runs 
 ## Conventions
 
 English everywhere. Conventional Commits. GitHub Flow (feature branch + PR to `main`).
-No commit or push without explicit user request. No remote configured yet.
+No commit or push without explicit user request.
+Remote: `origin` = `git@github-xgueret:TiPunchLabs/flowforge.git` (public). The repository
+itself is managed by Terraform in `~/Workspace/02-infrastructure/flowforge/github-terraform`,
+never from this repo.
