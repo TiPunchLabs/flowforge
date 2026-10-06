@@ -60,11 +60,11 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 1
+## Current phase: Phase 3 (not started)
 
-Step 1 (initialization) done. Next: step 2, create the POC `demo-api` (separate repository).
-Step 5 done: `agent-develop.yml` runs `anthropics/claude-code-action` (OAuth token, automation mode).
-Next: step 6, first real end-to-end run on `demo-api`.
+Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
+was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
+Next: Phase 3, the Reviewer agent.
 
 ## Out of scope for now
 

@@ -1,7 +1,6 @@
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 1 (foundation).** Nothing here is production-ready, and
-> no GitHub resource is created or modified yet.
+> **Status: experimental — Phase 2 (Developer E2E) done.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -66,10 +65,15 @@ The agent never pushes to `main` and never merges. See [agents/developer.md](age
 Goal: make the flow above work end to end on one POC repository, `demo-api`
 (FastAPI + pytest), with the Issue *"Add GET /health"*.
 
-Current step: **1 — FlowForge initialized**. Next: create `demo-api`. Full plan:
-[docs/phase-1.md](docs/phase-1.md).
+Full plan: [docs/phase-1.md](docs/phase-1.md).
 
-Later phases (not started): Refiner, Reviewer, Iterator agents, GitHub Project, Notion.
+| Phase | Status |
+|---|---|
+| Phase 1 — Foundation | ✅ Done |
+| Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
+| Phase 3 — Reviewer | ⏭️ Next |
+
+Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 
 ------
 
