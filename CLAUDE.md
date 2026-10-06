@@ -7,7 +7,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 
 - `terraform/` — declarative GitHub configuration; module `target-repository` onboards an EXISTING repo;
 - `.github/workflows/agent-develop.yml` — reusable (`workflow_call`) Developer workflow, called by targets;
-- `agents/` — generic agent rules (`developer.md`), independent of any target project.
+- `agents/` — generic agent rules (`developer.md`, `reviewer.md`), independent of any target project.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -60,16 +60,18 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 3 (not started)
+## Current phase: Phase 3 — Reviewer (in progress)
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
-Next: Phase 3, the Reviewer agent.
+Phase 3: the Reviewer agent is **defined** (`agents/reviewer.md`, read-only, verdict
+`APPROVE` / `REQUEST_CHANGES` / `BLOCKED`) but not operational. Next: the reusable
+`agent-review.yml` workflow.
 
 ## Out of scope for now
 
-Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner,
-Reviewer and Iterator agents, real secrets, triggering Claude Code runs, creating `demo-api`
+Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
+and Iterator agents, real secrets, triggering Claude Code runs, creating `demo-api`
 from this repository.
 
 ## Validation commands

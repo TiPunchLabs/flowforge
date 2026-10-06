@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 2 (Developer E2E) done.** Nothing here is production-ready.
+> **Status: experimental — Phase 3 (Reviewer) in progress.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -35,7 +35,7 @@ Using a coding agent on one repository is easy. Using it on **many** repositorie
 flowchart TD
     FF[FlowForge] --> TF[Terraform<br/>target-repository module]
     FF --> WF[Reusable GitHub Actions<br/>agent-develop.yml]
-    FF --> AG[Agents<br/>developer.md]
+    FF --> AG[Agents<br/>developer.md, reviewer.md]
 
     TF -- labels, variables, rulesets --> T[Target repository]
     T --> I[Issue + agent:ready]
@@ -60,6 +60,15 @@ GitHub Issue → label agent:ready → target workflow → FlowForge reusable wo
 
 The agent never pushes to `main` and never merges. See [agents/developer.md](agents/developer.md).
 
+Phase 3 adds a **Reviewer** between the Draft PR and the human review. It is defined in
+[agents/reviewer.md](agents/reviewer.md) but **not operational yet** (no workflow runs it):
+
+```text
+Issue → Developer → Draft PR → Reviewer → APPROVE | REQUEST_CHANGES | BLOCKED → human review
+```
+
+The Reviewer is read-only: it produces structured findings and a verdict, never commits nor merges.
+
 ------
 
 ## 🚀 Phase 1
@@ -73,7 +82,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 |---|---|
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
-| Phase 3 — Reviewer | ⏭️ Next |
+| Phase 3 — Reviewer | 🚧 In progress — agent defined, workflow not yet implemented |
 
 Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 
@@ -96,6 +105,7 @@ Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 .github/workflows/agent-develop.yml   reusable Developer workflow (called by targets)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
+agents/reviewer.md                    generic Reviewer agent rules (defined, not yet wired)
 examples/target-repository/           caller workflow to copy into a target
 terraform/                            root config + target-repository module
 docs/                                 architecture and phase plans
