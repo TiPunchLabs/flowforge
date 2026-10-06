@@ -1,0 +1,27 @@
+# Minimal workflow to copy into a TARGET repository as
+#   .github/workflows/flowforge-agent.yml
+#
+# It holds no logic: everything lives in the FlowForge reusable workflow.
+# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+name: FlowForge agent
+
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  develop:
+    if: github.event.label.name == 'agent:ready'
+    uses: OWNER/flowforge/.github/workflows/agent-develop.yml@main
+    # Must be >= the permissions requested by the called workflow.
+    permissions:
+      contents: read
+      issues: read
+    with:
+      issue_number: ${{ github.event.issue.number }}
+      base_branch: ${{ github.event.repository.default_branch }}
+    # Uncomment at Phase 1, step 5 (secret created in the target repository settings):
+    # secrets:
+    #   anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}

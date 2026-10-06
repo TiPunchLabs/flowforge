@@ -1,0 +1,127 @@
+# FlowForge — reusable "Developer agent" workflow.
+#
+# Called from a TARGET repository (see examples/target-repository/flowforge-agent.yml),
+# never triggered by events of the FlowForge repository itself.
+#
+# Target flow:  Issue + agent:ready -> this workflow -> Claude Code
+#               -> branch agent/<issue>-<slug> -> code + tests -> Draft PR -> human review
+#
+# Phase 1 status: resolves and validates the issue context, checks out the target repository
+# and stops at the Claude Code integration point. It creates no branch, commit or PR.
+name: FlowForge — agent develop
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        description: Number of the issue in the calling repository the agent must implement.
+        type: number
+        required: true
+      base_branch:
+        description: Branch the agent branches from and targets with its Draft PR.
+        type: string
+        required: false
+        default: main
+      ready_label:
+        description: Label that authorizes the agent to work on the issue.
+        type: string
+        required: false
+        default: agent:ready
+    secrets:
+      # Not used yet. Will authenticate Claude Code at the integration point (Phase 1, step 5).
+      # Callers pass it explicitly; never use `secrets: inherit` towards FlowForge.
+      anthropic_api_key:
+        required: false
+    outputs:
+      branch:
+        description: Name of the branch the agent is expected to work on.
+        value: ${{ jobs.develop.outputs.branch }}
+
+# Nothing by default; each job requests only what it needs.
+permissions: {}
+
+concurrency:
+  group: flowforge-agent-${{ github.repository }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  develop:
+    name: Develop issue #${{ inputs.issue_number }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Phase 1: read-only. The Claude Code step will additionally require
+    #   contents: write        (push the agent/* branch)
+    #   pull-requests: write   (open the Draft PR)
+    #   issues: write          (comment, switch agent:* labels)
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      branch: ${{ steps.context.outputs.branch }}
+    steps:
+      - name: Resolve issue context
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          READY_LABEL: ${{ inputs.ready_label }}
+        # Issue content is untrusted input: it is only read through env/jq, never
+        # interpolated with ${{ }} inside the script.
+        run: |
+          set -euo pipefail
+
+          issue="$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json number,title,state,labels)"
+
+          state="$(jq -r '.state' <<<"$issue")"
+          if [[ "$state" != "OPEN" ]]; then
+            echo "::error::Issue #$ISSUE_NUMBER is $state, expected OPEN."
+            exit 1
+          fi
+
+          if ! jq -e --arg l "$READY_LABEL" 'any(.labels[]; .name == $l)' <<<"$issue" >/dev/null; then
+            echo "::error::Issue #$ISSUE_NUMBER does not carry the '$READY_LABEL' label."
+            exit 1
+          fi
+
+          title="$(jq -r '.title' <<<"$issue")"
+          slug="$(printf '%s' "$title" \
+            | iconv -f utf-8 -t ascii//TRANSLIT \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+            | cut -c1-40 \
+            | sed -E 's/-+$//')"
+          branch="agent/${ISSUE_NUMBER}-${slug:-issue}"
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          {
+            echo "### FlowForge — issue #$ISSUE_NUMBER"
+            echo "- Repository: \`$GITHUB_REPOSITORY\`"
+            echo "- Planned branch: \`$branch\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out target repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.base_branch }}
+          persist-credentials: false
+
+      # ------------------------------------------------------------------
+      # CLAUDE CODE INTEGRATION POINT (Phase 1, step 5) — not implemented.
+      #
+      # This step will run Claude Code with:
+      #   - the issue context resolved above;
+      #   - the FlowForge Developer rules (agents/developer.md), fetched from
+      #     the FlowForge ref this workflow was called at;
+      #   - the target repository's own CLAUDE.md, if present;
+      #   - the branch name ${{ steps.context.outputs.branch }}.
+      # It will be responsible for: branch creation, code + tests, commit,
+      # push of agent/* only, and opening a DRAFT pull request against
+      # inputs.base_branch. It must never merge.
+      # ------------------------------------------------------------------
+      - name: Claude Code (integration point — not implemented)
+        env:
+          BRANCH: ${{ steps.context.outputs.branch }}
+        run: |
+          echo "::notice::Claude Code integration not implemented yet (FlowForge Phase 1, step 5). Planned branch: $BRANCH"
+          echo "- Claude Code: **not run** (Phase 1, step 5)" >> "$GITHUB_STEP_SUMMARY"

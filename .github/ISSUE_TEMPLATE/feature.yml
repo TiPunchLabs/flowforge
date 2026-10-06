@@ -1,0 +1,45 @@
+name: Feature
+description: A scoped change that a human or the FlowForge Developer agent can implement.
+title: "feat: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Write this issue so that it can be implemented **without further questions**.
+        Add the `agent:ready` label only once the scope and acceptance criteria are final.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should change, and why.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable conditions, ideally expressed as tests.
+      placeholder: |
+        - [ ] `GET /health` returns 200 with `{"status": "ok"}`
+        - [ ] A pytest test covers the endpoint
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What must NOT be changed as part of this issue.
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Technical notes
+      description: Files, constraints or hints useful to the implementer.
+    validations:
+      required: false

@@ -1,0 +1,43 @@
+# --- Terraform ---
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+# Variable files may contain secrets: commit only *.tfvars.example
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# .terraform.lock.hcl is intentionally committed (provider pinning)
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+*.secret
+*.secrets
+
+# --- Claude Code (local, per-user settings) ---
+.claude/settings.local.json
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Module lock files are not committed (only the root one is)
+terraform/modules/**/.terraform.lock.hcl
