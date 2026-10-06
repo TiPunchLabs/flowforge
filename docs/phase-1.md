@@ -20,15 +20,20 @@
 | # | Step | Where | Status |
 |---|---|---|---|
 | 1 | Initialize FlowForge (structure, Terraform skeleton, reusable workflow skeleton, agent rules, docs, quality tooling) | `flowforge` | ✅ Done |
-| 2 | Create the POC `demo-api` (Python, FastAPI, pytest, CI, `CLAUDE.md`) — `GET /health` deliberately absent | `demo-api` | ⏭️ Next |
-| 3 | Onboard `demo-api` with Terraform (embedded `module "flowforge"`, labels; ruleset decided here) | `demo-api` IaC | 🔄 Integrated, not applied |
-| 4 | Add the minimal caller workflow `flowforge-agent.yml` in `demo-api` | `demo-api` | ⏳ |
-| 5 | Integrate Claude Code in `agent-develop.yml` (runner choice, secret, write permissions, agent rules loading) | `flowforge` | ✅ Done (not run yet) |
-| 6 | First real end-to-end run | both | ⏳ |
-| 7 | Create the Issue *"Add GET /health"* | `demo-api` | ⏳ |
-| 8 | Add the `agent:ready` label | `demo-api` | ⏳ |
-| 9 | Draft PR created automatically | `demo-api` | ⏳ |
-| 10 | Human validation (review, CI, merge) | `demo-api` | ⏳ |
+| 2 | Create the POC `demo-api` (Python, FastAPI, pytest, CI, `CLAUDE.md`) — `GET /health` deliberately absent | `demo-api` | ✅ Done |
+| 3 | Onboard `demo-api` with Terraform (embedded `module "flowforge"`, labels; ruleset decided here) | `demo-api` IaC | ✅ Done (labels present) |
+| 4 | Add the minimal caller workflow `flowforge-agent.yml` in `demo-api` | `demo-api` | ✅ Done |
+| 5 | Integrate Claude Code in `agent-develop.yml` (runner choice, secret, write permissions, agent rules loading) | `flowforge` | ✅ Done |
+| 6 | First real end-to-end run | both | ✅ Done |
+| 7 | Create the Issue *"Add GET /health"* | `demo-api` | ✅ Done (as `GET /version`, issue #3) |
+| 8 | Add the `agent:ready` label | `demo-api` | ✅ Done |
+| 9 | Draft PR created automatically | `demo-api` | ✅ Done (PR #4) |
+| 10 | Human validation (review, CI, merge) | `demo-api` | ✅ Done (merged 2026-10-06) |
+
+> 💡 **Note**: first end-to-end run validated on 2026-10-06 — issue #3 *"Ajouter un endpoint
+> GET /version"* → Draft PR #4, reviewed and merged by a human. `demo-api` has no CI
+> workflow yet, so "CI green" was checked locally only. Milestone tag: `flowforge-phase2-e2e`
+> (in both repositories).
 
 ------
 
