@@ -26,6 +26,7 @@ resource "github_actions_variable" "flowforge_variables" {
 resource "github_workflow_repository_permissions" "workflow_permissions" {
   repository = data.github_repository.target.name
 
+  # Fails open for workflows without `permissions:` — see README, "Point of attention".
   default_workflow_permissions     = "write"
   can_approve_pull_request_reviews = true
 }

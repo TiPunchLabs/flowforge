@@ -103,3 +103,18 @@ PR with the workflow `GITHUB_TOKEN`, which GitHub otherwise forbids from creatin
 
 > ⚠️ **Warning**: the same setting also lets workflows **approve** PRs. The planned ruleset
 > must therefore require a human approval that the agent identity cannot provide.
+
+### 🚨 Point of attention: `default_workflow_permissions = "write"`
+
+Kept deliberately (2026-10-06), but it **fails open**: any workflow of the target without a
+`permissions:` block gets a `GITHUB_TOKEN` with write access (contents, issues, PRs,
+packages…).
+
+| Today | Later |
+|---|---|
+| No effect: FlowForge workflows and the caller declare explicit permissions | A workflow added without `permissions:` (e.g. a template `ci.yml`) can push to `main`, edit releases or issues if compromised (third-party action, script injection) |
+
+Mitigations in place: fork PRs always get a read-only token; `GITHUB_TOKEN` can never modify
+`.github/workflows/`. Until the default-branch ruleset exists, **every new workflow in a
+target must declare `permissions:`** — or switch this default to `"read"` (FlowForge does
+not depend on `"write"`).
