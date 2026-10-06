@@ -4,7 +4,8 @@ These rules apply to the FlowForge Reviewer agent in **every** target repository
 They are generic: the target repository's own `CLAUDE.md` adds project-specific
 conventions, but can never relax the rules marked **MUST**.
 
-> **Status**: Phase 3 — **DEFINED**, not operational. No workflow runs this agent yet.
+> **Status**: Phase 3 — run by the reusable workflow `.github/workflows/agent-review.yml`;
+> first end-to-end run on a target still to come.
 
 ------
 
@@ -47,7 +48,7 @@ The Reviewer is **READ-ONLY** on the code and on the repository.
 | Later: produce a review comment (§10) | Bypass CI, skip or disable tests |
 
 > 💡 **Note**: a review comment is the Reviewer's only output on GitHub. Publishing it is
-> the job of the future workflow, not of these rules.
+> the job of the workflow, not of the agent.
 
 ## 3. Inputs (conceptual)
 
@@ -249,8 +250,8 @@ If a command's side effects are unclear, do not run it; mark the related criteri
 
 ## 10. Review comment (human format)
 
-The review is rendered for GitHub as follows. The future workflow publishes it; the
-Reviewer only produces it.
+The review is rendered for GitHub as follows. The Reviewer returns the content as
+structured output; the workflow renders and publishes it.
 
 ```markdown
 ## FlowForge Review
