@@ -105,8 +105,10 @@ Human review → merge (never by the agent)
 | `agent:*` labels | FlowForge (Terraform) | Created by the module |
 | `flowforge-agent.yml` | target (copied from `examples/`) | Only trigger + `uses:` + inputs |
 | `issue_number`, `base_branch` | target → FlowForge | `workflow_call` inputs |
-| `anthropic_api_key` | target secret → FlowForge | Passed explicitly, not via `secrets: inherit` |
-| `branch` | FlowForge → target | `workflow_call` output |
+| `setup_uv`, `allowed_tools` | target → FlowForge | Optional inputs: target tooling and the exact commands the agent may run |
+| `claude_code_oauth_token` | `CLAUDE_CODE_OAUTH_TOKEN` secret → FlowForge | Org secret (Selected repositories) or repo secret; passed explicitly, never `secrets: inherit` |
+| Job permissions | target caller | `contents: write`, `issues: write`, `pull-requests: write` (a called workflow can only narrow) |
+| `branch`, `pull_request` | FlowForge → target | `workflow_call` outputs |
 | `CLAUDE.md` | target | Optional but strongly recommended |
 | CI | target | FlowForge never replaces the target's CI |
 
@@ -123,21 +125,33 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 |---|---|
 | No secret in Git | `.gitignore` (tfstate, tfvars, .env, keys), `detect-private-key` hook, token only via env |
 | No secret in Terraform state | Actions secrets are provisioned outside Terraform |
-| Least privilege (Actions) | `permissions: {}` at workflow level, minimal per job; write scopes added only with the Claude Code step |
+| Least privilege (Actions) | `permissions: {}` at workflow level; the Developer job gets `contents`/`issues`/`pull-requests: write` only, no `id-token` |
+| Bounded agent | `--max-turns 40` + 30-min job timeout; Bash denied except an explicit allowlist (git read/commit, push of `HEAD` to its own `agent/*` ref only, `gh pr create --draft`, target commands) |
 | Least privilege (Terraform) | Fine-grained token limited to onboarded repositories |
 | Untrusted issue content | Read via `env` + `jq`, never `${{ }}`-interpolated into scripts; treated as data by the agent |
-| No direct push to `main` | Agent rules + default-branch ruleset (planned in the module) |
-| Human merge | Agent opens **Draft** PRs only; ruleset requires a human approval |
+| No direct push to `main` | Only `git push origin HEAD:refs/heads/<agent branch>` is allowed + agent rules + default-branch ruleset (planned in the module) |
+| Human merge | Agent opens **Draft** PRs only (forced back to draft by the workflow if needed); ruleset requires a human approval |
 | Pinned actions | Third-party actions pinned by commit SHA |
 
 ------
 
-## 5. 🚧 Open design decisions
+## 5. ✅ Decisions taken (Phase 1, step 5)
+
+| Topic | Decision |
+|---|---|
+| How Claude Code runs | `anthropics/claude-code-action` (pinned SHA), automation mode (`prompt` set): no tracking comment, no branch/PR created by the action |
+| Authentication | `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) only — no API key, no Anthropic WIF |
+| Delivery of `agents/developer.md` | Fetched at `job.workflow_sha` from `job.workflow_repository` and embedded in the prompt |
+| Branch | Created by the workflow (`git switch -c`) before Claude runs; Claude only commits and pushes it |
+| Identity used to push and open PRs | Workflow `GITHUB_TOKEN` passed as `github_token` (no Claude GitHub App, no OIDC) |
+
+> ⚠️ **Warning**: with `GITHUB_TOKEN`, the target must allow *"GitHub Actions to create and
+> approve pull requests"*, and PRs it opens do **not** trigger `pull_request` workflows
+> (target CI must then be re-run by a human, or a GitHub App identity adopted later).
+
+## 6. 🚧 Open design decisions
 
 | Topic | To decide at |
 |---|---|
-| How Claude Code runs (`anthropics/claude-code-action`, Claude Code on the web, other) | Phase 1, step 5 |
-| How the workflow fetches `agents/developer.md` at its own ref | Phase 1, step 5 |
-| Identity used to push and open PRs (`GITHUB_TOKEN` vs GitHub App) | Phase 1, step 5 |
 | Remote Terraform backend | Before the first `apply` |
 | Exact default-branch ruleset | Phase 1, step 3 |

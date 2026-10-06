@@ -15,7 +15,7 @@ The module never creates, renames, archives or deletes the repository itself.
 | Branch protection on the default branch | 📝 Planned | `github_repository_ruleset` |
 | Actions permissions / allowed actions | 📝 Planned | `github_actions_repository_permissions` |
 | Deployment environments | 📝 Planned, only if needed | `github_repository_environment` |
-| Actions secrets (`ANTHROPIC_API_KEY`, …) | 🚫 Out of Terraform | provisioned manually or via `gh secret set` |
+| Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`, …) | 🚫 Out of Terraform | organization secret (Selected repositories), set manually or via `gh secret set --org` |
 
 > ⚠️ **Warning**: secrets are deliberately kept out of Terraform. Anything passed to a
 > `github_actions_secret` resource ends up in plain text in the Terraform state.

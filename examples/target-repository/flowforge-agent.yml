@@ -3,6 +3,9 @@
 #
 # It holds no logic: everything lives in the FlowForge reusable workflow.
 # Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+#
+# Prerequisite: a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) visible to this
+# repository — typically an organization secret with "Selected repositories" access.
 name: FlowForge agent
 
 on:
@@ -15,13 +18,17 @@ jobs:
   develop:
     if: github.event.label.name == 'agent:ready'
     uses: OWNER/flowforge/.github/workflows/agent-develop.yml@main
-    # Must be >= the permissions requested by the called workflow.
+    # Must cover what the called workflow requests; it can only narrow, never widen.
     permissions:
-      contents: read
-      issues: read
+      contents: write
+      issues: write
+      pull-requests: write
     with:
       issue_number: ${{ github.event.issue.number }}
       base_branch: ${{ github.event.repository.default_branch }}
-    # Uncomment at Phase 1, step 5 (secret created in the target repository settings):
-    # secrets:
-    #   anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Project-specific: tooling to install and the commands the agent may run.
+      # setup_uv: true
+      # allowed_tools: "Bash(uv sync:*),Bash(uv run pytest:*),Bash(uv run ruff:*)"
+    # Explicit, minimal secrets contract: never `secrets: inherit`.
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

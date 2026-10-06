@@ -79,7 +79,7 @@ Later phases (not started): Refiner, Reviewer, Iterator agents, GitHub Project, 
 |---|---|
 | GitHub configuration | Terraform + [`integrations/github`](https://registry.terraform.io/providers/integrations/github/latest) provider |
 | Orchestration | GitHub Actions reusable workflows (`workflow_call`) |
-| Agent runtime | Claude Code (integration: Phase 1, step 5) |
+| Agent runtime | Claude Code via [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) (automation mode) |
 | Quality | pre-commit, `terraform fmt` / `validate` |
 
 ------
