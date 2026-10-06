@@ -7,6 +7,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 
 - `terraform/` — declarative GitHub configuration; module `target-repository` onboards an EXISTING repo;
 - `.github/workflows/agent-develop.yml` — reusable (`workflow_call`) Developer workflow, called by targets;
+- `.github/workflows/agent-review.yml` — reusable (`workflow_call`) read-only Reviewer workflow, called by targets;
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`), independent of any target project.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
@@ -64,9 +65,10 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
-Phase 3: the Reviewer agent is **defined** (`agents/reviewer.md`, read-only, verdict
-`APPROVE` / `REQUEST_CHANGES` / `BLOCKED`) but not operational. Next: the reusable
-`agent-review.yml` workflow.
+Phase 3: Reviewer specification done (`agents/reviewer.md`, read-only, verdict
+`APPROVE` / `REQUEST_CHANGES` / `BLOCKED`); Reviewer workflow done
+(`.github/workflows/agent-review.yml`). Next: the first Reviewer E2E on a target.
+Iterator is not implemented.
 
 ## Out of scope for now
 

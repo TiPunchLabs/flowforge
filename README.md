@@ -61,13 +61,15 @@ GitHub Issue → label agent:ready → target workflow → FlowForge reusable wo
 The agent never pushes to `main` and never merges. See [agents/developer.md](agents/developer.md).
 
 Phase 3 adds a **Reviewer** between the Draft PR and the human review. It is defined in
-[agents/reviewer.md](agents/reviewer.md) but **not operational yet** (no workflow runs it):
+[agents/reviewer.md](agents/reviewer.md) and run by the reusable workflow
+`agent-review.yml`; its first end-to-end run on a target is next:
 
 ```text
 Issue → Developer → Draft PR → Reviewer → APPROVE | REQUEST_CHANGES | BLOCKED → human review
 ```
 
-The Reviewer is read-only: it produces structured findings and a verdict, never commits nor merges.
+The Reviewer is read-only: it produces structured findings and a verdict (one PR comment +
+a JSON artifact), never commits nor merges.
 
 ------
 
@@ -82,7 +84,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 |---|---|
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
-| Phase 3 — Reviewer | 🚧 In progress — agent defined, workflow not yet implemented |
+| Phase 3 — Reviewer | 🚧 In progress — specification ✅, workflow ✅, Reviewer E2E ⏭️ next |
 
 Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 
@@ -103,10 +105,11 @@ Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 
 ```text
 .github/workflows/agent-develop.yml   reusable Developer workflow (called by targets)
+.github/workflows/agent-review.yml    reusable Reviewer workflow (called by targets)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
-agents/reviewer.md                    generic Reviewer agent rules (defined, not yet wired)
-examples/target-repository/           caller workflow to copy into a target
+agents/reviewer.md                    generic Reviewer agent rules
+examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module
 docs/                                 architecture and phase plans
 scripts/                              maintainer helpers (empty for now)

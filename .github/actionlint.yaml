@@ -5,3 +5,7 @@ paths:
       # `job.workflow_repository` / `job.workflow_sha` are documented GitHub contexts
       # (the reusable workflow's own repo and commit) not yet known to actionlint v1.7.12.
       - 'property "workflow_(repository|sha)" is not defined in object type'
+  .github/workflows/agent-review.yml:
+    ignore:
+      # Same as agent-develop.yml.
+      - 'property "workflow_(repository|sha)" is not defined in object type'
