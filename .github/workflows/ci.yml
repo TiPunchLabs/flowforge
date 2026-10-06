@@ -1,0 +1,43 @@
+# FlowForge — CI of the FlowForge repository itself.
+#
+# Runs the same checks as `pre-commit run --all-files` locally: generic hooks, terraform fmt,
+# terraform validate with -backend=false (no GitHub API call, no secret) and actionlint.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Nothing by default; each job requests only what it needs.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # The terraform_* hooks need the binary on PATH; the wrapper would alter their output.
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_wrapper: false
+
+      - name: Run pre-commit
+        run: |
+          python -m pip install --disable-pip-version-check pre-commit
+          pre-commit run --all-files --show-diff-on-failure

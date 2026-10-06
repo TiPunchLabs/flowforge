@@ -18,7 +18,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 
 | Path | Contains | Must NOT contain |
 |---|---|---|
-| `.github/workflows/` | Reusable workflows for targets (+ later FlowForge's own CI) | Target-specific logic |
+| `.github/workflows/` | Reusable workflows for targets + FlowForge's own CI (`ci.yml`) | Target-specific logic |
 | `.github/ISSUE_TEMPLATE/` | Issue forms | — |
 | `agents/` | Generic agent rules | Project-specific conventions (those live in the target's `CLAUDE.md`) |
 | `terraform/` | Root module: provider, one `module` block per target **without its own IaC** | Credentials, backend secrets, targets already onboarded in their own IaC |
@@ -81,7 +81,7 @@ terraform -chdir=terraform validate
 terraform -chdir=terraform/modules/target-repository init -backend=false
 terraform -chdir=terraform/modules/target-repository validate
 yamllint -d relaxed .github examples               # optional, if installed
-actionlint                                         # optional, not installed yet
+actionlint                                         # pre-commit hook (also runs in CI)
 ```
 
 ## Conventions

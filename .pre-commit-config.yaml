@@ -20,3 +20,9 @@ repos:
       - id: terraform_fmt
       # Runs `terraform init -backend=false` then `terraform validate` per directory.
       - id: terraform_validate
+
+  # Built with Go by pre-commit (toolchain downloaded if missing). Uses shellcheck if on PATH.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
