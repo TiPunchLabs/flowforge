@@ -102,8 +102,11 @@ scripts/                              maintainer helpers (empty for now)
 
 ```bash
 pre-commit install            # once
-pre-commit run --all-files    # whitespace, EOF, YAML, JSON, private keys, terraform fmt/validate
+pre-commit run --all-files    # whitespace, EOF, YAML, JSON, private keys, terraform fmt/validate, actionlint
 ```
+
+The same hooks run in CI (`.github/workflows/ci.yml`) on every pull
+request and on pushes to `main`.
 
 ## 🔐 Security
 
