@@ -8,6 +8,8 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `terraform/` — declarative GitHub configuration; module `target-repository` onboards an EXISTING repo;
 - `.github/workflows/agent-develop.yml` — reusable (`workflow_call`) Developer workflow, called by targets;
 - `.github/workflows/agent-review.yml` — reusable (`workflow_call`) read-only Reviewer workflow, called by targets;
+- `.github/workflows/agent-iterate.yml` — reusable (`workflow_call`) Iterator workflow (one iteration);
+- `.github/workflows/review-cycle.yml` — reusable (`workflow_call`) bounded `Reviewer ↔ Iterator` loop, called by targets;
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`), independent of any target project.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
@@ -72,13 +74,16 @@ Phase 4: Iterator specification done (`agents/iterator.md`: fixes Reviewer findi
 existing PR branch, results `COMPLETED` / `PARTIAL` / `BLOCKED`, loop bounded to
 `max_iterations = 3`). Iterator workflow done: `.github/workflows/agent-iterate.yml` runs ONE iteration (preconditions,
 PR head branch, Claude commits locally, workflow verifies and fast-forward pushes, `iteration.json`).
-Next: orchestration of the bounded `Reviewer ↔ Iterator` loop; Iterator E2E pending.
+Review cycle done: `.github/workflows/review-cycle.yml` chains Reviewer #1 → Iterator #1 → … →
+Iterator #3 → Reviewer #4 with `if:` gates; final result `APPROVED` / `BLOCKED` /
+`MAX_ITERATIONS_REACHED` / `FAILED` (technical), one cycle per PR (concurrency group).
+Next: full E2E of the cycle on `demo-api` (not started).
 
 ## Out of scope for now
 
 Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
-agent, `Reviewer ↔ Iterator` orchestration (until explicitly started), real secrets, triggering
-Claude Code runs, creating `demo-api` from this repository.
+agent, real secrets, triggering Claude Code runs, creating `demo-api` from this repository,
+the review cycle E2E (until explicitly started).
 
 ## Validation commands
 

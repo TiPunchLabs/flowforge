@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 3 (Reviewer) validated end to end; Phase 4 (Iterator) in progress: workflow ready, loop not implemented.** Nothing here is production-ready.
+> **Status: experimental — Phase 3 (Reviewer) validated end to end; Phase 4 (Iterator) in progress: workflow and bounded review cycle ready, end-to-end run pending.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -75,11 +75,15 @@ a JSON artifact), never commits nor merges.
 Phase 4 defines an **Iterator** ([agents/iterator.md](agents/iterator.md)) that fixes the
 findings of a `REQUEST_CHANGES` review on the existing PR branch, then hands the PR back to
 the Reviewer, in a loop bounded to 3 iterations. One iteration is run by the reusable
-workflow `agent-iterate.yml`; the loop itself is not implemented yet:
+workflow `agent-iterate.yml`; the loop is orchestrated by `review-cycle.yml`, which only
+decides who runs and when:
 
 ```text
-Issue → Developer → Draft PR → Reviewer → REQUEST_CHANGES → Iterator → Reviewer
+Issue → Developer → Draft PR → Reviewer → REQUEST_CHANGES → Iterator → Reviewer → …
+        stops on APPROVE, BLOCKED, or after 3 Iterator passes (MAX_ITERATIONS_REACHED)
 ```
+
+The cycle never merges, never marks the PR ready for review: the final merge stays human.
 
 ------
 
@@ -95,7 +99,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
-| Phase 4 — Iterator | 🚧 In progress — definition ✅ · workflow ✅ (`agent-iterate.yml`) · orchestration ⏭️ next · E2E pending |
+| Phase 4 — Iterator | 🚧 In progress — definition ✅ · workflow ✅ (`agent-iterate.yml`) · review cycle ✅ (`review-cycle.yml`) · E2E ⏭️ next |
 
 Later phases (not started): Refiner agent, GitHub Project, Notion.
 

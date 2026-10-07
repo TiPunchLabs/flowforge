@@ -1,0 +1,420 @@
+# FlowForge — reusable "review cycle" workflow: the bounded Reviewer <-> Iterator loop.
+#
+# Called from a TARGET repository (see examples/target-repository/flowforge-review-cycle.yml),
+# never triggered by events of the FlowForge repository itself. It runs in the caller's
+# context, and so do the two workflows it calls.
+#
+# This workflow only decides WHO runs and WHEN. It never reads code, never judges a review
+# and never edits the PR: agent-review.yml reviews, agent-iterate.yml fixes.
+#
+# GitHub Actions has no dynamic loop over reusable workflows: the loop is unrolled into a
+# fixed chain of at most 3 Iterator passes (the FlowForge ceiling), each job gated by `if:`.
+#
+#   check -> review_1 -> iterate_1 -> review_2 -> iterate_2 -> review_3 -> iterate_3 -> review_4
+#                                                                                       |
+#   summary (always) <------------------------------------------------------------------+
+#
+#   iterate_k  runs only if review_k succeeded with REQUEST_CHANGES and k <= max_iterations
+#   review_k+1 runs only if iterate_k succeeded with COMPLETED or PARTIAL
+#   Any other outcome skips every later job: the chain stops where it is.
+#
+# iteration_number = number of Iterator passes engaged so far (Reviewer #1 runs at 0,
+# Iterator #k has iteration_number k). max_iterations = 3 allows Iterators #1..#3 and a
+# final Reviewer #4; there is no job for a 4th Iterator.
+#
+# Final result (output `result`, artifact `flowforge-review-cycle-pr-<n>`):
+#   APPROVED                last Reviewer returned APPROVE
+#   BLOCKED                 a Reviewer or an Iterator returned BLOCKED (agent result)
+#   MAX_ITERATIONS_REACHED  last Reviewer returned REQUEST_CHANGES with no Iterator pass left
+#   FAILED                  technical failure: a called workflow failed or was cancelled
+#                           (this includes a BLOCKED set by the workflow, not by an agent)
+# Only FAILED fails this run. Every state but APPROVED requires a human; APPROVED requires
+# one too, for the merge. Nothing here merges, marks the PR ready, or deletes a branch.
+name: FlowForge — review cycle
+
+on:
+  workflow_call:
+    inputs:
+      pull_request_number:
+        description: >-
+          Number of the pull request in the calling repository. Base and head branches,
+          head commit and linked Issue are resolved from it by the called workflows.
+        type: number
+        required: true
+      max_iterations:
+        description: >-
+          Maximum number of Iterator passes, between 1 and 3 (FlowForge ceiling).
+        type: number
+        required: false
+        default: 3
+      setup_uv:
+        description: Install uv before Claude Code runs, for both agents.
+        type: boolean
+        required: false
+        default: false
+      review_allowed_tools:
+        description: >-
+          `allowed_tools` of agent-review.yml: the target's NON-DESTRUCTIVE checks only
+          (no formatter, no auto-fixer).
+        type: string
+        required: false
+        default: ""
+      iterate_allowed_tools:
+        description: >-
+          `allowed_tools` of agent-iterate.yml: the target's test, lint and format commands.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      # Long-lived token from `claude setup-token`, forwarded explicitly to both agents.
+      # Never use `secrets: inherit` towards FlowForge.
+      claude_code_oauth_token:
+        description: Claude Code OAuth token authenticating the Reviewer and Iterator agents.
+        required: true
+    outputs:
+      result:
+        description: APPROVED, BLOCKED, MAX_ITERATIONS_REACHED or FAILED.
+        value: ${{ jobs.summary.outputs.result }}
+      iterations_used:
+        description: Number of Iterator passes engaged (0 to max_iterations).
+        value: ${{ jobs.summary.outputs.iterations_used }}
+      final_reviewer_verdict:
+        description: Verdict of the last Reviewer that produced one; empty if none did.
+        value: ${{ jobs.summary.outputs.final_reviewer_verdict }}
+      cycle_json:
+        description: cycle.json (schema_version 1) as compact JSON, timeline included.
+        value: ${{ jobs.summary.outputs.cycle_json }}
+
+# Nothing by default; each job requests only what it needs.
+permissions: {}
+
+# One active cycle per pull request: two cycles must never fix the same branch. A second
+# cycle waits (cancel-in-progress: false) instead of cancelling one that may be mid-push.
+# GitHub keeps at most one pending run per group: a newer pending cycle replaces an older
+# pending one, never the running one. The caller must NOT reuse this group name: a caller
+# and a called workflow in the same group deadlock.
+concurrency:
+  group: flowforge-review-cycle-${{ github.repository }}-${{ inputs.pull_request_number }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check cycle inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    env:
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+      MAX_ITERATIONS: ${{ inputs.max_iterations }}
+    steps:
+      # Fails before any agent runs: an invalid bound is a caller error, not an agent result.
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] \
+            || { echo "::error::pull_request_number must be a positive integer, got '$PR_NUMBER'."; exit 1; }
+          [[ "$MAX_ITERATIONS" =~ ^[1-3]$ ]] \
+            || { echo "::error::max_iterations must be 1, 2 or 3 (FlowForge ceiling), got '$MAX_ITERATIONS'."; exit 1; }
+          echo "Review cycle for PR #$PR_NUMBER, at most $MAX_ITERATIONS Iterator pass(es)." >> "$GITHUB_STEP_SUMMARY"
+
+  # Permissions of the Reviewer calls: read-only code, `pull-requests: write` for its comment.
+  # Permissions of the Iterator calls: `contents: write` for its verified fast-forward push.
+  # The called workflows narrow them further per job (see their headers).
+
+  review_1:
+    name: "Reviewer #1"
+    needs: check
+    uses: ./.github/workflows/agent-review.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.review_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  iterate_1:
+    name: "Iterator #1"
+    needs: review_1
+    if: needs.review_1.outputs.verdict == 'REQUEST_CHANGES' && inputs.max_iterations >= 1
+    uses: ./.github/workflows/agent-iterate.yml
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      iteration_number: 1
+      max_iterations: ${{ inputs.max_iterations }}
+      review_json: ${{ needs.review_1.outputs.review_json }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.iterate_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  review_2:
+    name: "Reviewer #2"
+    needs: iterate_1
+    if: contains(fromJSON('["COMPLETED", "PARTIAL"]'), needs.iterate_1.outputs.result)
+    uses: ./.github/workflows/agent-review.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.review_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  iterate_2:
+    name: "Iterator #2"
+    needs: review_2
+    if: needs.review_2.outputs.verdict == 'REQUEST_CHANGES' && inputs.max_iterations >= 2
+    uses: ./.github/workflows/agent-iterate.yml
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      iteration_number: 2
+      max_iterations: ${{ inputs.max_iterations }}
+      review_json: ${{ needs.review_2.outputs.review_json }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.iterate_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  review_3:
+    name: "Reviewer #3"
+    needs: iterate_2
+    if: contains(fromJSON('["COMPLETED", "PARTIAL"]'), needs.iterate_2.outputs.result)
+    uses: ./.github/workflows/agent-review.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.review_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  iterate_3:
+    name: "Iterator #3"
+    needs: review_3
+    if: needs.review_3.outputs.verdict == 'REQUEST_CHANGES' && inputs.max_iterations >= 3
+    uses: ./.github/workflows/agent-iterate.yml
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      iteration_number: 3
+      max_iterations: ${{ inputs.max_iterations }}
+      review_json: ${{ needs.review_3.outputs.review_json }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.iterate_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  # Final review after Iterator #3. Nothing follows it: REQUEST_CHANGES here ends the cycle
+  # with MAX_ITERATIONS_REACHED.
+  review_4:
+    name: "Reviewer #4 (final)"
+    needs: iterate_3
+    if: contains(fromJSON('["COMPLETED", "PARTIAL"]'), needs.iterate_3.outputs.result)
+    uses: ./.github/workflows/agent-review.yml
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    with:
+      pull_request_number: ${{ inputs.pull_request_number }}
+      setup_uv: ${{ inputs.setup_uv }}
+      allowed_tools: ${{ inputs.review_allowed_tools }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+
+  summary:
+    name: Review cycle result
+    needs: [check, review_1, iterate_1, review_2, iterate_2, review_3, iterate_3, review_4]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Reads job results and outputs only; the artifact upload needs no token permission.
+    permissions: {}
+    outputs:
+      result: ${{ steps.result.outputs.result }}
+      iterations_used: ${{ steps.result.outputs.iterations_used }}
+      final_reviewer_verdict: ${{ steps.result.outputs.final_reviewer_verdict }}
+      cycle_json: ${{ steps.result.outputs.cycle_json }}
+    steps:
+      # Pure bookkeeping over `needs`: which jobs ran, how they ended, what they returned.
+      # Agent outputs are untrusted data: they only travel through env and jq.
+      - name: Compute cycle result
+        id: result
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          PR_NUMBER: ${{ inputs.pull_request_number }}
+          MAX_ITERATIONS: ${{ inputs.max_iterations }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/flowforge-review-cycle"
+          mkdir -p "$out/reviews" "$out/iterations"
+
+          jq -n --argjson needs "$NEEDS" --arg repository "$GITHUB_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" --argjson max "$MAX_ITERATIONS" --arg run_url "$RUN_URL" '
+            def doc($s): ($s // "") as $v | if $v == "" then null else ($v | fromjson? // null) end;
+            [ ("review_1", "iterate_1", "review_2", "iterate_2", "review_3", "iterate_3", "review_4")
+              | . as $job | ($job | split("_")) as [$kind, $k]
+              | $needs[$job] as $n
+              | select($n.result != "skipped")
+              | if $kind == "review" then
+                  doc($n.outputs.review_json) as $d
+                  | {step: "review", round: ($k | tonumber), job: $job, job_result: $n.result,
+                     verdict: ($n.outputs.verdict // ""), head_sha: ($d.head_sha // null),
+                     produced_by: ($d.produced_by // null), counts: ($d.counts // null),
+                     document: $d}
+                else
+                  doc($n.outputs.iteration_json) as $d
+                  | {step: "iterate", iteration_number: ($k | tonumber), job: $job, job_result: $n.result,
+                     result: ($n.outputs.result // ""), commit_sha: (($n.outputs.commit_sha // "") | select(. != "") // null),
+                     produced_by: ($d.produced_by // null), counts: ($d.counts // null),
+                     document: $d}
+                end
+            ] as $timeline
+            | ([$timeline[] | select(.step == "iterate")] | length) as $used
+            | ([$timeline[] | select(.step == "review" and .verdict != "")] | last | .verdict // "") as $final_verdict
+            | ($timeline | last) as $last
+            | (if $needs.check.result != "success" then
+                 {result: "FAILED", reason: "The cycle inputs were rejected (job check)."}
+               elif $last == null then
+                 {result: "FAILED", reason: "No agent ran."}
+               elif $last.job_result != "success" then
+                 {result: "FAILED", reason: "\($last.job) ended with \($last.job_result): technical failure, no reliable agent result."}
+               elif $last.step == "review" and $last.verdict == "APPROVE" then
+                 {result: "APPROVED", reason: "Reviewer #\($last.round) returned APPROVE."}
+               elif $last.step == "review" and $last.verdict == "BLOCKED" then
+                 {result: "BLOCKED", reason: "Reviewer #\($last.round) returned BLOCKED."}
+               elif $last.step == "review" and $last.verdict == "REQUEST_CHANGES" and $used >= $max then
+                 {result: "MAX_ITERATIONS_REACHED", reason: "Reviewer #\($last.round) still returned REQUEST_CHANGES after \($used) Iterator pass(es) (max_iterations = \($max))."}
+               elif $last.step == "iterate" and $last.result == "BLOCKED" then
+                 {result: "BLOCKED", reason: "Iterator #\($last.iteration_number) returned BLOCKED."}
+               else
+                 {result: "FAILED", reason: "Unexpected cycle state after \($last.job) (\($last.verdict // $last.result)): the chain stopped without a final result."}
+               end) as $final
+            | {
+                schema_version: 1,
+                repository: $repository,
+                pull_request: $pr,
+                run_url: $run_url,
+                result: $final.result,
+                reason: $final.reason,
+                iterations_used: $used,
+                max_iterations: $max,
+                final_reviewer_verdict: $final_verdict,
+                timeline: $timeline
+              }' > "$out/cycle-full.json"
+
+          # Full review.json / iteration.json of each step: the Reviewer artifact is
+          # overwritten by every review of the cycle, this keeps the history.
+          jq -c '.timeline[] | select(.document != null) | [.job, .document]' "$out/cycle-full.json" \
+            | while IFS= read -r line; do
+                job="$(jq -r '.[0]' <<<"$line")"
+                case "$job" in
+                  review_*) jq '.[1]' <<<"$line" > "$out/reviews/$job.json" ;;
+                  iterate_*) jq '.[1]' <<<"$line" > "$out/iterations/$job.json" ;;
+                esac
+              done
+          jq '.timeline |= map(del(.document))' "$out/cycle-full.json" > "$out/cycle.json"
+          rm "$out/cycle-full.json"
+
+          jq -r '
+            def counts: if . == null then "" else
+              " (" + ([to_entries[] | select(.value > 0) | "\(.value) \(.key)"] | join(", ")
+                      | if . == "" then "none" else . end) + ")" end;
+            "## FlowForge Review Cycle",
+            "",
+            "Result: **\(.result)**",
+            "",
+            "Pull request: #\(.pull_request) · Iterations: \(.iterations_used) / \(.max_iterations) · Final Reviewer verdict: \(if .final_reviewer_verdict == "" then "none" else .final_reviewer_verdict end)",
+            "",
+            "\(.reason)",
+            "",
+            "### Timeline",
+            "",
+            (if (.timeline | length) == 0 then "_No agent ran._"
+              else .timeline[]
+                | if .step == "review" then
+                    "- Reviewer #\(.round) → "
+                    + (if .job_result != "success" then "**technical failure** (\(.job_result))"
+                         + (if .verdict != "" then ", workflow-set \(.verdict)" else "" end)
+                       else "**\(.verdict)**" + (.counts | counts) end)
+                    + (if .head_sha then " on `\(.head_sha[0:12])`" else "" end)
+                  else
+                    "- Iterator #\(.iteration_number) → "
+                    + (if .job_result != "success" then "**technical failure** (\(.job_result))"
+                         + (if .result != "" then ", workflow-set \(.result)" else "" end)
+                       else "**\(.result)**" + (.counts | counts) end)
+                    + (if .commit_sha then " · pushed `\(.commit_sha[0:12])`" else " · no commit pushed" end)
+                  end
+              end),
+            "",
+            "### Next step",
+            "",
+            (if .result == "APPROVED" then
+               "Human review and merge. FlowForge never merges, never marks the PR ready for review, never deletes the branch."
+             elif .result == "BLOCKED" then
+               "Human intervention required: read the blocked reason in the last agent result. The cycle does not resume on its own."
+             elif .result == "MAX_ITERATIONS_REACHED" then
+               "Human intervention required: the Iterator budget is spent and the Reviewer still requests changes."
+             else
+               "Human intervention required: technical failure, see the failed job log. Re-run the cycle once fixed."
+             end),
+            "",
+            "<sub>FlowForge review cycle · [workflow run](\(.run_url)) · machine-readable result: artifact `flowforge-review-cycle-pr-\(.pull_request)`</sub>"
+          ' "$out/cycle.json" > "$out/cycle.md"
+          cat "$out/cycle.md" >> "$GITHUB_STEP_SUMMARY"
+
+          {
+            echo "result=$(jq -r '.result' "$out/cycle.json")"
+            echo "iterations_used=$(jq -r '.iterations_used' "$out/cycle.json")"
+            echo "final_reviewer_verdict=$(jq -r '.final_reviewer_verdict' "$out/cycle.json")"
+            # Compact JSON is a single line (newlines in strings stay escaped).
+            echo "cycle_json=$(jq -c . "$out/cycle.json")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload cycle result
+        if: always() && steps.result.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flowforge-review-cycle-pr-${{ inputs.pull_request_number }}
+          path: ${{ runner.temp }}/flowforge-review-cycle/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
+      # Agent results (APPROVED, BLOCKED, MAX_ITERATIONS_REACHED) end the run green; only a
+      # technical failure turns it red.
+      - name: Fail on technical failure
+        if: always() && steps.result.outputs.result != 'APPROVED' && steps.result.outputs.result != 'BLOCKED' && steps.result.outputs.result != 'MAX_ITERATIONS_REACHED'
+        run: |
+          echo "::error::The review cycle ended with a technical failure (FAILED); a human must look at the failed job."
+          exit 1

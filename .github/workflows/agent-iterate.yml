@@ -9,7 +9,7 @@
 #        -> verified by the workflow -> fast-forward push to the same branch.
 #        Result: COMPLETED | PARTIAL | BLOCKED. The Iterator never creates a branch, pushes
 #        to the base branch, force-pushes, merges, nor starts the Reviewer: this workflow
-#        stops after the push (the Reviewer <-> Iterator loop is not implemented here).
+#        stops after the push. The Reviewer <-> Iterator loop lives in review-cycle.yml.
 #
 # Two jobs, so that no job holds both untrusted PR code and a write token:
 #   iterate  read-only token; checks out the PR branch, runs Claude and the target's checks;
@@ -18,7 +18,7 @@
 #            single fast-forward commit on the reviewed head, pushes it, renders the result
 #
 # Result artifact `flowforge-iteration-pr-<n>-<iteration>` (contract in docs/architecture.md):
-#   iteration.json    machine-readable result, for humans and the future orchestration
+#   iteration.json    machine-readable result, for humans and review-cycle.yml
 #   iteration.md      human-readable result, rendered deterministically from iteration.json
 #   iteration.bundle  the commit that was (or was to be) pushed, when there is one
 name: FlowForge — agent iterate
@@ -82,6 +82,11 @@ on:
       result_artifact:
         description: Name of the artifact holding iteration.json and iteration.md.
         value: ${{ jobs.iterate.outputs.result_artifact }}
+      iteration_json:
+        description: >-
+          Final iteration.json (schema_version 1) as compact JSON: result, per-finding
+          statuses, validations, pushed commit. Empty if the iteration could not start.
+        value: ${{ jobs.publish.outputs.iteration_json }}
 
 # Nothing by default; each job requests only what it needs.
 permissions: {}
@@ -693,6 +698,7 @@ jobs:
     outputs:
       result: ${{ steps.render.outputs.result }}
       commit_sha: ${{ steps.render.outputs.commit_sha }}
+      iteration_json: ${{ steps.render.outputs.iteration_json }}
     env:
       GH_TOKEN: ${{ github.token }}
       PUSH: ${{ needs.iterate.outputs.push }}
@@ -828,6 +834,8 @@ jobs:
             echo "result=$(jq -r '.result' "$json")"
             echo "commit_sha=$(jq -r 'if .commit.pushed then .commit.sha else "" end' "$json")"
             echo "reliable=$reliable"
+            # Compact JSON is a single line (newlines in strings stay escaped).
+            echo "iteration_json=$(jq -c . "$json")"
           } >> "$GITHUB_OUTPUT"
           rm -f "$dir/pushed_sha.txt" "$dir/push_error.txt"
 

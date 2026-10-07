@@ -5,8 +5,8 @@ They are generic: the target repository's own `CLAUDE.md` adds project-specific
 conventions, but can never relax the rules marked **MUST**.
 
 > **Status**: Phase 4 — run by the reusable workflow `.github/workflows/agent-iterate.yml`
-> (one iteration per call). The `Reviewer ↔ Iterator` loop is not implemented yet, and no
-> end-to-end run has been validated.
+> (one iteration per call); the bounded `Reviewer ↔ Iterator` loop is orchestrated by
+> `.github/workflows/review-cycle.yml`. No end-to-end run has been validated yet.
 
 ------
 
@@ -302,7 +302,7 @@ Produce exactly one result:
 - No commit when nothing changed, and no push when the result is `BLOCKED`.
 - Never commit secrets, tokens, `.env` files, credentials or generated artifacts.
 
-## 12. Reviewer ↔ Iterator loop (future)
+## 12. Reviewer ↔ Iterator loop
 
 ```text
 Reviewer = observes      (findings + verdict, read-only)
@@ -321,16 +321,20 @@ Review #3   ── REQUEST_CHANGES ──► Iterator #3  (iteration_number = 3)
 Final Review
    ├── APPROVE          → human review → merge (never by an agent)
    ├── BLOCKED          → human
-   └── REQUEST_CHANGES  → iteration_number = 4 > max_iterations → BLOCKED → human
+   └── REQUEST_CHANGES  → no Iterator pass left → MAX_ITERATIONS_REACHED → human
 ```
 
 - The loop stops **immediately** when the Reviewer returns `APPROVE` or `BLOCKED`, or when
   the Iterator returns `BLOCKED`.
 - If `iteration_number > max_iterations`, the Iterator **MUST NOT** run: the PR goes to a
-  blocked state that requires human intervention.
+  state that requires human intervention. The orchestration never starts a 4th Iterator;
+  should one be called anyway, the precondition of §3 makes it `BLOCKED`.
+- The Reviewer is the authority of validation, the Iterator the authority of correction:
+  `COMPLETED` and `PARTIAL` only send the PR back to the Reviewer, never approve it.
 
-> 💡 **Note**: the orchestration (triggers, counter storage, `agent:*` label transitions) is
-> not implemented yet: `agent-iterate.yml` runs one iteration and stops after its push.
+> 💡 **Note**: the loop is run by `review-cycle.yml`, see
+> [architecture.md §2.5](../docs/architecture.md#25-review-cycle-phase-4). `agent-iterate.yml`
+> itself still runs one iteration and stops after its push.
 
 ## 13. Untrusted content and prompt injection
 
