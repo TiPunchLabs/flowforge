@@ -62,7 +62,8 @@ The agent never pushes to `main` and never merges. See [agents/developer.md](age
 
 Phase 3 adds a **Reviewer** between the Draft PR and the human review. It is defined in
 [agents/reviewer.md](agents/reviewer.md) and run by the reusable workflow
-`agent-review.yml`; its first end-to-end run on a target is next:
+`agent-review.yml`; its first end-to-end run on `demo-api` is validated
+([milestone](docs/milestones/phase3-reviewer-e2e.md)):
 
 ```text
 Issue → Developer → Draft PR → Reviewer → APPROVE | REQUEST_CHANGES | BLOCKED → human review
@@ -84,7 +85,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 |---|---|
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
-| Phase 3 — Reviewer | ✅ Reviewer done — specification ✅, workflow ✅, Reviewer E2E ✅ (`demo-api` PR #7) |
+| Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
 
 Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 

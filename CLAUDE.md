@@ -68,7 +68,7 @@ was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `
 Phase 3: Reviewer specification done (`agents/reviewer.md`, read-only, verdict
 `APPROVE` / `REQUEST_CHANGES` / `BLOCKED`); Reviewer workflow done
 (`.github/workflows/agent-review.yml`); Reviewer E2E done on 2026-10-06 (`demo-api` issue #5 →
-Draft PR #7 → `APPROVE`, single comment updated in place on re-run, strictly read-only).
+Draft PR #7 → `APPROVE`, single comment updated in place on re-run, strictly read-only), tag `flowforge-phase3-reviewer-e2e`, see `docs/milestones/`).
 Next: design the Iterator agent and the bounded Reviewer ↔ Iterator loop. Iterator is not implemented.
 
 ## Out of scope for now
