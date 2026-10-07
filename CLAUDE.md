@@ -61,14 +61,15 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 3 — Reviewer (in progress)
+## Current phase: Phase 3 — Reviewer done, Iterator next
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
 Phase 3: Reviewer specification done (`agents/reviewer.md`, read-only, verdict
 `APPROVE` / `REQUEST_CHANGES` / `BLOCKED`); Reviewer workflow done
-(`.github/workflows/agent-review.yml`). Next: the first Reviewer E2E on a target.
-Iterator is not implemented.
+(`.github/workflows/agent-review.yml`); Reviewer E2E done on 2026-10-06 (`demo-api` issue #5 →
+Draft PR #7 → `APPROVE`, single comment updated in place on re-run, strictly read-only).
+Next: design the Iterator agent and the bounded Reviewer ↔ Iterator loop. Iterator is not implemented.
 
 ## Out of scope for now
 

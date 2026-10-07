@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–2 done, Phase 3 (Reviewer) in progress — workflow implemented, E2E next. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–2 done, Phase 3 Reviewer done (specification, workflow, E2E); Iterator not started. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -101,7 +101,8 @@ Human review → merge (never by the agent)
 ### 2.3 Review flow (Phase 3 target)
 
 > **Status**: Reviewer specification ✅ ([`agents/reviewer.md`](../agents/reviewer.md)) ·
-> Reviewer workflow ✅ (`.github/workflows/agent-review.yml`) · Reviewer E2E ⏭️ next.
+> Reviewer workflow ✅ (`.github/workflows/agent-review.yml`) · Reviewer E2E ✅ (2026-10-06:
+> `demo-api` Issue #5 → Developer Draft PR #7 → `APPROVE`, comment updated in place on re-run).
 
 ```text
 Issue
@@ -209,8 +210,9 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Identity used to push and open PRs | Workflow `GITHUB_TOKEN` passed as `github_token` (no Claude GitHub App, no OIDC) |
 
 > ⚠️ **Warning**: with `GITHUB_TOKEN`, the target must allow *"GitHub Actions to create and
-> approve pull requests"*, and PRs it opens do **not** trigger `pull_request` workflows
-> (target CI must then be re-run by a human, or a GitHub App identity adopted later).
+> approve pull requests"*, and PRs it opens do **not** run `pull_request` workflows on their
+> own: the run is created but stays `action_required` until a maintainer approves it
+> (target CI must then be approved or re-run by a human, or a GitHub App identity adopted later).
 
 ### 5.1 Reviewer decisions (Phase 3)
 
@@ -222,6 +224,7 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Result | Claude structured output (`--json-schema`), validated and rendered by the workflow — the comment format does not depend on the model |
 | Publication | One PR **comment** (not a GitHub review: no merge-state side effect, no "approve" by `GITHUB_TOKEN`), updated in place on re-runs |
 | Failure | Before Claude: the job fails. Claude failed or output rejected: `BLOCKED` published, job failed |
+| Trigger (target caller) | `workflow_dispatch` (`pull_request_number`) for Developer PRs, plus `pull_request` (`opened`, `reopened`, `synchronize`, `ready_for_review`) restricted to same-repo `agent/*` branches. `workflow_dispatch` numbers reach `inputs` as strings: callers pass `fromJSON(...)` |
 
 ### 5.2 Review result contract (`review.json`, `schema_version: 1`)
 

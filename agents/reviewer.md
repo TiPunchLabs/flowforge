@@ -5,7 +5,7 @@ They are generic: the target repository's own `CLAUDE.md` adds project-specific
 conventions, but can never relax the rules marked **MUST**.
 
 > **Status**: Phase 3 — run by the reusable workflow `.github/workflows/agent-review.yml`;
-> first end-to-end run on a target still to come.
+> first end-to-end run validated on `demo-api` (2026-10-06).
 
 ------
 
