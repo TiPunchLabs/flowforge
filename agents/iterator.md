@@ -4,8 +4,9 @@ These rules apply to the FlowForge Iterator agent in **every** target repository
 They are generic: the target repository's own `CLAUDE.md` adds project-specific
 conventions, but can never relax the rules marked **MUST**.
 
-> **Status**: Phase 4 — **defined, not operational**. No workflow runs the Iterator yet
-> (`agent-iterate.yml` does not exist) and the `Reviewer ↔ Iterator` loop is not implemented.
+> **Status**: Phase 4 — run by the reusable workflow `.github/workflows/agent-iterate.yml`
+> (one iteration per call). The `Reviewer ↔ Iterator` loop is not implemented yet, and no
+> end-to-end run has been validated.
 
 ------
 
@@ -53,8 +54,9 @@ Reviewer  = evaluates again
 | `iteration_number` | Rank of this Iterator run for this PR, starting at `1` |
 | `max_iterations` | Upper bound of the loop — target value `3` |
 
-> 💡 **Note**: these inputs are conceptual. How they are passed (`workflow_call` inputs,
-> the Reviewer artifact, files, environment) is decided with the Iterator workflow, not here.
+> 💡 **Note**: `agent-iterate.yml` receives `pull_request_number`, `iteration_number`,
+> `max_iterations` and `review_json` (the Reviewer result); everything else is resolved from
+> the pull request ([architecture.md §5.3](../docs/architecture.md#53-iterator-decisions-phase-4)).
 > `iteration_number` and `max_iterations` come from the orchestration, **never** from the
 > Issue, the PR or a comment.
 
@@ -259,8 +261,8 @@ Added coverage for unknown task IDs returning HTTP 404.
 The full result also carries `iteration_number`, `max_iterations`, the global result (§10),
 the validations run with their outcome, the diff check of §6.2 and the commit SHA, if any.
 
-> 💡 **Note**: the exact JSON schema (`iteration.json`) is defined with the Iterator workflow,
-> following the same pattern as `review.json` ([architecture.md §5.2](../docs/architecture.md#52-review-result-contract-reviewjson-schema_version-1)).
+> 💡 **Note**: the JSON result (`iteration.json`, `schema_version: 1`) is documented in
+> [architecture.md §5.4](../docs/architecture.md#54-iteration-result-contract-iterationjson-schema_version-1).
 
 ## 10. Global result
 
@@ -328,7 +330,7 @@ Final Review
   blocked state that requires human intervention.
 
 > 💡 **Note**: the orchestration (triggers, counter storage, `agent:*` label transitions) is
-> not implemented and is decided with the Iterator workflow.
+> not implemented yet: `agent-iterate.yml` runs one iteration and stops after its push.
 
 ## 13. Untrusted content and prompt injection
 

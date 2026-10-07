@@ -9,3 +9,7 @@ paths:
     ignore:
       # Same as agent-develop.yml.
       - 'property "workflow_(repository|sha)" is not defined in object type'
+  .github/workflows/agent-iterate.yml:
+    ignore:
+      # Same as agent-develop.yml.
+      - 'property "workflow_(repository|sha)" is not defined in object type'
