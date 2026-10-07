@@ -224,7 +224,7 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Result | Claude structured output (`--json-schema`), validated and rendered by the workflow — the comment format does not depend on the model |
 | Publication | One PR **comment** (not a GitHub review: no merge-state side effect, no "approve" by `GITHUB_TOKEN`), updated in place on re-runs |
 | Failure | Before Claude: the job fails. Claude failed or output rejected: `BLOCKED` published, job failed |
-| Trigger (target caller) | `workflow_dispatch` (`pull_request_number`) for Developer PRs, plus `pull_request` (`opened`, `reopened`, `synchronize`, `ready_for_review`) restricted to same-repo `agent/*` branches. `workflow_dispatch` numbers reach `inputs` as strings: callers pass `fromJSON(...)` |
+| Trigger (target caller) | `workflow_dispatch` (`pull_request_number`) for Developer PRs, plus `pull_request` (`opened`, `reopened`, `synchronize`, `ready_for_review`) restricted to same-repo `agent/*` branches and to non-bot actors (`claude-code-action` refuses `github-actions[bot]`, so approving a bot-opened PR's waiting run cannot work). `workflow_dispatch` numbers reach `inputs` as strings: callers pass `fromJSON(...)` |
 
 ### 5.2 Review result contract (`review.json`, `schema_version: 1`)
 

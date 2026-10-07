@@ -10,7 +10,8 @@
 #   reviewed on demand:
 #     gh workflow run flowforge-review.yml -f pull_request_number=<n>
 # - pull_request: human activity (push, reopen, ready for review) on an `agent/*` branch
-#   of the target repository. Forks and other branches are ignored.
+#   of the target repository. Forks and other branches are ignored, and so are runs
+#   whose actor is github-actions[bot] (claude-code-action refuses bot actors).
 #
 # Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml.
 name: FlowForge review
@@ -36,7 +37,8 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch'
       || (github.event.pull_request.head.repo.full_name == github.repository
-          && startsWith(github.event.pull_request.head.ref, 'agent/'))
+          && startsWith(github.event.pull_request.head.ref, 'agent/')
+          && github.actor != 'github-actions[bot]')
     uses: OWNER/flowforge/.github/workflows/agent-review.yml@main
     # Must cover what the called workflow requests; it can only narrow, never widen.
     # Code stays read-only; the only write is the FlowForge comment on the PR.
