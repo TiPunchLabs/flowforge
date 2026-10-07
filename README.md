@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 3 (Reviewer) validated end to end; Iterator not started.** Nothing here is production-ready.
+> **Status: experimental — Phase 3 (Reviewer) validated end to end; Phase 4 (Iterator) in progress: defined, not operational.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -35,7 +35,7 @@ Using a coding agent on one repository is easy. Using it on **many** repositorie
 flowchart TD
     FF[FlowForge] --> TF[Terraform<br/>target-repository module]
     FF --> WF[Reusable GitHub Actions<br/>agent-develop.yml]
-    FF --> AG[Agents<br/>developer.md, reviewer.md]
+    FF --> AG[Agents<br/>developer.md, reviewer.md, iterator.md]
 
     TF -- labels, variables, rulesets --> T[Target repository]
     T --> I[Issue + agent:ready]
@@ -72,6 +72,14 @@ Issue → Developer → Draft PR → Reviewer → APPROVE | REQUEST_CHANGES | BL
 The Reviewer is read-only: it produces structured findings and a verdict (one PR comment +
 a JSON artifact), never commits nor merges.
 
+Phase 4 defines an **Iterator** ([agents/iterator.md](agents/iterator.md)) that fixes the
+findings of a `REQUEST_CHANGES` review on the existing PR branch, then hands the PR back to
+the Reviewer, in a loop bounded to 3 iterations. It is not operational yet (no workflow):
+
+```text
+Issue → Developer → Draft PR → Reviewer → REQUEST_CHANGES → Iterator → Reviewer
+```
+
 ------
 
 ## 🚀 Phase 1
@@ -86,8 +94,9 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
+| Phase 4 — Iterator | 🚧 In progress — specification defined (`agents/iterator.md`); workflow and loop not implemented |
 
-Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
+Later phases (not started): Refiner agent, GitHub Project, Notion.
 
 ------
 
@@ -110,6 +119,7 @@ Later phases (not started): Refiner, Iterator agents, GitHub Project, Notion.
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules
+agents/iterator.md                    generic Iterator agent rules (defined, not run yet)
 examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module
 docs/                                 architecture and phase plans
