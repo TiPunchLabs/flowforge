@@ -70,13 +70,14 @@ Phase 3 (Reviewer) done: `agents/reviewer.md` (read-only, verdict `APPROVE` / `R
 Draft PR #7 → `APPROVE`), tag `flowforge-phase3-reviewer-e2e`, see `docs/milestones/`.
 Phase 4: Iterator specification done (`agents/iterator.md`: fixes Reviewer findings on the
 existing PR branch, results `COMPLETED` / `PARTIAL` / `BLOCKED`, loop bounded to
-`max_iterations = 3`). Iterator = DEFINED, not operational: `agent-iterate.yml` and the
-`Reviewer ↔ Iterator` loop are not implemented yet.
+`max_iterations = 3`). Iterator workflow done: `.github/workflows/agent-iterate.yml` runs ONE iteration (preconditions,
+PR head branch, Claude commits locally, workflow verifies and fast-forward pushes, `iteration.json`).
+Next: orchestration of the bounded `Reviewer ↔ Iterator` loop; Iterator E2E pending.
 
 ## Out of scope for now
 
 Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
-agent, Iterator workflow and loop (until explicitly started), real secrets, triggering
+agent, `Reviewer ↔ Iterator` orchestration (until explicitly started), real secrets, triggering
 Claude Code runs, creating `demo-api` from this repository.
 
 ## Validation commands

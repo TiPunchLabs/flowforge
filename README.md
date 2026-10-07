@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 3 (Reviewer) validated end to end; Phase 4 (Iterator) in progress: defined, not operational.** Nothing here is production-ready.
+> **Status: experimental — Phase 3 (Reviewer) validated end to end; Phase 4 (Iterator) in progress: workflow ready, loop not implemented.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -74,7 +74,8 @@ a JSON artifact), never commits nor merges.
 
 Phase 4 defines an **Iterator** ([agents/iterator.md](agents/iterator.md)) that fixes the
 findings of a `REQUEST_CHANGES` review on the existing PR branch, then hands the PR back to
-the Reviewer, in a loop bounded to 3 iterations. It is not operational yet (no workflow):
+the Reviewer, in a loop bounded to 3 iterations. One iteration is run by the reusable
+workflow `agent-iterate.yml`; the loop itself is not implemented yet:
 
 ```text
 Issue → Developer → Draft PR → Reviewer → REQUEST_CHANGES → Iterator → Reviewer
@@ -94,7 +95,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
-| Phase 4 — Iterator | 🚧 In progress — specification defined (`agents/iterator.md`); workflow and loop not implemented |
+| Phase 4 — Iterator | 🚧 In progress — definition ✅ · workflow ✅ (`agent-iterate.yml`) · orchestration ⏭️ next · E2E pending |
 
 Later phases (not started): Refiner agent, GitHub Project, Notion.
 
@@ -116,10 +117,11 @@ Later phases (not started): Refiner agent, GitHub Project, Notion.
 ```text
 .github/workflows/agent-develop.yml   reusable Developer workflow (called by targets)
 .github/workflows/agent-review.yml    reusable Reviewer workflow (called by targets)
+.github/workflows/agent-iterate.yml   reusable Iterator workflow (one iteration, no loop yet)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules
-agents/iterator.md                    generic Iterator agent rules (defined, not run yet)
+agents/iterator.md                    generic Iterator agent rules
 examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module
 docs/                                 architecture and phase plans
