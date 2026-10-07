@@ -290,8 +290,8 @@ Scope: reasonable check of the diff; not a full security audit.
 
 ## 11. Future compatibility with Iterator
 
-Iterator is defined in [`iterator.md`](iterator.md) but not operational yet. The findings
-are designed so that, later:
+Iterator is defined in [`iterator.md`](iterator.md); `review-cycle.yml` feeds it the
+Reviewer's `review.json` (no parsing of the comment). The findings are designed so that:
 
 ```text
 Reviewer → structured findings → Iterator → corrections → Reviewer
@@ -302,8 +302,8 @@ Reviewer → structured findings → Iterator → corrections → Reviewer
 - Severities give the order of work: `BLOCKER`, then `MAJOR`; `MINOR` and `NOTE` are not
   required to reach `APPROVE`.
 - `Reviewer ↔ Iterator` will be a **bounded** loop, target `max_iterations = 3`
-  ([`iterator.md` §12](iterator.md#12-reviewer--iterator-loop-future)). Its orchestration
-  and label transitions are not decided yet.
+  ([`iterator.md` §12](iterator.md#12-reviewer--iterator-loop)), orchestrated by
+  `review-cycle.yml`. `agent:*` label transitions are not decided yet.
 - The Iterator never approves: after each iteration the PR comes back to the Reviewer.
 
 ## 12. When to stop

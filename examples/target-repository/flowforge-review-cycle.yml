@@ -1,0 +1,49 @@
+# Minimal workflow to copy into a TARGET repository as
+#   .github/workflows/flowforge-review-cycle.yml
+#
+# It holds no logic: the bounded Reviewer <-> Iterator loop lives in the FlowForge reusable
+# workflow review-cycle.yml. Replace OWNER and pin `@main` to a tag or commit SHA once
+# FlowForge publishes releases.
+#
+# Trigger: workflow_dispatch only, started by a human for one Draft PR:
+#   gh workflow run flowforge-review-cycle.yml -f pull_request_number=<n>
+# No `pull_request` / `push` trigger on purpose: one cycle owns the whole Reviewer <->
+# Iterator sequence, and an Iterator push must never start a second, parallel cycle
+# (docs/architecture.md §2.5). Do not run flowforge-review.yml on the same PR during a cycle.
+#
+# Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml.
+name: FlowForge review cycle
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request to review and iterate on
+        type: number
+        required: true
+
+permissions: {}
+
+jobs:
+  review-cycle:
+    uses: OWNER/flowforge/.github/workflows/review-cycle.yml@main
+    # Union of what the Reviewer and the Iterator request; each called job narrows it.
+    #   contents: write        Iterator push job only (verified fast-forward to the PR branch)
+    #   pull-requests: write   Reviewer publish job only (its single PR comment)
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    with:
+      # fromJSON: workflow_dispatch inputs reach `inputs` as strings; the input is a number.
+      pull_request_number: ${{ fromJSON(inputs.pull_request_number) }}
+      max_iterations: 3
+      # Project-specific: tooling to install and the commands each agent may run.
+      # setup_uv: true
+      # review_allowed_tools: "Bash(uv sync --locked),Bash(uv run pytest:*),Bash(uv run ruff check .),Bash(uv run ruff format --check .)"
+      # iterate_allowed_tools: "Bash(uv sync --locked),Bash(uv run pytest:*),Bash(uv run ruff check:*),Bash(uv run ruff format:*)"
+    # Explicit, minimal secrets contract: never `secrets: inherit`.
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

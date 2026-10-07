@@ -14,7 +14,7 @@
 #   publish  pull-requests: write only; no checkout, no Claude; posts the rendered comment
 #
 # Result artifact `flowforge-review-pr-<n>` (contract documented in docs/architecture.md):
-#   review.json  machine-readable result, for humans and the future Iterator
+#   review.json  machine-readable result, for humans and the Iterator (via review-cycle.yml)
 #   review.md    the comment body, rendered deterministically from review.json
 name: FlowForge — agent review
 
@@ -55,6 +55,12 @@ on:
       result_artifact:
         description: Name of the artifact holding review.json and review.md.
         value: ${{ jobs.review.outputs.result_artifact }}
+      review_json:
+        description: >-
+          review.json (schema_version 1) as compact JSON: verdict, findings, acceptance
+          criteria, reviewed head_sha. Input `review_json` of agent-iterate.yml. Empty if the
+          review could not start.
+        value: ${{ jobs.review.outputs.review_json }}
 
 # Nothing by default; each job requests only what it needs.
 permissions: {}
@@ -79,6 +85,7 @@ jobs:
     outputs:
       verdict: ${{ steps.result.outputs.verdict }}
       result_artifact: ${{ steps.result.outputs.artifact }}
+      review_json: ${{ steps.result.outputs.review_json }}
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ inputs.pull_request_number }}
@@ -526,6 +533,8 @@ jobs:
           {
             echo "verdict=$verdict"
             echo "artifact=$artifact"
+            # Compact JSON is a single line (newlines in strings stay escaped).
+            echo "review_json=$(jq -c . "$out_dir/review.json")"
             echo "reliable=$([[ "$produced_by" == reviewer ]] && echo true || echo false)"
           } >> "$GITHUB_OUTPUT"
           cat "$out_dir/review.md" >> "$GITHUB_STEP_SUMMARY"
