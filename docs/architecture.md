@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–2 done, Phase 3 Reviewer done (specification, workflow, E2E); Iterator not started. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–3 done (Foundation, Developer E2E, Reviewer E2E); Phase 4 Iterator in progress — specification defined, workflow and loop not implemented. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -35,7 +35,7 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Terraform root | `terraform/` | Onboards targets that have **no** Terraform of their own (one module block per target) |
 | Reusable workflow | `.github/workflows/agent-develop.yml` | Resolve the issue context, run Claude Code, produce branch + Draft PR |
 | Reusable workflow | `.github/workflows/agent-review.yml` | Resolve the PR + Issue context, run Claude Code read-only, publish one review comment + JSON artifact |
-| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md` |
+| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md` (defined, not run yet) |
 | Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`) |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
 
@@ -149,9 +149,36 @@ Reviewer   ◄── agents/reviewer.md + target CLAUDE.md (base) + issue + diff
   └── BLOCKED          → reliable review impossible, missing information stated
 ```
 
-Later, an **Iterator** agent will consume the structured findings and push corrections,
-forming a **bounded** `Reviewer ↔ Iterator` loop. Its limits and orchestration are not
-decided yet.
+### 2.4 Iteration flow (Phase 4 target)
+
+> **Status**: Iterator specification ✅ ([`agents/iterator.md`](../agents/iterator.md)) ·
+> Iterator workflow ❌ (`agent-iterate.yml` not created) · `Reviewer ↔ Iterator` loop ❌.
+
+```text
+Issue
+  ↓
+Developer
+  ↓
+Draft PR
+  ↓
+Reviewer
+  ↓
+REQUEST_CHANGES
+  ↓
+Iterator   ◄── agents/iterator.md + target CLAUDE.md (base) + issue + diff + review.json
+  ↓            (same PR branch, minimal fix, one commit, never merges nor approves)
+Reviewer
+```
+
+| Role | Does | Never |
+|---|---|---|
+| Developer | Produces the change (new branch, Draft PR) | Pushes to `main`, merges |
+| Reviewer | Produces findings + verdict | Modifies code |
+| Iterator | Fixes the findings on the existing PR branch | Creates a branch, force-pushes, approves itself |
+
+The loop is **bounded** (target `max_iterations = 3`), stops on Reviewer `APPROVE` or
+`BLOCKED` and on Iterator `BLOCKED`, and hands over to a human once the limit is exceeded
+(see [`iterator.md` §12](../agents/iterator.md#12-reviewer--iterator-loop-future)).
 
 ------
 
@@ -271,3 +298,5 @@ Iterator.
 |---|---|
 | Remote Terraform backend | Before the first `apply` |
 | Exact default-branch ruleset | Phase 1, step 3 |
+| Iterator workflow contract (`workflow_call` inputs, `iteration.json` schema) | Phase 4, Iterator workflow |
+| Loop orchestration (trigger, iteration counter storage, `agent:*` label transitions) | Phase 4, Iterator workflow |

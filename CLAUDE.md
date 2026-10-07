@@ -61,21 +61,23 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 3 — Reviewer done, Iterator next
+## Current phase: Phase 4 — Iterator in progress
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
-Phase 3: Reviewer specification done (`agents/reviewer.md`, read-only, verdict
-`APPROVE` / `REQUEST_CHANGES` / `BLOCKED`); Reviewer workflow done
-(`.github/workflows/agent-review.yml`); Reviewer E2E done on 2026-10-06 (`demo-api` issue #5 →
-Draft PR #7 → `APPROVE`, single comment updated in place on re-run, strictly read-only), tag `flowforge-phase3-reviewer-e2e`, see `docs/milestones/`).
-Next: design the Iterator agent and the bounded Reviewer ↔ Iterator loop. Iterator is not implemented.
+Phase 3 (Reviewer) done: `agents/reviewer.md` (read-only, verdict `APPROVE` / `REQUEST_CHANGES` /
+`BLOCKED`), `.github/workflows/agent-review.yml`, E2E on 2026-10-06 (`demo-api` issue #5 →
+Draft PR #7 → `APPROVE`), tag `flowforge-phase3-reviewer-e2e`, see `docs/milestones/`.
+Phase 4: Iterator specification done (`agents/iterator.md`: fixes Reviewer findings on the
+existing PR branch, results `COMPLETED` / `PARTIAL` / `BLOCKED`, loop bounded to
+`max_iterations = 3`). Iterator = DEFINED, not operational: `agent-iterate.yml` and the
+`Reviewer ↔ Iterator` loop are not implemented yet.
 
 ## Out of scope for now
 
 Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
-and Iterator agents, real secrets, triggering Claude Code runs, creating `demo-api`
-from this repository.
+agent, Iterator workflow and loop (until explicitly started), real secrets, triggering
+Claude Code runs, creating `demo-api` from this repository.
 
 ## Validation commands
 
