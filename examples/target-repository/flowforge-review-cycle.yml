@@ -11,6 +11,17 @@
 # Iterator sequence, and an Iterator push must never start a second, parallel cycle
 # (docs/architecture.md §2.5). Do not run flowforge-review.yml on the same PR during a cycle.
 #
+# Human gate: FlowForge never merges, never marks a PR ready, never rebases.
+# - Developer PRs and Iterator pushes (GITHUB_TOKEN) leave flowforge-review.yml
+#   `pull_request` runs in `action_required`. Approving them is pointless: their actor is
+#   github-actions[bot], so the review job is skipped. They end as `failure` (0 jobs) when
+#   the PR closes.
+# - Marking an `agent/*` PR ready for review re-runs flowforge-review.yml on the same head:
+#   expected, and the merge does not need to wait for it.
+# - Conflicts between agent PRs are resolved by a human merging the base branch into the
+#   PR branch (no rebase, so no force-push). That push re-runs flowforge-review.yml on its
+#   own; dispatch a new cycle only after that review has finished, never in parallel.
+#
 # Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml.
 name: FlowForge review cycle
 
