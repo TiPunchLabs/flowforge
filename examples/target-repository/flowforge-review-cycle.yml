@@ -41,9 +41,10 @@ jobs:
     # Union of what the Reviewer and the Iterator request; each called job narrows it.
     #   contents: write        Iterator push job only (verified fast-forward to the PR branch)
     #   pull-requests: write   Reviewer publish job only (its single PR comment)
+    #   issues: write          issue_state job only (linked Issue -> agent:blocked)
     permissions:
       contents: write
-      issues: read
+      issues: write
       pull-requests: write
       checks: read
       statuses: read

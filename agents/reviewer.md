@@ -303,7 +303,8 @@ Reviewer → structured findings → Iterator → corrections → Reviewer
   required to reach `APPROVE`.
 - `Reviewer ↔ Iterator` will be a **bounded** loop, target `max_iterations = 3`
   ([`iterator.md` §12](iterator.md#12-reviewer--iterator-loop)), orchestrated by
-  `review-cycle.yml`. `agent:*` label transitions are not decided yet.
+  `review-cycle.yml`. The Issue stays `agent:review` during the loop; the workflow (never the
+  agent) sets `agent:blocked` on `BLOCKED` / `MAX_ITERATIONS_REACHED` (architecture §2.6).
 - The Iterator never approves: after each iteration the PR comes back to the Reviewer.
 
 ## 12. When to stop

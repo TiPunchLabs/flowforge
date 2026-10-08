@@ -83,4 +83,5 @@ Stop, comment on the Issue, and do not open a PR when:
 - the change would require secrets, infrastructure or permissions you do not have.
 
 > 💡 **Note**: the FlowForge workflow sets `agent:blocked` when a run ends without a Draft PR,
-> and `agent:review` when one is open. Do not change `agent:*` labels yourself.
+> and `agent:review` when one is open; `agent:done` follows the human merge. Do not change
+> `agent:*` labels yourself.

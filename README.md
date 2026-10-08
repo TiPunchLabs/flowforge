@@ -122,6 +122,8 @@ Later phases (not started): Refiner agent, GitHub Project, Notion.
 .github/workflows/agent-develop.yml   reusable Developer workflow (called by targets)
 .github/workflows/agent-review.yml    reusable Reviewer workflow (called by targets)
 .github/workflows/agent-iterate.yml   reusable Iterator workflow (one iteration, no loop yet)
+.github/workflows/agent-lifecycle.yml reusable lifecycle workflow (Issue terminal state on PR close)
+.github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules

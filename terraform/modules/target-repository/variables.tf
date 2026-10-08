@@ -32,6 +32,10 @@ variable "labels" {
       color       = "B60205"
       description = "FlowForge: the agent cannot proceed and needs human input"
     }
+    "agent:done" = {
+      color       = "8250DF"
+      description = "FlowForge: the agent PR was merged by a human; the work is done"
+    }
   }
 
   validation {
