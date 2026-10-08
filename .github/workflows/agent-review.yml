@@ -16,6 +16,11 @@
 # Result artifact `flowforge-review-pr-<n>` (contract documented in docs/architecture.md):
 #   review.json  machine-readable result, for humans and the Iterator (via review-cycle.yml)
 #   review.md    the comment body, rendered deterministically from review.json
+#
+# NO_OP: a pull request already CLOSED or MERGED is a normal asynchronous outcome, not an
+# error. Its state is read twice (when the context is resolved, and again right before
+# Claude); if it is no longer OPEN, nothing is reviewed or published, `verdict` stays empty,
+# `no_op_json` explains why, and the run succeeds. NO_OP is not a Reviewer verdict.
 name: FlowForge — agent review
 
 on:
@@ -50,8 +55,17 @@ on:
         required: true
     outputs:
       verdict:
-        description: APPROVE, REQUEST_CHANGES or BLOCKED; empty if the review could not start.
+        description: >-
+          APPROVE, REQUEST_CHANGES or BLOCKED; empty if nothing was reviewed (NO_OP, see
+          `no_op_json`) or the review could not start (technical failure, run failed).
         value: ${{ jobs.review.outputs.verdict }}
+      no_op_json:
+        description: >-
+          Set only when the pull request was no longer OPEN and nothing was reviewed:
+          {"schema_version": 1, "result": "NO_OP", "reason": "PR_ALREADY_CLOSED" or
+          "PR_ALREADY_MERGED", "repository", "pull_request", "state", "run_url"} as compact
+          JSON. Empty otherwise.
+        value: ${{ jobs.review.outputs.no_op_json }}
       result_artifact:
         description: Name of the artifact holding review.json and review.md.
         value: ${{ jobs.review.outputs.result_artifact }}
@@ -86,6 +100,7 @@ jobs:
       verdict: ${{ steps.result.outputs.verdict }}
       result_artifact: ${{ steps.result.outputs.artifact }}
       review_json: ${{ steps.result.outputs.review_json }}
+      no_op_json: ${{ steps.no_op.outputs.no_op_json }}
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ inputs.pull_request_number }}
@@ -120,11 +135,22 @@ jobs:
             echo "::error::Pull request #$PR_NUMBER not found in $GITHUB_REPOSITORY."
             exit 1
           fi
+          # A pull request closed or merged since the run was queued is a NO_OP (step
+          # `no_op`), not an error: stop here, before any checkout or agent.
           state="$(jq -r '.state' "$CONTEXT_DIR/pr.json")"
-          if [[ "$state" != "OPEN" ]]; then
-            echo "::error::Pull request #$PR_NUMBER is $state, expected OPEN."
-            exit 1
-          fi
+          echo "PR #$PR_NUMBER state: $state"
+          case "$state" in
+            OPEN) ;;
+            CLOSED | MERGED)
+              echo "Skipping FlowForge review."
+              echo "state=$state" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            *)
+              echo "::error::Pull request #$PR_NUMBER has an unknown state '$state'."
+              exit 1
+              ;;
+          esac
           # The review job runs the PR's code with the Claude token in the environment:
           # only branches of the target repository itself are reviewed, never forks.
           if [[ "$(jq -r '.isCrossRepository' "$CONTEXT_DIR/pr.json")" == "true" ]]; then
@@ -159,6 +185,7 @@ jobs:
           fi
 
           {
+            echo "state=$state"
             echo "base_branch=$(jq -r '.baseRefName' "$CONTEXT_DIR/pr.json")"
             echo "head_branch=$(jq -r '.headRefName' "$CONTEXT_DIR/pr.json")"
             echo "head_sha=$head_sha"
@@ -173,6 +200,7 @@ jobs:
 
       # Full history: the base branch is available as origin/<base> for git diff / git log.
       - name: Check out pull request head
+        if: steps.context.outputs.state == 'OPEN'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.context.outputs.head_sha }}
@@ -185,6 +213,7 @@ jobs:
       # reviewer: those files are reset to their base-branch version in the local workspace
       # only. Their changes stay visible to the review through `git diff`.
       - name: Pin agent configuration to the base branch
+        if: steps.context.outputs.state == 'OPEN'
         env:
           HEAD_SHA: ${{ steps.context.outputs.head_sha }}
           BASE_BRANCH: ${{ steps.context.outputs.base_branch }}
@@ -206,11 +235,12 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up uv
-        if: inputs.setup_uv
+        if: steps.context.outputs.state == 'OPEN' && inputs.setup_uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Build Reviewer prompt
         id: prompt
+        if: steps.context.outputs.state == 'OPEN'
         env:
           BASE_BRANCH: ${{ steps.context.outputs.base_branch }}
           HEAD_BRANCH: ${{ steps.context.outputs.head_branch }}
@@ -372,6 +402,75 @@ jobs:
             echo "schema=$(cat "$CONTEXT_DIR/schema.json")"
           } >> "$GITHUB_OUTPUT"
 
+      # Last state read before Claude: narrows the window in which a merge or a close after
+      # "Resolve pull request context" would still be reviewed. A merge during the review
+      # itself cannot be prevented; its verdict is published on the merged PR.
+      - name: Re-check pull request state
+        id: recheck
+        if: steps.prompt.outcome == 'success'
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016  # $owner, $name, $number are GraphQL variables
+          gh api graphql \
+            -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) { number state }
+                }
+              }' \
+            --jq '.data.repository.pullRequest' > "$CONTEXT_DIR/pr-state.json"
+
+          if [[ "$(jq -r '.number // empty' "$CONTEXT_DIR/pr-state.json")" != "$PR_NUMBER" ]]; then
+            echo "::error::Pull request #$PR_NUMBER not found in $GITHUB_REPOSITORY."
+            exit 1
+          fi
+          state="$(jq -r '.state' "$CONTEXT_DIR/pr-state.json")"
+          echo "PR #$PR_NUMBER state: $state"
+          case "$state" in
+            OPEN) ;;
+            CLOSED | MERGED) echo "Skipping FlowForge review." ;;
+            *)
+              echo "::error::Pull request #$PR_NUMBER has an unknown state '$state'."
+              exit 1
+              ;;
+          esac
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      # The pull request is no longer reviewable: a business outcome, the job succeeds.
+      # No review, no comment, no artifact; the result only goes to the step summary and to
+      # the `no_op_json` output (consumed by review-cycle.yml).
+      - name: Record no-op
+        id: no_op
+        if: contains(fromJSON('["CLOSED", "MERGED"]'), steps.recheck.outputs.state || steps.context.outputs.state)
+        env:
+          STATE: ${{ steps.recheck.outputs.state || steps.context.outputs.state }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          case "$STATE" in
+            CLOSED) reason=PR_ALREADY_CLOSED; text="closed" ;;
+            MERGED) reason=PR_ALREADY_MERGED; text="merged" ;;
+            *) echo "::error::Unexpected state '$STATE' for a no-op."; exit 1 ;;
+          esac
+          no_op_json="$(jq -cn --arg reason "$reason" --arg repository "$GITHUB_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" --arg state "$STATE" --arg run_url "$RUN_URL" \
+            '{schema_version: 1, result: "NO_OP", reason: $reason, repository: $repository,
+              pull_request: $pr, state: $state, run_url: $run_url}')"
+
+          echo "::notice::Pull request #$PR_NUMBER is already $text: nothing to review (NO_OP)."
+          echo "no_op_json=$no_op_json" >> "$GITHUB_OUTPUT"
+          {
+            echo "## FlowForge Review"
+            echo
+            echo "Result: **NO_OP** (\`$reason\`)"
+            echo
+            echo "Pull request #$PR_NUMBER is already $text: it no longer requires or allows review."
+            echo
+            echo "- Reviewer: NOT EXECUTED"
+            echo "- PR comment: NOT PUBLISHED"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Automation mode (a `prompt` is set): no tracking comment, no branch or PR created
       # by the action. Edit tools are disallowed; Bash is denied except read-only git and
       # the target's own checks passed in `allowed_tools`. The token given to the action
@@ -379,6 +478,7 @@ jobs:
       # --max-turns 30: a review reads more than it writes; the job timeout is the second bound.
       - name: Run Claude Code Reviewer
         id: claude
+        if: steps.recheck.outputs.state == 'OPEN'
         uses: anthropics/claude-code-action@86d88e619d8e6caf07b5c3944dd14f441c533718 # v1.0.243
         with:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
@@ -397,7 +497,7 @@ jobs:
       # an explicit BLOCKED produced by the workflow, never an APPROVE.
       - name: Validate and render review result
         id: result
-        if: always() && steps.prompt.outcome == 'success'
+        if: always() && steps.recheck.outputs.state == 'OPEN'
         env:
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
@@ -560,6 +660,7 @@ jobs:
     name: Publish review on PR #${{ inputs.pull_request_number }}
     needs: review
     # Also after a failed review job, as long as a result (possibly BLOCKED) was produced.
+    # Never on NO_OP: no verdict, nothing to publish on a closed or merged PR.
     if: always() && needs.review.outputs.verdict != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5

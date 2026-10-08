@@ -99,6 +99,7 @@ terraform -chdir=terraform/modules/target-repository validate
 yamllint -d relaxed .github examples               # optional, if installed
 actionlint                                         # pre-commit hook (also runs in CI)
 tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator result rules
+tests/review-no-op.sh                              # pre-commit hook: closed/merged PR = NO_OP
 ```
 
 ## Conventions

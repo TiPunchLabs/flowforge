@@ -127,8 +127,10 @@ target caller (pull_request_number)
   │
   ▼
 job review   (contents/issues/pull-requests/checks/statuses: read)
-  │  resolve PR via GraphQL: base, head SHA, linked Issue (closing keyword), CI snapshot
+  │  resolve PR via GraphQL: state, base, head SHA, linked Issue (closing keyword), CI snapshot
+  │    state CLOSED | MERGED → NO_OP: stop here, nothing reviewed or published, run succeeds
   │  checkout PR head SHA · pin CLAUDE.md/.claude/.mcp.json to the base branch
+  │  re-check PR state right before Claude (CLOSED | MERGED → NO_OP)
   │  Claude Code: Read/Glob/Grep + read-only git (+ target checks), Edit/Write disallowed
   │  structured output (--json-schema) → validated by jq → review.json + review.md
   ▼
@@ -236,6 +238,7 @@ target caller (pull_request_number, max_iterations = 3)
 check            max_iterations ∈ 1..3, PR number valid — before any agent
   │
 Reviewer #1      iteration_number = 0
+  ├── (PR CLOSED | MERGED, not reviewed) ──► NO_OP      same for every Reviewer #k
   ├── APPROVE ─────────────────────────────► APPROVED
   ├── BLOCKED ─────────────────────────────► BLOCKED
   └── REQUEST_CHANGES  (and 1 <= max_iterations)
@@ -288,6 +291,7 @@ can act).
 | `APPROVED` | Last Reviewer returned `APPROVE` | ✅ success | Reviews and merges (FlowForge never merges, never marks the PR ready, never deletes the branch) |
 | `BLOCKED` | A Reviewer or an Iterator returned `BLOCKED` (agent result) | ✅ success | Required: read the blocked reason |
 | `MAX_ITERATIONS_REACHED` | Last Reviewer returned `REQUEST_CHANGES` and `max_iterations` Iterator passes were used | ✅ success | Required: budget spent, changes still requested |
+| `NO_OP` | A Reviewer found the PR already `CLOSED` or `MERGED`: the PR no longer requires or allows review-cycle processing | ✅ success | None: nothing was reviewed, published or iterated |
 | `FAILED` | A called workflow failed or was cancelled, or the inputs were rejected | ❌ failure | Required: technical failure, see the failed job |
 
 **Agent verdict vs technical failure.** A `BLOCKED` returned by an agent is a result. A
@@ -296,6 +300,30 @@ rejected — `produced_by: workflow`) always fails its called workflow; the cycl
 failed job and reports `FAILED`, with the workflow-set verdict kept in the timeline. It is
 never turned into a business `BLOCKED`. Nothing resumes automatically after `BLOCKED`,
 `MAX_ITERATIONS_REACHED` or `FAILED`.
+
+**`NO_OP` — pull request no longer open.** Runs are asynchronous: a human may merge or
+close the PR while a review is queued. That is a normal outcome, not an error.
+
+| PR state (read at runtime) | Reviewer | Iterator | Result |
+|---|---|---|---|
+| `OPEN` | runs normally | per the gates above | `APPROVED` / `BLOCKED` / `MAX_ITERATIONS_REACHED` / `FAILED` |
+| `CLOSED` | not executed, nothing published | not executed | `NO_OP` (`PR_ALREADY_CLOSED`) |
+| `MERGED` | not executed, nothing published | not executed | `NO_OP` (`PR_ALREADY_MERGED`) |
+
+- `NO_OP` ≠ `BLOCKED`: no agent ran, nobody has anything to fix or decide.
+- `NO_OP` ≠ `FAILED`: nothing broke. A GitHub API error, missing permissions, a PR not
+  found or an unknown state while reading the PR remain technical failures (`FAILED`), never
+  `NO_OP`.
+- `NO_OP` is an orchestration result, **not a Reviewer verdict**: the verdicts stay
+  `APPROVE | REQUEST_CHANGES | BLOCKED`, and a no-op Reviewer has an empty `verdict`.
+- The state is read twice by `agent-review.yml`: with the PR context (before any checkout)
+  and again right before Claude starts. A merge or close *during* the review cannot be
+  prevented: its verdict is published on the already merged or closed PR.
+- **Known limit — closed during the Iterator.** `agent-iterate.yml` keeps its precondition
+  "PR is `OPEN`": a PR closed or merged after `REQUEST_CHANGES` and before the Iterator
+  starts makes the Iterator fail with a workflow-set `BLOCKED`, so the cycle reports
+  `FAILED`. Turning that case into `NO_OP` too (Issue #18, Iterator criterion) is a planned
+  improvement. Nothing is pushed in that case.
 
 #### 2.5.2 One cycle per pull request
 
@@ -343,7 +371,7 @@ half-known state. Waiting is safe, since each step re-reads the PR.
 | Reviewer job permissions | target caller | `contents`, `issues`, `checks`, `statuses: read`; `pull-requests: write` (the comment only) |
 | `pull_request_number`, `iteration_number`, `max_iterations`, `review_json` | target → FlowForge (Iterator) | `review_json` = the Reviewer's `review.json`; base, head, Issue resolved from the PR |
 | Iterator job permissions | target caller | `contents: write` (the push job only), `issues: read`, `pull-requests: read` |
-| `verdict`, `result_artifact`, `review_json` | FlowForge → target (Reviewer) | `review_json`: full `review.json`, compact JSON |
+| `verdict`, `result_artifact`, `review_json`, `no_op_json` | FlowForge → target (Reviewer) | `review_json`: full `review.json`, compact JSON; `no_op_json`: set only on `NO_OP` (§5.2) |
 | `result`, `commit_sha`, `result_artifact`, `iteration_json` | FlowForge → target (Iterator) | `iteration_json`: final `iteration.json` (per-finding statuses), compact JSON |
 | `flowforge-review-cycle.yml` | target (copied from `examples/`) | Calls `review-cycle.yml`, `workflow_dispatch` only |
 | `pull_request_number`, `max_iterations` (+ `setup_uv`, `review_allowed_tools`, `iterate_allowed_tools`) | target → FlowForge (cycle) | Base/head branches resolved from the PR by each agent workflow, never passed in |
@@ -406,6 +434,7 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Result | Claude structured output (`--json-schema`), validated and rendered by the workflow — the comment format does not depend on the model |
 | Publication | One PR **comment** (not a GitHub review: no merge-state side effect, no "approve" by `GITHUB_TOKEN`), updated in place on re-runs |
 | Failure | Before Claude: the job fails. Claude failed or output rejected: `BLOCKED` published, job failed |
+| PR no longer open | `CLOSED` or `MERGED` when read (context, then right before Claude): `NO_OP`, job succeeds, no Claude run, no comment, no artifact; result in the step summary and `no_op_json` (§2.5.1) |
 | Trigger (target caller) | `workflow_dispatch` (`pull_request_number`) for Developer PRs, plus `pull_request` (`opened`, `reopened`, `synchronize`, `ready_for_review`) restricted to same-repo `agent/*` branches and to non-bot actors (`claude-code-action` refuses `github-actions[bot]`, so approving a bot-opened PR's waiting run cannot work). `workflow_dispatch` numbers reach `inputs` as strings: callers pass `fromJSON(...)` |
 
 ### 5.2 Review result contract (`review.json`, `schema_version: 1`)
@@ -446,6 +475,25 @@ Iterator.
 - Consistency enforced (agents/reviewer.md §8): `APPROVE` ⇒ no `BLOCKER`/`MAJOR` and every
   criterion `PASS`; `REQUEST_CHANGES` ⇒ a `BLOCKER`/`MAJOR` or a `FAIL`; `BLOCKED` ⇒
   non-empty `blocked_reason`.
+
+**No-op result (`no_op_json` output, `schema_version: 1`).** When the PR is no longer open,
+no `review.json` exists: `verdict` and `review_json` are empty and `no_op_json` carries
+
+```json
+{
+  "schema_version": 1,
+  "result": "NO_OP",
+  "reason": "PR_ALREADY_MERGED",
+  "repository": "owner/name",
+  "pull_request": 42,
+  "state": "MERGED",
+  "run_url": "https://github.com/..."
+}
+```
+
+- `reason` ∈ `PR_ALREADY_CLOSED | PR_ALREADY_MERGED`; `state` ∈ `CLOSED | MERGED` (GraphQL
+  `PullRequestState`, which reports a merged PR as `MERGED`, not `CLOSED`).
+- `no_op_json` is empty whenever a review ran or the run failed.
 
 ### 5.3 Iterator decisions (Phase 4)
 
@@ -556,7 +604,9 @@ overwritten by each review of the run, these copies keep the history.
 }
 ```
 
-- `result` ∈ `APPROVED | BLOCKED | MAX_ITERATIONS_REACHED | FAILED` (§2.5.1).
+- `result` ∈ `APPROVED | BLOCKED | MAX_ITERATIONS_REACHED | NO_OP | FAILED` (§2.5.1).
+- Review entries carry `no_op_reason`: `PR_ALREADY_CLOSED` or `PR_ALREADY_MERGED` for a
+  no-op Reviewer (then `verdict` is empty), `null` otherwise.
 - `timeline`: only the jobs that ran, in order; `job_result` ∈ `success | failure | cancelled`.
 - `iterations_used`: Iterator jobs engaged (succeeded or not). `final_reviewer_verdict`: the
   last verdict produced, empty when no Reviewer produced one.

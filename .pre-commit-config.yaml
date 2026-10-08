@@ -37,3 +37,10 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/workflows/(agent-iterate|review-cycle)\.yml|tests/iterator-partial-delivery\.sh)$
+      # Closed / merged pull request = NO_OP (Issue #18): Reviewer state gates and cycle result.
+      - id: review-no-op
+        name: review no-op tests
+        entry: tests/review-no-op.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/workflows/(agent-review|review-cycle)\.yml|tests/review-no-op\.sh)$
