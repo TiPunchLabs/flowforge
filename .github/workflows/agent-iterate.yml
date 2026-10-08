@@ -405,6 +405,12 @@ jobs:
             git commit -m "<conventional subject>" -m "Refs #$ISSUE_NUMBER".
             Never use git add -A, git add ., git commit -a or --amend. No commit when nothing
             is FIXED or when the result is BLOCKED.
+          - Partial delivery (rules, section 10): a NOT_ACTIONABLE or BLOCKED item does not stop
+            you from fixing the others. Undo every change attempted for an item you do not
+            mark FIXED, run the validations on that final state, and commit only the FIXED
+            items. A finding whose only fix touches CLAUDE.md, CLAUDE.local.md, .claude/,
+            .mcp.json or .github/workflows/ is NOT_ACTIONABLE (rules, section 6.3): never
+            modify those paths, the workflow rejects any commit touching them.
           - Do NOT push: the workflow verifies your commit and pushes it to $HEAD_BRANCH itself,
             fast-forward only. You cannot switch branches, push, merge, comment or change the
             pull request.
@@ -422,8 +428,9 @@ jobs:
           - result: COMPLETED, PARTIAL or BLOCKED, following rules section 10 exactly.
             blocked_reason: precisely what is missing or unsafe when BLOCKED, otherwise empty.
           - The workflow rejects an inconsistent result and replaces it with BLOCKED, without
-            pushing: for example COMPLETED with a BLOCKER or MAJOR item not FIXED or
-            ALREADY_RESOLVED, any validation FAIL outside BLOCKED, no validation at all, more
+            pushing: for example COMPLETED with a BLOCKED item or a BLOCKER or MAJOR item not
+            FIXED or ALREADY_RESOLVED, PARTIAL without any FIXED item or without any remaining
+            item, any validation FAIL outside BLOCKED, no validation at all, more
             than one commit, a commit without a FIXED item, or files of the FIXED items that
             differ from the files changed by your commit.
 
@@ -519,6 +526,9 @@ jobs:
           head_sha="$(ctx .headRefOid)"
           issue_number="$(if [[ -f "$dir/issue.json" ]]; then jq -r '.number' "$dir/issue.json"; fi)"
 
+          # Global result rules (agents/iterator.md, section 10). An item "remains" when it is
+          # BLOCKED, or NOT_ACTIONABLE with a mandatory severity. A remaining item never forces
+          # BLOCKED on its own: PARTIAL delivers the FIXED items when validations pass.
           # shellcheck disable=SC2016  # $w, $work, ... are jq variables
           checks='
             $w[0] as $work
@@ -538,15 +548,16 @@ jobs:
               def consistent:
                 . as $r
                 | [$work[] as $f | ($r.findings[] | select(.id == $f.id)) + {severity: $f.severity}] as $items
-                | ([$items[] | select(.status == "BLOCKED")] | length) as $blocked
-                | ([$items[] | select((.severity == "BLOCKER" or .severity == "MAJOR")
-                                      and .status == "NOT_ACTIONABLE")] | length) as $open_mandatory
+                | ([$items[] | select(.status == "FIXED")] | length) as $fixed
+                | ([$items[] | select(.status == "BLOCKED"
+                                      or ((.severity == "BLOCKER" or .severity == "MAJOR")
+                                          and .status == "NOT_ACTIONABLE"))] | length) as $remaining
                 | ((.validations | length) > 0 and all(.validations[]; .outcome == "PASS")) as $validated
                 | all($items[]; .severity != "NOTE" or .status == "NOT_ACTIONABLE")
                   and all($items[]; if .status == "FIXED" then (.files | length) > 0
                                     else (.explanation | length) > 0 end)
-                  and (if .result == "COMPLETED" then $blocked == 0 and $open_mandatory == 0 and $validated
-                       elif .result == "PARTIAL" then $blocked == 0 and $open_mandatory > 0 and $validated
+                  and (if .result == "COMPLETED" then $remaining == 0 and $validated
+                       elif .result == "PARTIAL" then $fixed > 0 and $remaining > 0 and $validated
                        else (.blocked_reason | length) > 0
                        end);
               well_formed and consistent'
@@ -781,6 +792,14 @@ jobs:
           fi
 
           jq -r --arg note "$artifact_note" '
+            def item: "- \(.status) — \(.severity) — \(.title)"
+              + (if (.files | length) > 0 then " (`\(.files | join("`, `"))`)" else "" end)
+              + (if .explanation == "" then ""
+                 elif .status | IN("NOT_ACTIONABLE", "BLOCKED") then "\n  Reason: \(.explanation)"
+                 else "\n  \(.explanation)" end);
+            def section($title; $statuses; $empty):
+              [.findings[] | select(.status | IN($statuses[]))] as $f
+              | "### \($title)", "", (if ($f | length) == 0 then $empty else ($f[] | item) end), "";
             "## FlowForge Iterator",
             "",
             "Result: **\(.result)**",
@@ -793,15 +812,10 @@ jobs:
               then "> ⚠️ This result was set by the workflow, not by the Iterator.", ""
               else empty end),
             (if .result == "BLOCKED" then "**Blocked:** \(.blocked_reason)", "" else empty end),
-            "### Findings",
-            "",
-            (if (.findings | length) == 0 then "_No work list._"
-              else .findings[]
-                | "- \(.status) — \(.severity) — \(.title)"
-                  + (if (.files | length) > 0 then " (`\(.files | join("`, `"))`)" else "" end)
-                  + (if .explanation != "" then "\n  \(.explanation)" else "" end)
+            (if (.findings | length) == 0 then "### Findings", "", "_No work list._", ""
+              else section("Delivered"; ["FIXED", "ALREADY_RESOLVED"]; "_Nothing delivered._"),
+                   section("Remaining"; ["NOT_ACTIONABLE", "BLOCKED"]; "_Nothing remaining._")
               end),
-            "",
             "### Changes",
             "",
             (if (.diff.files | length) == 0 then "_No file changed._"

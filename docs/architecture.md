@@ -276,7 +276,10 @@ acceptance criteria and the reviewed `head_sha` (freshness check), exactly as va
 the Reviewer workflow.
 
 **`PARTIAL`** goes back to the Reviewer like `COMPLETED`: the Reviewer stays the only
-authority able to say the PR is acceptable. Neither Iterator result is an approval.
+authority able to say the PR is acceptable. Neither Iterator result is an approval. A
+`PARTIAL` iteration has pushed its safe fixes; the remaining findings are in its result, and
+the next review decides again (typically `REQUEST_CHANGES`, or `BLOCKED` when only a human
+can act).
 
 #### 2.5.1 Final result
 
@@ -455,6 +458,9 @@ Iterator.
 | Commit | Made by Claude locally (one commit, explicit `git add`); moved to the push job as a git bundle so the commit SHA is preserved |
 | Push | Workflow, not agent: `git push origin <sha>:refs/heads/<head_branch>`, no force, only if the remote branch is still at the reviewed commit |
 | Result | Claude structured output validated by jq (statuses, `iterator.md` §10 rules, commit contract); violation → workflow `BLOCKED`, nothing pushed, run failed |
+| Partial delivery | Finding status ≠ global result. A `BLOCKED` or `NOT_ACTIONABLE` finding does not, by itself, block independent safe fixes: they are validated, committed, pushed, and the result is `PARTIAL` (`iterator.md` §10). Global `BLOCKED` is kept for unsafe or impossible situations: failed preconditions or validations, prompt injection, nothing `FIXED`, fixes that depend on a remaining finding |
+| Protected paths | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json`, `.github/workflows/`: never committed (commit rejected by the workflow). A finding that needs one is `NOT_ACTIONABLE`, "Human required: protected file `<path>`", not `BLOCKED` (`iterator.md` §6.3) |
+| Tests | `tests/iterator-partial-delivery.sh` runs the real step scripts (result rules, Git contract, render, cycle gates) on throwaway repositories; pre-commit hook, so also in CI |
 | No auto-review | The workflow stops after the push. Pushing with `GITHUB_TOKEN` does not start the target's `pull_request` workflows either |
 
 ### 5.4 Iteration result contract (`iteration.json`, `schema_version: 1`)
@@ -497,10 +503,15 @@ version (after the push) is also the `iteration_json` output, consumed by `revie
   output or a failed push set `BLOCKED` (every work-list item is then `BLOCKED`, "not processed").
 - `result` ∈ `COMPLETED | PARTIAL | BLOCKED`; `status` ∈ `FIXED | ALREADY_RESOLVED |
   NOT_ACTIONABLE | BLOCKED`; `source` ∈ `review | acceptance_criterion`.
-- Consistency enforced (agents/iterator.md §5, §10): `COMPLETED` ⇒ every `BLOCKER`/`MAJOR`
-  `FIXED` or `ALREADY_RESOLVED`, none `BLOCKED`, at least one validation and all `PASS`;
-  `PARTIAL` ⇒ same, but at least one `BLOCKER`/`MAJOR` `NOT_ACTIONABLE`; `BLOCKED` ⇒ non-empty
-  `blocked_reason`; `NOTE` ⇒ `NOT_ACTIONABLE`; `FIXED` ⇒ non-empty `files`.
+- Consistency enforced (agents/iterator.md §5, §10). A finding is *remaining* when it is
+  `BLOCKED` (any severity) or a `BLOCKER`/`MAJOR` `NOT_ACTIONABLE`. `COMPLETED` ⇒ no remaining
+  finding, at least one validation and all `PASS`; `PARTIAL` ⇒ at least one `FIXED`, at least
+  one remaining, at least one validation and all `PASS`; `BLOCKED` ⇒ non-empty `blocked_reason`;
+  `NOTE` ⇒ `NOT_ACTIONABLE`; `FIXED` ⇒ non-empty `files`; non-`FIXED` ⇒ non-empty `explanation`
+  (the reason). The commit contract applies to `PARTIAL` as to `COMPLETED`: one commit holding
+  exactly the files of the `FIXED` findings, nothing left uncommitted, no protected path.
+- `findings` always lists every work-list item; `iteration.md` renders them as **Delivered**
+  (`FIXED`, `ALREADY_RESOLVED`) and **Remaining** (`NOT_ACTIONABLE`, `BLOCKED`, with the reason).
 - `commit`: `null` when nothing was committed or the result is `BLOCKED` (never pushed).
 
 ### 5.5 Review cycle decisions (Phase 4)
