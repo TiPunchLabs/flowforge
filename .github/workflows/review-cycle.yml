@@ -26,10 +26,13 @@
 #   APPROVED                last Reviewer returned APPROVE
 #   BLOCKED                 a Reviewer or an Iterator returned BLOCKED (agent result)
 #   MAX_ITERATIONS_REACHED  last Reviewer returned REQUEST_CHANGES with no Iterator pass left
+#   NO_OP                   a Reviewer found the pull request already CLOSED or MERGED: it
+#                           no longer requires or allows review-cycle processing
 #   FAILED                  technical failure: a called workflow failed or was cancelled
 #                           (this includes a BLOCKED set by the workflow, not by an agent)
-# Only FAILED fails this run. Every state but APPROVED requires a human; APPROVED requires
-# one too, for the merge. Nothing here merges, marks the PR ready, or deletes a branch.
+# NO_OP has no verdict, so no later job runs. Only FAILED fails this run. BLOCKED,
+# MAX_ITERATIONS_REACHED and FAILED require a human; APPROVED requires one too, for the merge;
+# NO_OP requires nothing. Nothing here merges, marks the PR ready, or deletes a branch.
 name: FlowForge — review cycle
 
 on:
@@ -73,7 +76,7 @@ on:
         required: true
     outputs:
       result:
-        description: APPROVED, BLOCKED, MAX_ITERATIONS_REACHED or FAILED.
+        description: APPROVED, BLOCKED, MAX_ITERATIONS_REACHED, NO_OP or FAILED.
         value: ${{ jobs.summary.outputs.result }}
       iterations_used:
         description: Number of Iterator passes engaged (0 to max_iterations).
@@ -289,7 +292,9 @@ jobs:
               | if $kind == "review" then
                   doc($n.outputs.review_json) as $d
                   | {step: "review", round: ($k | tonumber), job: $job, job_result: $n.result,
-                     verdict: ($n.outputs.verdict // ""), head_sha: ($d.head_sha // null),
+                     verdict: ($n.outputs.verdict // ""),
+                     no_op_reason: (doc($n.outputs.no_op_json).reason // null),
+                     head_sha: ($d.head_sha // null),
                      produced_by: ($d.produced_by // null), counts: ($d.counts // null),
                      document: $d}
                 else
@@ -309,6 +314,8 @@ jobs:
                  {result: "FAILED", reason: "No agent ran."}
                elif $last.job_result != "success" then
                  {result: "FAILED", reason: "\($last.job) ended with \($last.job_result): technical failure, no reliable agent result."}
+               elif $last.step == "review" and $last.no_op_reason != null then
+                 {result: "NO_OP", reason: "Reviewer #\($last.round) did not run: pull request #\($pr) is no longer open (\($last.no_op_reason))."}
                elif $last.step == "review" and $last.verdict == "APPROVE" then
                  {result: "APPROVED", reason: "Reviewer #\($last.round) returned APPROVE."}
                elif $last.step == "review" and $last.verdict == "BLOCKED" then
@@ -366,6 +373,7 @@ jobs:
                     "- Reviewer #\(.round) → "
                     + (if .job_result != "success" then "**technical failure** (\(.job_result))"
                          + (if .verdict != "" then ", workflow-set \(.verdict)" else "" end)
+                       elif .no_op_reason then "**NO_OP** (\(.no_op_reason)), not executed"
                        else "**\(.verdict)**" + (.counts | counts) end)
                     + (if .head_sha then " on `\(.head_sha[0:12])`" else "" end)
                   else
@@ -385,6 +393,8 @@ jobs:
                "Human intervention required: read the blocked reason in the last agent result. The cycle does not resume on its own."
              elif .result == "MAX_ITERATIONS_REACHED" then
                "Human intervention required: the Iterator budget is spent and the Reviewer still requests changes."
+             elif .result == "NO_OP" then
+               "Nothing to do: the pull request is already closed or merged. No further Reviewer or Iterator ran, nothing was published."
              else
                "Human intervention required: technical failure, see the failed job log. Re-run the cycle once fixed."
              end),
@@ -411,10 +421,10 @@ jobs:
           overwrite: true
           retention-days: 30
 
-      # Agent results (APPROVED, BLOCKED, MAX_ITERATIONS_REACHED) end the run green; only a
-      # technical failure turns it red.
+      # Agent results (APPROVED, BLOCKED, MAX_ITERATIONS_REACHED) and NO_OP end the run green;
+      # only a technical failure turns it red.
       - name: Fail on technical failure
-        if: always() && steps.result.outputs.result != 'APPROVED' && steps.result.outputs.result != 'BLOCKED' && steps.result.outputs.result != 'MAX_ITERATIONS_REACHED'
+        if: always() && !contains(fromJSON('["APPROVED", "BLOCKED", "MAX_ITERATIONS_REACHED", "NO_OP"]'), steps.result.outputs.result)
         run: |
           echo "::error::The review cycle ended with a technical failure (FAILED); a human must look at the failed job."
           exit 1
