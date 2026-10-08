@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) implemented, live validation pending (§2.8). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -34,7 +34,7 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 
 | Component | Location | Responsibility |
 |---|---|---|
-| Terraform module | `terraform/modules/target-repository` | Onboard an existing repo: labels, Actions variables, later rulesets / permissions / environments |
+| Terraform module | `terraform/modules/target-repository` | Onboard an existing repo: labels, Actions variables, workflow token permissions, default-branch ruleset (human merge gate); later Actions permissions / environments |
 | Terraform root | `terraform/` | Onboards targets that have **no** Terraform of their own (one module block per target) |
 | Reusable workflow | `.github/workflows/agent-develop.yml` | Resolve the issue context, run Claude Code, produce branch + Draft PR |
 | Reusable workflow | `.github/workflows/agent-review.yml` | Resolve the PR + Issue context, run Claude Code read-only, publish one review comment + JSON artifact |
@@ -60,7 +60,7 @@ Terraform  ── module "target-repository" per target
         │
         ▼
 GitHub configuration of the target repo
-   (agent:* labels, Actions variables, rulesets later)
+   (agent:* labels, Actions variables, default-branch ruleset)
 ```
 
 A target is onboarded in **exactly one** Terraform state, in one of two modes:
@@ -98,7 +98,7 @@ Claude Code   ◄── agents/developer.md + target CLAUDE.md + issue
 Branch agent/<issue>-<slug>  + commits  + Draft PR
         │
         ▼
-Human review → merge (never by the agent)
+Human review → GitHub approval → merge (never by the agent; enforced by the ruleset, §2.7)
 ```
 
 > 💡 **Note**: a reusable workflow runs in the **caller's** context: `github.repository`,
@@ -153,7 +153,7 @@ Draft PR
   ↓
 Reviewer   ◄── agents/reviewer.md + target CLAUDE.md (base) + issue + diff + CI results
   ↓            (read-only: findings + verdict, never commits nor merges)
-  ├── APPROVE          → human review → merge (never by an agent)
+  ├── APPROVE          → human review + GitHub approval → merge (never by an agent, §2.7)
   ├── REQUEST_CHANGES  → structured findings
   └── BLOCKED          → reliable review impossible, missing information stated
 ```
@@ -468,6 +468,75 @@ Project automation (or a label → field sync) maps one-to-one.
 | Blocked | `agent:blocked` |
 | Done | `agent:done` |
 
+### 2.7 Human merge gate (Phase 4.1)
+
+> **Status**: implemented in the Terraform module (`github_repository_ruleset`, enabled by
+> default); enforced on a target once its own state is applied. Live validation pending (§2.8).
+
+The full chain, from Issue to merge:
+
+```text
+Issue + agent:ready
+  ↓
+Developer ──► branch agent/<issue>-<slug> + Draft PR
+  ↓
+Reviewer ──► APPROVE ─────────────────────────────┐
+  │          BLOCKED ──► human decision            │
+  ↓          REQUEST_CHANGES                       │
+Iterator (fixes on the PR branch)                  │
+  ↓                                                │
+Reviewer … at most 3 Iterator passes               │
+  ↓                                                │
+cycle result: APPROVED / BLOCKED / MAX_ITERATIONS_REACHED
+  ↓                                                ◄┘
+PR still Draft, still unmerged, still protected
+  ↓
+human: Ready for review → GitHub approval (≥ 1) → merge     ← enforced by GitHub
+  ↓
+agent-lifecycle.yml ──► agent:done
+```
+
+**Two different approvals.**
+
+| | FlowForge Reviewer `APPROVE` | GitHub approval |
+|---|---|---|
+| Who | Reviewer agent (`github-actions[bot]`) | A human with write access |
+| What it is | A verdict in one PR **comment** + `review.json` | A PR **review** with state `APPROVED` |
+| Counts for the ruleset | No | Yes |
+| Meaning | "No finding left, in the agent's judgement" | "I take responsibility for this merge" |
+
+`APPROVED` (cycle result) is therefore an input to the human decision, never a substitute.
+
+**Enforcement** — ruleset `flowforge-default-branch` on `~DEFAULT_BRANCH`
+(`terraform/modules/target-repository`, README "Default-branch ruleset"):
+
+- pull request required: nobody pushes directly to the default branch;
+- at least one approving review (`required_approving_review_count = 1`); approvals are
+  dismissed by any new push (an Iterator commit after a human approval needs a new one);
+- force push and deletion blocked;
+- no required status check yet (no stable target check);
+- no bypass actor by default. Opt-in `admin_pull_request_bypass` for solo-maintainer targets:
+  the *admin* repository role may merge a PR without approval, never push directly. Agents
+  run as `github-actions[bot]`, which is not an admin.
+
+Why agents cannot pass the gate: they author their PRs (an author cannot approve its own PR),
+no FlowForge workflow submits a review, merges, enables auto-merge or marks a PR ready, and
+`agent/*` branches are not matched by the ruleset, so Developer and Iterator pushes are
+unaffected. `demo-api` opts in to the admin bypass (single human writer); its ruleset lives
+in its own state, like its labels.
+
+### 2.8 Phase 4.1 — Hardening & lifecycle
+
+| Item | Implementation | Live validation |
+|---|---|---|
+| #17 Iterator partial delivery (`PARTIAL`) | ✅ done (§5.3, `tests/iterator-partial-delivery.sh`) | ⏳ pending: a real `PARTIAL` delivery |
+| #18 closed / merged PR = `NO_OP` | ✅ done (§2.5.1, `tests/review-no-op.sh`) | ⏳ pending: a real close / merge race during a cycle |
+| #19 Issue label lifecycle | ✅ done (§2.6, `tests/label-lifecycle.sh`), rolled out on `demo-api` | ⏳ pending: a real `pull_request: closed`, `agent:review` → `agent:done` |
+| Human merge gate (default-branch ruleset) | ✅ done (§2.7, `terraform test` of the module) | ⏳ pending: `apply` on `demo-api`, then a merge refused without approval |
+
+Only offline tests back these items so far; none is claimed validated live until the
+Phase 4.1 stabilization E2E has run.
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
@@ -514,8 +583,8 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Bounded agent | `--max-turns 40` + 30-min job timeout; Bash denied except an explicit allowlist (git read/commit, push of `HEAD` to its own `agent/*` ref only, `gh pr create --draft`, target commands) |
 | Least privilege (Terraform) | Fine-grained token limited to onboarded repositories |
 | Untrusted issue content | Read via `env` + `jq`, never `${{ }}`-interpolated into scripts; treated as data by the agent |
-| No direct push to `main` | Only `git push origin HEAD:refs/heads/<agent branch>` is allowed + agent rules + default-branch ruleset (planned in the module) |
-| Human merge | Agent opens **Draft** PRs only (forced back to draft by the workflow if needed); a default-branch ruleset requiring a human approval is planned in the module but **not enforced yet**: until then, merging only after a human review is a convention |
+| No direct push to `main` | Only `git push origin HEAD:refs/heads/<agent branch>` is allowed + agent rules + default-branch ruleset (pull request required, no force push, no deletion — §2.7) |
+| Human merge | Agent opens **Draft** PRs only (forced back to draft by the workflow if needed); the default-branch ruleset requires ≥ 1 GitHub approval, which the agent identity cannot give; no bypass for FlowForge, no auto-merge, no automatic Draft → Ready (§2.7) |
 | Pinned actions | Third-party actions pinned by commit SHA |
 | Read-only Reviewer | Review job has no write permission; publish job has `pull-requests: write` only and never runs PR code; Edit/Write tools disallowed; `persist-credentials: false` |
 | Reviewer configuration not controlled by the PR | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json` reset to the base branch in the local workspace before Claude runs; fork PRs rejected |
@@ -733,5 +802,5 @@ overwritten by each review of the run, these copies keep the history.
 | Topic | To decide at |
 |---|---|
 | Remote Terraform backend | Before the first `apply` |
-| Exact default-branch ruleset | Phase 1, step 3 |
+| Required status checks in the default-branch ruleset | Once targets have a stable CI check |
 | Automatic start of the review cycle after the Developer (today: `workflow_dispatch`) | After the review cycle E2E |

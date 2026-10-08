@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)).** Nothing here is production-ready.
+> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening) implemented, live validation pending.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -34,17 +34,18 @@ Using a coding agent on one repository is easy. Using it on **many** repositorie
 ```mermaid
 flowchart TD
     FF[FlowForge] --> TF[Terraform<br/>target-repository module]
-    FF --> WF[Reusable GitHub Actions<br/>agent-develop.yml]
+    FF --> WF[Reusable GitHub Actions<br/>agent-develop.yml, review-cycle.yml]
     FF --> AG[Agents<br/>developer.md, reviewer.md, iterator.md]
 
-    TF -- labels, variables, rulesets --> T[Target repository]
+    TF -- labels, variables, default-branch ruleset --> T[Target repository]
     T --> I[Issue + agent:ready]
     I --> C[flowforge-agent.yml]
     C -- workflow_call --> WF
     WF --> CC[Claude Code]
     AG -.rules.-> CC
     CC --> PR[Branch agent/&lt;n&gt;-&lt;slug&gt;<br/>+ Draft PR]
-    PR --> H[Human review & merge]
+    PR --> RC[Reviewer ↔ Iterator<br/>review-cycle.yml, ≤ 3 passes]
+    RC --> H[Human GitHub approval & merge<br/>enforced by the ruleset]
 ```
 
 Details: [docs/architecture.md](docs/architecture.md).
@@ -87,6 +88,25 @@ The cycle never merges, never marks the PR ready for review: the final merge sta
 
 ------
 
+## 🛡️ Human merge gate
+
+The last step is a **human** decision, enforced by GitHub, not only by convention. The
+Terraform module puts a ruleset on the target's default branch: pull request required, at
+least one GitHub approval, approvals dismissed by new pushes, no force push, no deletion, no
+bypass for FlowForge.
+
+```text
+Reviewer APPROVE → cycle APPROVED → PR still Draft and unmerged
+→ human: Ready for review → GitHub approval → merge → agent:done
+```
+
+A Reviewer `APPROVE` is an agent verdict posted as a PR comment; it is **not** a GitHub
+approval and does not count for the ruleset. Agent PRs are authored by `github-actions[bot]`,
+which cannot approve its own PRs; no FlowForge workflow approves, merges or enables
+auto-merge. Details: [docs/architecture.md §2.7](docs/architecture.md#27-human-merge-gate-phase-41).
+
+------
+
 ## 🚀 Phase 1
 
 Goal: make the flow above work end to end on one POC repository, `demo-api`
@@ -100,8 +120,13 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
 | Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
+| Phase 4.1 — Hardening & lifecycle | 🔧 Implemented, live validation pending ([§2.8](docs/architecture.md#28-phase-41--hardening--lifecycle)) |
 
-Later phases (not started): Refiner agent, GitHub Project, Notion.
+Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
+label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
+Each is covered by offline tests only; the live checks are still to run.
+
+**Future (not implemented)**: Refiner agent, GitHub Project, Notion.
 
 ------
 
@@ -121,7 +146,8 @@ Later phases (not started): Refiner agent, GitHub Project, Notion.
 ```text
 .github/workflows/agent-develop.yml   reusable Developer workflow (called by targets)
 .github/workflows/agent-review.yml    reusable Reviewer workflow (called by targets)
-.github/workflows/agent-iterate.yml   reusable Iterator workflow (one iteration, no loop yet)
+.github/workflows/agent-iterate.yml   reusable Iterator workflow (one iteration per call)
+.github/workflows/review-cycle.yml    reusable bounded Reviewer ↔ Iterator loop (≤ 3 Iterator passes)
 .github/workflows/agent-lifecycle.yml reusable lifecycle workflow (Issue terminal state on PR close)
 .github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
@@ -129,7 +155,7 @@ agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules
 agents/iterator.md                    generic Iterator agent rules
 examples/target-repository/           caller workflows to copy into a target
-terraform/                            root config + target-repository module
+terraform/                            root config + target-repository module (labels, ruleset…)
 docs/                                 architecture and phase plans
 scripts/                              maintainer helpers (empty for now)
 ```
@@ -149,7 +175,8 @@ request and on pushes to `main`.
 ## 🔐 Security
 
 No token or secret is ever committed; Terraform reads `GITHUB_TOKEN` from the environment;
-workflows use minimal permissions; agents only open Draft PRs. See
+workflows use minimal permissions; agents only open Draft PRs, and a default-branch ruleset
+requires a human approval to merge. See
 [docs/architecture.md §4](docs/architecture.md#4--security-model).
 
 ## 💡 Inspiration

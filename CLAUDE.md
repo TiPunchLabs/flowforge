@@ -86,6 +86,10 @@ Full E2E done on 2026-10-07/08 (FlowForge `647e663`): 4 Developer PRs `APPROVED`
 reservations and evidence in `docs/milestones/phase4-iterator-e2e.md`, tag `flowforge-phase4-iterator-e2e`.
 Phase 4.1 (hardening): Issue label lifecycle (#19) — one `agent:*` state label per Issue,
 `agent:done` only after the human merge; see `docs/architecture.md` §2.6.
+Phase 4.1 also covers Iterator partial delivery (#17), closed/merged PR = `NO_OP` (#18) and the
+human merge gate: `github_repository_ruleset` on the default branch in the `target-repository`
+module (PR + ≥ 1 approval, no force push/deletion, no FlowForge bypass; §2.7). All Phase 4.1
+items are tested offline only; live validation is pending (§2.8).
 
 ## Out of scope for now
 
@@ -106,6 +110,7 @@ actionlint                                         # pre-commit hook (also runs 
 tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator result rules
 tests/review-no-op.sh                              # pre-commit hook: closed/merged PR = NO_OP
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
+terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 ```
 
 ## Conventions
