@@ -1,6 +1,6 @@
 # 🏁 Milestone — Phase 4: Iterator E2E
 
-> **Tag**: not created yet — to be placed in a separate step (see §9)
+> **Tag**: `flowforge-phase4-iterator-e2e` (annotated, on FlowForge and `demo-api`)
 > **Date**: 2026-10-07/08 (UTC)
 > **Status**: ✅ Validated with reservations (§7) — Developer, Reviewer, Iterator and the bounded
 > review cycle run end to end on `demo-api`; no auto-merge, no agent push to `main`.
@@ -173,12 +173,13 @@ ready, never deletes a branch.
 
 | Repository | Validated commit | Why this commit | Tag |
 |---|---|---|---|
-| `TiPunchLabs/flowforge` | `647e663297c3777c1273530b1e75c4b55fb63f51` | `main` HEAD executed by every Developer, Reviewer, Iterator and cycle run of this milestone | to be created |
-| `TiPunchLabs/demo-api` | `9d24dd2` | Human merge of PR #20, the PR on which the Iterator ran (cycle #2) | to be created |
+| `TiPunchLabs/flowforge` | `647e663297c3777c1273530b1e75c4b55fb63f51` | `main` HEAD executed by every Developer, Reviewer, Iterator and cycle run of this milestone | `flowforge-phase4-iterator-e2e` → this commit |
+| `TiPunchLabs/demo-api` | `9d24dd2` | Human merge of PR #20, the PR on which the Iterator ran (cycle #2) | `flowforge-phase4-iterator-e2e` → this commit |
 | `TiPunchLabs/demo-api` | `4185089` | Final state after all PRs of the session were merged and verified (§6.5) | — |
 
-> 💡 **Note**: as for Phase 3, the FlowForge tag should point to the **validated** commit
-> (`647e663`), not to the later commit adding this document.
+> 💡 **Note**: as for Phase 3, the FlowForge tag points to the **validated** commit
+> (`647e663`), not to the later commit adding this document. Previous milestone:
+> `flowforge-phase3-reviewer-e2e` (FlowForge `2ca4e57`, demo-api `b76dbbb`), left unchanged.
 
 ## 10. 🚀 Next
 
@@ -193,4 +194,4 @@ ready, never deletes a branch.
 
 > **Document created on**: 2026-10-08
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.0
+> **Version**: 1.1 — tag created
