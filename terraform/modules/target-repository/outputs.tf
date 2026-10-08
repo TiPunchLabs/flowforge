@@ -12,3 +12,8 @@ output "labels" {
   description = "Names of the FlowForge labels managed on the repository."
   value       = sort(keys(github_issue_label.flowforge_labels))
 }
+
+output "default_branch_ruleset_id" {
+  description = "ID of the default-branch ruleset, null when disabled."
+  value       = one(github_repository_ruleset.default_branch[*].ruleset_id)
+}

@@ -49,3 +49,26 @@ variable "actions_variables" {
   type        = map(string)
   default     = {}
 }
+
+variable "default_branch_ruleset_enabled" {
+  description = "Manage the FlowForge ruleset on the default branch (pull request + human approval, no force push, no deletion). Disable only if the target protects its default branch elsewhere."
+  type        = bool
+  default     = true
+}
+
+variable "required_approving_review_count" {
+  description = "Approving reviews required to merge into the default branch. At least 1: FlowForge agents never provide it."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.required_approving_review_count >= 1 && var.required_approving_review_count <= 10 && floor(var.required_approving_review_count) == var.required_approving_review_count
+    error_message = "required_approving_review_count must be a whole number between 1 and 10."
+  }
+}
+
+variable "admin_pull_request_bypass" {
+  description = "Let repository admins bypass the default-branch ruleset when merging a pull request (never for direct pushes). For solo-maintainer targets; agent identities are never admins."
+  type        = bool
+  default     = false
+}

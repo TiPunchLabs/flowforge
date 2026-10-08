@@ -51,3 +51,10 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/(agent-develop|review-cycle|agent-lifecycle)\.yml|scripts/flowforge-state\.sh)|examples/target-repository/flowforge-lifecycle\.yml|terraform/modules/target-repository/variables\.tf|tests/label-lifecycle\.sh)$
+      # Default-branch ruleset (human merge gate): `terraform test` with a mocked provider, no GitHub call.
+      - id: target-repository-module-test
+        name: target-repository module tests
+        entry: bash -c 'terraform -chdir=terraform/modules/target-repository init -backend=false -input=false >/dev/null && terraform -chdir=terraform/modules/target-repository test'
+        language: system
+        pass_filenames: false
+        files: ^terraform/modules/target-repository/
