@@ -8,8 +8,10 @@
 #        automation mode) -> branch agent/<issue>-<slug> -> code + tests -> Draft PR
 #        -> human review. The agent never merges and never pushes to the base branch.
 #
-# Labels:  agent:ready -> agent:running -> agent:review (Draft PR open)
-#                                       -> agent:blocked (no PR, or Claude Code failed)
+# Labels:  agent:ready -> agent:running -> agent:review  (Draft PR open)
+#                                       -> agent:blocked (agent stopped: no PR, Claude Code succeeded)
+#                                       -> no state      (technical failure: no PR, Claude Code
+#                                                         failed, was cancelled or did not run)
 #          One FlowForge state label at a time (.github/scripts/flowforge-state.sh,
 #          docs/architecture.md §2.6).
 name: FlowForge — agent develop
@@ -248,7 +250,11 @@ jobs:
             Bash(gh pr create --draft:*),Bash(gh pr view:*)
             ${{ inputs.allowed_tools != '' && format(',{0}', inputs.allowed_tools) || '' }}"
 
-      # Runs even when Claude Code fails, so the issue never stays "running".
+      # Runs even when Claude Code fails, so the issue never stays "running". The label
+      # follows facts: a Draft PR exists -> review; the agent ended normally without one (it
+      # stopped and commented, rules §8) -> blocked, a business state; Claude Code failed,
+      # was cancelled or never ran -> no state: a technical failure is not BLOCKED, it only
+      # needs a re-run (re-add the ready label).
       - name: Enforce Draft PR and set final label
         id: finalize
         if: always() && steps.running.outcome == 'success'
@@ -269,11 +275,17 @@ jobs:
             gh pr ready "$number" --repo "$GITHUB_REPOSITORY" --undo
           fi
 
-          if [[ "$CLAUDE_OUTCOME" == "success" && -n "$number" ]]; then
+          if [[ -n "$number" ]]; then
             label=agent:review
-          else
+            if [[ "$CLAUDE_OUTCOME" != "success" ]]; then
+              echo "::warning::Claude Code ended with '$CLAUDE_OUTCOME' after opening Draft PR #$number; the review will judge it."
+            fi
+          elif [[ "$CLAUDE_OUTCOME" == "success" ]]; then
             label=agent:blocked
-            echo "::warning::No Draft PR from this run (Claude Code: $CLAUDE_OUTCOME). Issue marked $label."
+            echo "::warning::The agent stopped without a Draft PR (see its Issue comment). Issue marked $label."
+          else
+            label=""
+            echo "::warning::Technical failure (Claude Code: ${CLAUDE_OUTCOME:-not run}), no Draft PR. Issue left without a FlowForge state: re-add the ready label to retry (delete the agent branch first if it was pushed)."
           fi
           # Fetched here rather than reused from a file: Claude Code ran in between.
           helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
@@ -286,5 +298,5 @@ jobs:
           {
             echo "- Claude Code: **$CLAUDE_OUTCOME**"
             echo "- Draft PR: ${number:+#}${number:-none}"
-            echo "- Label: \`$label\`"
+            echo "- Label: \`${label:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"

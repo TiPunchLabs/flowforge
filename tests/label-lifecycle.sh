@@ -130,9 +130,24 @@ expect "B  Draft PR: step succeeds" "$(code "$c")" 0
 expect "B  Draft PR: running -> review" "$(labels "$c")" '["agent:review","bug"]'
 expect "B  Draft PR: pull_request output kept" "$(sed -n 's/^pull_request=//p' "$c/github_output")" 2
 
-c="$(new_case b-fail '["agent:running"]')"
-run "$c" "$work/finalize.sh" BRANCH=agent/1-x CLAUDE_OUTCOME=failure FAKE_PR_NUMBER=
-expect "B  no Draft PR: running -> blocked" "$(labels "$c")" '["agent:blocked"]'
+c="$(new_case b-stop '["agent:running","bug"]')"
+run "$c" "$work/finalize.sh" BRANCH=agent/1-x CLAUDE_OUTCOME=success FAKE_PR_NUMBER=
+expect "B  agent stopped, no Draft PR: running -> blocked (business)" "$(code "$c")/$(labels "$c")" '0/["agent:blocked","bug"]'
+
+# E3: a technical failure is not BLOCKED. No Draft PR -> no FlowForge state, re-run possible.
+for outcome in failure cancelled skipped ""; do
+  c="$(new_case "b-tech-${outcome:-none}" '["agent:running","bug"]')"
+  run "$c" "$work/finalize.sh" BRANCH=agent/1-x CLAUDE_OUTCOME="$outcome" FAKE_PR_NUMBER=
+  expect "B  technical failure (${outcome:-not run}), no Draft PR: no state, never blocked" \
+    "$(code "$c")/$(labels "$c")" '0/["bug"]'
+  expect "B  technical failure (${outcome:-not run}): warning says re-run" \
+    "$(grep -c 'Technical failure.*re-add the ready label' "$c/log")" 1
+done
+
+c="$(new_case b-fail-pr '["agent:running"]')"
+run "$c" "$work/finalize.sh" BRANCH=agent/1-x CLAUDE_OUTCOME=failure FAKE_PR_NUMBER=2
+expect "B  Claude failed after opening a Draft PR: review (the Reviewer judges it)" \
+  "$(code "$c")/$(labels "$c")" '0/["agent:review"]'
 
 # --- C: REVIEW -> BLOCKED (review cycle BLOCKED / MAX_ITERATIONS_REACHED) ---------------------
 c="$(new_case c '["agent:review","bug"]')"

@@ -8,7 +8,8 @@
 # not a log; history lives in the GitHub timeline, Actions runs, PRs and reviews.
 #
 #   (none) ──human──► agent:ready ──Developer starts──► agent:running
-#   agent:running ──Draft PR──► agent:review        ──no Draft PR──► agent:blocked
+#   agent:running ──Draft PR──► agent:review   ──agent stopped, no PR──► agent:blocked
+#   agent:running ──technical failure, no PR──► (none)
 #   agent:review  ──cycle BLOCKED / MAX_ITERATIONS_REACHED──► agent:blocked
 #   agent:review | agent:blocked ──PR merged──► agent:done
 #   agent:review | agent:blocked ──PR closed unmerged──► (none)

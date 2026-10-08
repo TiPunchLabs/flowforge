@@ -370,7 +370,8 @@ state label.
 ```text
 (none) ──human──► agent:ready ──Developer starts──► agent:running
                                                         │
-                              ┌── Draft PR delivered ───┴─── no Draft PR ──┐
+                              ┌── Draft PR delivered ───┴── agent stopped, ┐
+                              │                             no Draft PR    │
                               ▼                                            ▼
                         agent:review ──── cycle BLOCKED or ────────► agent:blocked
                         (Reviewer ↔ Iterator;  MAX_ITERATIONS_REACHED      │
@@ -378,15 +379,17 @@ state label.
                               │                                            │
                               ├── PR merged by a human ──► agent:done ◄────┤
                               └── PR closed unmerged ────► (none)     ◄────┘
+
+agent:running ── technical failure (Claude Code failed / cancelled / not run), no Draft PR ──► (none)
 ```
 
 | State | Label | Set by | Event | Removed labels |
 |---|---|---|---|---|
-| Backlog | *(none)* | human, or `agent-lifecycle.yml` | Issue written; or PR closed without merge | every FlowForge state |
+| Backlog | *(none)* | human, `agent-develop.yml` or `agent-lifecycle.yml` | Issue written; Developer technical failure without a Draft PR; PR closed without merge | every FlowForge state |
 | Ready | `agent:ready` | human | Issue refined | — (trigger of the Developer) |
 | Running | `agent:running` | `agent-develop.yml` | Developer starts (preconditions passed) | every other state, and `ready_label` |
-| Review | `agent:review` | `agent-develop.yml` | Developer delivered a Draft PR | every other state |
-| Blocked | `agent:blocked` | `agent-develop.yml` | Developer ended without a Draft PR | every other state |
+| Review | `agent:review` | `agent-develop.yml` | A Draft PR exists at the end of the Developer run (even if Claude Code then failed: the review judges it) | every other state |
+| Blocked | `agent:blocked` | `agent-develop.yml` | Claude Code ended normally without a Draft PR: the agent stopped and commented (rules §8) | every other state |
 | Blocked | `agent:blocked` | `review-cycle.yml` (`issue_state`) | cycle result `BLOCKED` or `MAX_ITERATIONS_REACHED`, PR still open, Issue in `agent:review` | every other state |
 | Done | `agent:done` | `agent-lifecycle.yml` | PR **merged** (by a human), Issue in `agent:review` or `agent:blocked` | every other state |
 
@@ -402,9 +405,12 @@ state label.
   handled by `agent-lifecycle.yml`.
 - The stand-alone `agent-review.yml` (`flowforge-review.yml`) never changes labels: only the
   cycle, which owns the decision, does.
-- The Developer's `agent:blocked` covers both an agent that stopped and a failed run: either
-  way no Draft PR exists and a human must act before the Issue can move on. Known limit,
-  unchanged by #19: a re-run then requires deleting the `agent/*` branch first.
+- **Developer: business stop vs technical failure.** `agent:blocked` only when the agent
+  itself stopped (Claude Code `success`, no Draft PR): a human must clarify the Issue. When
+  Claude Code failed, was cancelled or never ran (`failure`, `cancelled`, `skipped`) and no
+  Draft PR exists, the Issue goes back to no FlowForge state, with a warning: a re-run
+  (re-adding `agent:ready`) is enough. Known limit, unchanged by #19: a re-run requires
+  deleting the `agent/*` branch first if it was pushed.
 
 **Closed without merge.** The work was abandoned, not done: no `agent:done`. It is not
 `agent:blocked` either: the agent is not waiting for anything, a human chose to stop. The
