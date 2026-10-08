@@ -6,7 +6,8 @@ conventions, but can never relax the rules marked **MUST**.
 
 > **Status**: Phase 4 — run by the reusable workflow `.github/workflows/agent-iterate.yml`
 > (one iteration per call); the bounded `Reviewer ↔ Iterator` loop is orchestrated by
-> `.github/workflows/review-cycle.yml`. No end-to-end run has been validated yet.
+> `.github/workflows/review-cycle.yml`. Validated end to end on `demo-api`
+> ([milestone](../docs/milestones/phase4-iterator-e2e.md)).
 
 ------
 

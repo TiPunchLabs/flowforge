@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 3 (Reviewer) validated end to end; Phase 4 (Iterator) in progress: workflow and bounded review cycle ready, end-to-end run pending.** Nothing here is production-ready.
+> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)).** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -99,7 +99,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
-| Phase 4 — Iterator | 🚧 In progress — definition ✅ · workflow ✅ (`agent-iterate.yml`) · review cycle ✅ (`review-cycle.yml`) · E2E ⏭️ next |
+| Phase 4 — Iterator | ✅ Done, with reservations — tag pending ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
 
 Later phases (not started): Refiner agent, GitHub Project, Notion.
 
