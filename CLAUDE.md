@@ -10,6 +10,8 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/workflows/agent-review.yml` — reusable (`workflow_call`) read-only Reviewer workflow, called by targets;
 - `.github/workflows/agent-iterate.yml` — reusable (`workflow_call`) Iterator workflow (one iteration);
 - `.github/workflows/review-cycle.yml` — reusable (`workflow_call`) bounded `Reviewer ↔ Iterator` loop, called by targets;
+- `.github/workflows/agent-lifecycle.yml` — reusable (`workflow_call`) terminal Issue state on PR close (`agent:done` on merge);
+- `.github/scripts/flowforge-state.sh` — the single implementation of `agent:*` state label transitions;
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`), independent of any target project.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
@@ -22,6 +24,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | Path | Contains | Must NOT contain |
 |---|---|---|
 | `.github/workflows/` | Reusable workflows for targets + FlowForge's own CI (`ci.yml`) | Target-specific logic |
+| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`) | Target-specific logic, tokens |
 | `.github/ISSUE_TEMPLATE/` | Issue forms | — |
 | `agents/` | Generic agent rules | Project-specific conventions (those live in the target's `CLAUDE.md`) |
 | `terraform/` | Root module: provider, one `module` block per target **without its own IaC** | Credentials, backend secrets, targets already onboarded in their own IaC |
@@ -81,6 +84,8 @@ Iterator #3 → Reviewer #4 with `if:` gates; final result `APPROVED` / `BLOCKED
 Full E2E done on 2026-10-07/08 (FlowForge `647e663`): 4 Developer PRs `APPROVED`, Iterator run on
 `demo-api` PR #20 (`REQUEST_CHANGES` → `COMPLETED` → `APPROVE`), `BLOCKED` and concurrency observed;
 reservations and evidence in `docs/milestones/phase4-iterator-e2e.md`, tag `flowforge-phase4-iterator-e2e`.
+Phase 4.1 (hardening): Issue label lifecycle (#19) — one `agent:*` state label per Issue,
+`agent:done` only after the human merge; see `docs/architecture.md` §2.6.
 
 ## Out of scope for now
 
@@ -100,6 +105,7 @@ yamllint -d relaxed .github examples               # optional, if installed
 actionlint                                         # pre-commit hook (also runs in CI)
 tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator result rules
 tests/review-no-op.sh                              # pre-commit hook: closed/merged PR = NO_OP
+tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
 ```
 
 ## Conventions

@@ -33,6 +33,11 @@
 # NO_OP has no verdict, so no later job runs. Only FAILED fails this run. BLOCKED,
 # MAX_ITERATIONS_REACHED and FAILED require a human; APPROVED requires one too, for the merge;
 # NO_OP requires nothing. Nothing here merges, marks the PR ready, or deletes a branch.
+#
+# Issue state label (job issue_state, docs/architecture.md §2.6): BLOCKED and
+# MAX_ITERATIONS_REACHED move the linked Issue from agent:review to agent:blocked. APPROVED
+# keeps agent:review (the human merge is still to come), FAILED is a technical failure, not a
+# business state, and NO_OP means the PR is closed (agent-lifecycle.yml handles that).
 name: FlowForge — review cycle
 
 on:
@@ -428,3 +433,44 @@ jobs:
         run: |
           echo "::error::The review cycle ended with a technical failure (FAILED); a human must look at the failed job."
           exit 1
+
+  # The only job of the cycle that writes to an Issue, and only for results needing a human.
+  issue_state:
+    name: Issue state label
+    needs: summary
+    if: always() && contains(fromJSON('["BLOCKED", "MAX_ITERATIONS_REACHED"]'), needs.summary.outputs.result)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write         # move the linked Issue to agent:blocked
+      pull-requests: read   # PR state and its closing Issue reference
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+    steps:
+      # Guards: the PR is still open (a merge or close in the meantime belongs to
+      # agent-lifecycle.yml), exactly one Issue is linked by GitHub, and that Issue is in
+      # agent:review, so only a FlowForge Issue in the expected state is ever relabeled.
+      - name: Mark linked Issue as blocked
+        env:
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-state.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+
+          pr="$(flowforge_pr_issue "$PR_NUMBER")"
+          read -r state issue <<<"$pr"
+          if [[ "$state" != "OPEN" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER is $state: Issue label left to agent-lifecycle.yml."
+          elif [[ -z "$issue" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER does not close exactly one Issue: no label changed."
+          elif ! flowforge_has_state "$issue" agent:review; then
+            echo "::notice::Issue #$issue is not in agent:review: no label changed."
+          else
+            flowforge_set_state "$issue" agent:blocked
+            echo "Issue #$issue: \`agent:blocked\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

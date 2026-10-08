@@ -31,8 +31,15 @@ The module never creates, renames, archives or deletes the repository itself.
 | `agent:running` | **1** | An agent is currently working on the issue |
 | `agent:review` | **1** | A Draft PR is waiting for human review |
 | `agent:blocked` | **1** | The agent cannot proceed and needs human input |
+| `agent:done` | **4.1** | The agent PR was merged by a human; terminal state |
 
-`agent:ready` is set by a human; the Developer workflow switches the other three.
+An Issue carries at most one of these state labels (lifecycle: `docs/architecture.md` §2.6).
+`agent:ready` is set by a human; the Developer, review-cycle and lifecycle workflows switch
+the others.
+
+> 💡 **Note**: adding a label to the module does not create it on targets already onboarded:
+> the next `terraform plan` / `apply` of each target's own state does. Until then the
+> workflows skip a missing state label with a warning.
 
 ------
 
@@ -56,7 +63,7 @@ module "demo_api" {
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `repository` | `string` | — | Bare name of the existing repository |
-| `labels` | `map(object({color, description}))` | the 4 `agent:*` labels | Labels to manage |
+| `labels` | `map(object({color, description}))` | the 5 `agent:*` state labels | Labels to manage |
 | `actions_variables` | `map(string)` | `{}` | Non-secret Actions variables |
 
 ### Outputs

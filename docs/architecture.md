@@ -13,6 +13,7 @@
            │  module                agent-review.yml          reviewer.md        │
            │                        agent-iterate.yml         iterator.md        │
            │                        review-cycle.yml          (generic rules)    │
+           │                        agent-lifecycle.yml                          │
            │                        (workflow_call)                              │
            └──────┬───────────────────────────┬───────────────────────────────────┘
                   │ configures                │ is called by
@@ -39,8 +40,10 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Reusable workflow | `.github/workflows/agent-review.yml` | Resolve the PR + Issue context, run Claude Code read-only, publish one review comment + JSON artifact |
 | Reusable workflow | `.github/workflows/agent-iterate.yml` | Check the iteration bound and the review, run Claude Code on the existing PR branch, verify and fast-forward push one commit, produce a JSON result |
 | Reusable workflow | `.github/workflows/review-cycle.yml` | Bounded `Reviewer ↔ Iterator` loop: decides who runs and when, computes the cycle result; no agent logic |
+| Reusable workflow | `.github/workflows/agent-lifecycle.yml` | Terminal Issue state when an agent PR is closed: `agent:done` on merge, no state otherwise; no agent |
+| State helper | `.github/scripts/flowforge-state.sh` | The one implementation of Issue state label transitions (§2.6), fetched by the workflows at their own commit |
 | Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md` |
-| Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`) |
+| Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`, `flowforge-lifecycle.yml`) |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
 
 ------
@@ -353,13 +356,127 @@ half-known state. Waiting is safe, since each step re-reads the PR.
 > seconds after the Iterator push. If the API still served the old head, the Iterator's
 > freshness guard would stop the following iteration (`FAILED`), never act on stale findings.
 
+### 2.6 Issue label lifecycle (Phase 4.1)
+
+> **Status**: implemented for Issue #19 — helper `.github/scripts/flowforge-state.sh`,
+> Developer transitions in `agent-develop.yml`, `issue_state` job in `review-cycle.yml`,
+> terminal transitions in `agent-lifecycle.yml`; tested by `tests/label-lifecycle.sh`.
+
+**Labels = current state. GitHub timeline = history.** An `agent:*` state label says where
+the Issue is *now* in FlowForge; what happened before lives in the Issue timeline, the
+Actions runs, the commits, the PR and its reviews. An Issue carries **at most one** FlowForge
+state label.
+
+```text
+(none) ──human──► agent:ready ──Developer starts──► agent:running
+                                                        │
+                              ┌── Draft PR delivered ───┴── agent stopped, ┐
+                              │                             no Draft PR    │
+                              ▼                                            ▼
+                        agent:review ──── cycle BLOCKED or ────────► agent:blocked
+                        (Reviewer ↔ Iterator;  MAX_ITERATIONS_REACHED      │
+                         APPROVE stays here)                               │
+                              │                                            │
+                              ├── PR merged by a human ──► agent:done ◄────┤
+                              └── PR closed unmerged ────► (none)     ◄────┘
+
+agent:running ── technical failure (Claude Code failed / cancelled / not run), no Draft PR ──► (none)
+```
+
+| State | Label | Set by | Event | Removed labels |
+|---|---|---|---|---|
+| Backlog | *(none)* | human, `agent-develop.yml` or `agent-lifecycle.yml` | Issue written; Developer technical failure without a Draft PR; PR closed without merge | every FlowForge state |
+| Ready | `agent:ready` | human | Issue refined | — (trigger of the Developer) |
+| Running | `agent:running` | `agent-develop.yml` | Developer starts (preconditions passed) | every other state, and `ready_label` |
+| Review | `agent:review` | `agent-develop.yml` | A Draft PR exists at the end of the Developer run (even if Claude Code then failed: the review judges it) | every other state |
+| Blocked | `agent:blocked` | `agent-develop.yml` | Claude Code ended normally without a Draft PR: the agent stopped and commented (rules §8) | every other state |
+| Blocked | `agent:blocked` | `review-cycle.yml` (`issue_state`) | cycle result `BLOCKED` or `MAX_ITERATIONS_REACHED`, PR still open, Issue in `agent:review` | every other state |
+| Done | `agent:done` | `agent-lifecycle.yml` | PR **merged** (by a human), Issue in `agent:review` or `agent:blocked` | every other state |
+
+**Unchanged on purpose.**
+
+- Reviewer ↔ Iterator: the Issue stays `agent:review`. No `agent:fixing` state.
+- **`APPROVED` is not `DONE`**: the human review and merge are still to come, the Issue stays
+  `agent:review`. Only the merge produces `agent:done`; FlowForge never merges.
+- **`FAILED` is not `BLOCKED`**: a technical failure of the cycle (API error, cancelled job,
+  workflow-set verdict) leaves the label as is; re-run the cycle once fixed. A business
+  `BLOCKED` needs a human decision, a technical failure only a re-run.
+- `NO_OP` (PR closed or merged during the cycle) changes nothing: the PR close itself is
+  handled by `agent-lifecycle.yml`.
+- The stand-alone `agent-review.yml` (`flowforge-review.yml`) never changes labels: only the
+  cycle, which owns the decision, does.
+- **Developer: business stop vs technical failure.** `agent:blocked` only when the agent
+  itself stopped (Claude Code `success`, no Draft PR): a human must clarify the Issue. When
+  Claude Code failed, was cancelled or never ran (`failure`, `cancelled`, `skipped`) and no
+  Draft PR exists, the Issue goes back to no FlowForge state, with a warning: a re-run
+  (re-adding `agent:ready`) is enough. Known limit, unchanged by #19: a re-run requires
+  deleting the `agent/*` branch first if it was pushed.
+
+**Closed without merge.** The work was abandoned, not done: no `agent:done`. It is not
+`agent:blocked` either: the agent is not waiting for anything, a human chose to stop. The
+Issue goes back to *no FlowForge state* (backlog); a human re-adds `agent:ready` (after
+deleting the branch) or closes it.
+
+**Trigger of the terminal state.** `pull_request: closed` on `agent/*` branches of the
+target (`examples/target-repository/flowforge-lifecycle.yml`), merge state and linked Issue
+read from the API (GraphQL `state`, `closingIssuesReferences` of the same repository). It
+fires once per close, whether or not `Closes #n` also closes the Issue, and needs no Issue
+event after the merge. `issues: closed` is not used: it would race with the PR event and
+cannot tell a merge from a manual close. `workflow_run` would add a hop and artifacts for
+nothing.
+
+**Guards (no arbitrary Issue is ever relabeled).** The Issue is never taken from PR or
+Issue text: it is the single Issue of the same repository GitHub links to the PR with a
+closing keyword. It must already carry the expected source state (`agent:review` for
+`issue_state`; `agent:review` or `agent:blocked` for the terminal state): an Issue moved back
+to `agent:ready` / `agent:running` belongs to a newer run, an Issue without a FlowForge state
+was never handed to FlowForge. `issue_state` also re-reads the PR and leaves a PR closed in
+the meantime to the lifecycle workflow.
+
+**Transitions are idempotent.** `flowforge_set_state <issue> <state|"">` reads the Issue
+labels, removes every *other* label of the fixed set `agent:ready`, `agent:running`,
+`agent:review`, `agent:blocked`, `agent:done` (plus `ready_label`), adds the target if
+missing, and makes no write call when nothing changes. Removing an absent label or adding a
+present one is a no-op. Other labels (`bug`, `priority:high`, …) are never touched. A target
+state label that does not exist on the repository yet is skipped with a warning, the stale
+labels are removed anyway (see *Rollout*).
+
+**Permissions.** `issues: write` + `pull-requests: read` for `issue_state` and
+`agent-lifecycle.yml`; no `contents` permission, no secret, no checkout of PR code. The
+Developer job keeps its existing permissions.
+
+**Rollout on an onboarded target.**
+
+1. `terraform plan` / `apply` of the target's own state, to create `agent:done` (the module
+   now manages five labels). Until then, a merge leaves the Issue with no state label instead
+   of `agent:done`.
+2. Copy `flowforge-lifecycle.yml` into the target.
+3. Raise `issues: read` to `issues: write` in the target's `flowforge-review-cycle.yml`
+   caller: a called workflow cannot widen the caller's permissions, so a caller still on
+   `issues: read` makes the cycle fail at startup.
+4. Retroactive clean-up of Issues closed before #19 is a manual, one-off step.
+
+**Future GitHub Project mapping** (not implemented): one Status field value per state, so a
+Project automation (or a label → field sync) maps one-to-one.
+
+| Project status | FlowForge state |
+|---|---|
+| Backlog | no `agent:*` state label |
+| Ready | `agent:ready` |
+| Developing | `agent:running` |
+| Review | `agent:review` |
+| Blocked | `agent:blocked` |
+| Done | `agent:done` |
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
 
 | Item | Provided by | Notes |
 |---|---|---|
-| `agent:*` labels | FlowForge (Terraform) | Created by the module |
+| `agent:*` labels | FlowForge (Terraform) | Created by the module: `agent:ready`, `agent:running`, `agent:review`, `agent:blocked`, `agent:done` (§2.6) |
+| `flowforge-lifecycle.yml` | target (copied from `examples/`) | `pull_request: closed` on `agent/*` → `agent-lifecycle.yml`; `issues: write`, `pull-requests: read`, no secret |
+| Review cycle job permissions | target caller | `contents: write`, `issues: write` (the `issue_state` job only), `pull-requests: write`, `checks`, `statuses: read` |
 | `flowforge-agent.yml` | target (copied from `examples/`) | Only trigger + `uses:` + inputs |
 | `issue_number`, `base_branch` | target → FlowForge | `workflow_call` inputs |
 | `setup_uv`, `allowed_tools` | target → FlowForge | Optional inputs: target tooling and the exact commands the agent may run |
@@ -571,7 +688,7 @@ version (after the push) is also the `iteration_json` output, consumed by `revie
 | Nested calls | `uses: ./.github/workflows/<agent>.yml`: same FlowForge commit as `review-cycle.yml`, so the three workflows and the agent rules always match (to confirm in the E2E) |
 | Contract | `pull_request_number`, `max_iterations` (default 3, 1–3); no `base_branch`: each agent resolves it from the PR, a passed value could only disagree |
 | Secret | `claude_code_oauth_token` declared once, forwarded explicitly to every call |
-| Permissions | `permissions: {}` at workflow level; each call job gets what its called workflow requests, which narrows it per job: `contents: write` only reaches the Iterator push job, `pull-requests: write` only the Reviewer publish job; `summary` has none |
+| Permissions | `permissions: {}` at workflow level; each call job gets what its called workflow requests, which narrows it per job: `contents: write` only reaches the Iterator push job, `pull-requests: write` only the Reviewer publish job, `issues: write` only `issue_state` (§2.6); `summary` has none |
 | Result | `summary` job (always) reads `needs` only: result, timeline, `cycle.json` + `cycle.md`; only `FAILED` fails the run |
 | No auto-review outside the cycle | Iterator pushes do not trigger workflows; one active cycle per PR (§2.5.2) |
 
@@ -617,5 +734,4 @@ overwritten by each review of the run, these copies keep the history.
 |---|---|
 | Remote Terraform backend | Before the first `apply` |
 | Exact default-branch ruleset | Phase 1, step 3 |
-| `agent:*` label transitions during the review cycle | After the review cycle E2E |
 | Automatic start of the review cycle after the Developer (today: `workflow_dispatch`) | After the review cycle E2E |

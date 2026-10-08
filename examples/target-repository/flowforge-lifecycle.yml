@@ -1,0 +1,31 @@
+# Minimal workflow to copy into a TARGET repository as
+#   .github/workflows/flowforge-lifecycle.yml
+#
+# It holds no logic: everything lives in the FlowForge reusable workflow agent-lifecycle.yml.
+# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+#
+# When an `agent/*` pull request is closed, moves its linked Issue to its terminal state:
+# merged -> agent:done, closed without merge -> no FlowForge state label. The merge itself
+# stays a human action: this workflow only runs after it.
+#
+# No secret: no agent runs.
+name: FlowForge lifecycle
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  lifecycle:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && startsWith(github.event.pull_request.head.ref, 'agent/')
+    uses: OWNER/flowforge/.github/workflows/agent-lifecycle.yml@main
+    # Must cover what the called workflow requests; it can only narrow, never widen.
+    permissions:
+      issues: write
+      pull-requests: read
+    with:
+      pull_request_number: ${{ github.event.pull_request.number }}

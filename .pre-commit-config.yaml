@@ -44,3 +44,10 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/workflows/(agent-review|review-cycle)\.yml|tests/review-no-op\.sh)$
+      # Issue label lifecycle (Issue #19): one FlowForge state label, idempotent transitions.
+      - id: label-lifecycle
+        name: label lifecycle tests
+        entry: tests/label-lifecycle.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/(agent-develop|review-cycle|agent-lifecycle)\.yml|scripts/flowforge-state\.sh)|examples/target-repository/flowforge-lifecycle\.yml|terraform/modules/target-repository/variables\.tf|tests/label-lifecycle\.sh)$

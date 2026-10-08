@@ -1,0 +1,78 @@
+# FlowForge — reusable "lifecycle" workflow: the terminal state of an agent Issue.
+#
+# Called from a TARGET repository (see examples/target-repository/flowforge-lifecycle.yml) on
+# `pull_request: closed`, never triggered by events of the FlowForge repository itself. It
+# runs in the caller's context. No agent, no checkout, no secret: it only moves one label.
+#
+#   PR MERGED (by a human)  : agent:review | agent:blocked -> agent:done
+#   PR CLOSED, not merged   : agent:review | agent:blocked -> no FlowForge state label
+#                             (abandoned work is not done; the Issue is back in the backlog)
+#
+# `pull_request: closed` is the single trigger: it fires once per close, whether or not the
+# merge also closes the Issue through `Closes #n`, and still carries the PR. `issues: closed`
+# would race with it and cannot tell a merge from a manual close. Reviewer APPROVE never
+# leads to agent:done: only the human merge does. See docs/architecture.md §2.6.
+name: FlowForge — agent lifecycle
+
+on:
+  workflow_call:
+    inputs:
+      pull_request_number:
+        description: >-
+          Number of the closed pull request in the calling repository. Its merge state and
+          its linked Issue are resolved from it through the API, never from event text.
+        type: number
+        required: true
+
+# Nothing by default; each job requests only what it needs.
+permissions: {}
+
+concurrency:
+  group: flowforge-lifecycle-${{ github.repository }}-${{ inputs.pull_request_number }}
+  cancel-in-progress: false
+
+jobs:
+  terminal_state:
+    name: Issue terminal state
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The caller must grant at least these (a called workflow can only narrow them).
+    permissions:
+      issues: write         # move the linked Issue to its terminal state
+      pull-requests: read   # PR state and its closing Issue reference
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+    steps:
+      # Guards: exactly one Issue of this repository is linked by GitHub, and it is in
+      # agent:review or agent:blocked. An Issue back in agent:ready / agent:running belongs to
+      # a newer run; an Issue without a FlowForge state was never handed to FlowForge.
+      - name: Apply terminal state
+        env:
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-state.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+
+          pr="$(flowforge_pr_issue "$PR_NUMBER")"
+          read -r state issue <<<"$pr"
+          case "$state" in
+            MERGED) target=agent:done ;;
+            CLOSED) target="" ;;
+            *)
+              echo "::notice::Pull request #$PR_NUMBER is $state: nothing to do."
+              exit 0
+              ;;
+          esac
+          if [[ -z "$issue" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER does not close exactly one Issue: no label changed."
+          elif ! flowforge_has_state "$issue" agent:review agent:blocked; then
+            echo "::notice::Issue #$issue is not in agent:review or agent:blocked: no label changed."
+          else
+            flowforge_set_state "$issue" "$target"
+            echo "Pull request #$PR_NUMBER $state: Issue #$issue → \`${target:-no FlowForge state}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

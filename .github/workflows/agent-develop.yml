@@ -8,8 +8,12 @@
 #        automation mode) -> branch agent/<issue>-<slug> -> code + tests -> Draft PR
 #        -> human review. The agent never merges and never pushes to the base branch.
 #
-# Labels:  agent:ready -> agent:running -> agent:review (Draft PR open)
-#                                       -> agent:blocked (no PR, or Claude Code failed)
+# Labels:  agent:ready -> agent:running -> agent:review  (Draft PR open)
+#                                       -> agent:blocked (agent stopped: no PR, Claude Code succeeded)
+#                                       -> no state      (technical failure: no PR, Claude Code
+#                                                         failed, was cancelled or did not run)
+#          One FlowForge state label at a time (.github/scripts/flowforge-state.sh,
+#          docs/architecture.md §2.6).
 name: FlowForge — agent develop
 
 on:
@@ -126,13 +130,21 @@ jobs:
             echo "- Branch: \`$branch\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Every other FlowForge state label (a stale one from an earlier run included) and
+      # ready_label are removed: the Issue keeps exactly one state.
       - name: Mark issue as running
         id: running
         env:
           READY_LABEL: ${{ inputs.ready_label }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
         run: |
-          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
-            --add-label agent:running --remove-label "$READY_LABEL"
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-state.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_set_state "$ISSUE_NUMBER" agent:running "$READY_LABEL"
 
       - name: Check out target repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -238,13 +250,19 @@ jobs:
             Bash(gh pr create --draft:*),Bash(gh pr view:*)
             ${{ inputs.allowed_tools != '' && format(',{0}', inputs.allowed_tools) || '' }}"
 
-      # Runs even when Claude Code fails, so the issue never stays "running".
+      # Runs even when Claude Code fails, so the issue never stays "running". The label
+      # follows facts: a Draft PR exists -> review; the agent ended normally without one (it
+      # stopped and commented, rules §8) -> blocked, a business state; Claude Code failed,
+      # was cancelled or never ran -> no state: a technical failure is not BLOCKED, it only
+      # needs a re-run (re-add the ready label).
       - name: Enforce Draft PR and set final label
         id: finalize
         if: always() && steps.running.outcome == 'success'
         env:
           BRANCH: ${{ steps.context.outputs.branch }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
         run: |
           set -euo pipefail
 
@@ -257,18 +275,28 @@ jobs:
             gh pr ready "$number" --repo "$GITHUB_REPOSITORY" --undo
           fi
 
-          if [[ "$CLAUDE_OUTCOME" == "success" && -n "$number" ]]; then
+          if [[ -n "$number" ]]; then
             label=agent:review
-          else
+            if [[ "$CLAUDE_OUTCOME" != "success" ]]; then
+              echo "::warning::Claude Code ended with '$CLAUDE_OUTCOME' after opening Draft PR #$number; the review will judge it."
+            fi
+          elif [[ "$CLAUDE_OUTCOME" == "success" ]]; then
             label=agent:blocked
-            echo "::warning::No Draft PR from this run (Claude Code: $CLAUDE_OUTCOME). Issue marked $label."
+            echo "::warning::The agent stopped without a Draft PR (see its Issue comment). Issue marked $label."
+          else
+            label=""
+            echo "::warning::Technical failure (Claude Code: ${CLAUDE_OUTCOME:-not run}), no Draft PR. Issue left without a FlowForge state: re-add the ready label to retry (delete the agent branch first if it was pushed)."
           fi
-          gh issue edit "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
-            --add-label "$label" --remove-label agent:running
+          # Fetched here rather than reused from a file: Claude Code ran in between.
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-state.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_set_state "$ISSUE_NUMBER" "$label"
 
           echo "pull_request=$number" >> "$GITHUB_OUTPUT"
           {
             echo "- Claude Code: **$CLAUDE_OUTCOME**"
             echo "- Draft PR: ${number:+#}${number:-none}"
-            echo "- Label: \`$label\`"
+            echo "- Label: \`${label:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"
