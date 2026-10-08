@@ -13,7 +13,8 @@ The module never creates, renames, archives or deletes the repository itself.
 | FlowForge labels | ✅ Implemented | `github_issue_label` |
 | Non-secret Actions variables | ✅ Implemented (empty by default) | `github_actions_variable` |
 | Workflow token permissions (`GITHUB_TOKEN` default `write`, Actions may create PRs) | ✅ Implemented | `github_workflow_repository_permissions` |
-| Branch protection on the default branch | 📝 Planned | `github_repository_ruleset` |
+| Default-branch ruleset (human merge gate) | ✅ Implemented (enabled by default) | `github_repository_ruleset` |
+| Required status checks on the default branch | 📝 Planned, once targets have a stable CI check | `github_repository_ruleset` |
 | Actions permissions / allowed actions | 📝 Planned | `github_actions_repository_permissions` |
 | Deployment environments | 📝 Planned, only if needed | `github_repository_environment` |
 | Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`, …) | 🚫 Out of Terraform | organization secret (Selected repositories), set manually or via `gh secret set --org` |
@@ -55,6 +56,9 @@ module "demo_api" {
   actions_variables = {
     FLOWFORGE_ENABLED = "true"
   }
+
+  # Only if the target has a single human writer (see "Default-branch ruleset")
+  admin_pull_request_bypass = true
 }
 ```
 
@@ -65,6 +69,9 @@ module "demo_api" {
 | `repository` | `string` | — | Bare name of the existing repository |
 | `labels` | `map(object({color, description}))` | the 5 `agent:*` state labels | Labels to manage |
 | `actions_variables` | `map(string)` | `{}` | Non-secret Actions variables |
+| `default_branch_ruleset_enabled` | `bool` | `true` | Manage the default-branch ruleset |
+| `required_approving_review_count` | `number` | `1` | Approvals required to merge (1–10) |
+| `admin_pull_request_bypass` | `bool` | `false` | Repository admins may bypass the ruleset **through a PR merge only** |
 
 ### Outputs
 
@@ -73,6 +80,7 @@ module "demo_api" {
 | `repository_full_name` | `owner/name` |
 | `default_branch` | Default branch of the repository |
 | `labels` | Managed label names |
+| `default_branch_ruleset_id` | ID of the default-branch ruleset (`null` when disabled) |
 
 ------
 
@@ -85,21 +93,61 @@ Fine-grained personal access token (or GitHub App) scoped to the target reposito
 | Metadata | Read | Read the repository |
 | Issues | Read & write | Manage labels |
 | Variables | Read & write | Manage Actions variables |
-| Administration | Read & write | Workflow token permissions; rulesets (once implemented) |
+| Administration | Read & write | Workflow token permissions; default-branch ruleset |
 
 ------
 
-## 📝 Planned: default-branch ruleset
+## 🛡️ Default-branch ruleset (human merge gate)
 
-To be decided with the first real target. Intended shape:
+The FlowForge rule "agents never push to `main`, a human merges" is a convention in the agent
+rules and workflows; this ruleset makes GitHub enforce it.
 
-- target: default branch (`~DEFAULT_BRANCH`);
-- block deletion and force pushes;
-- require a pull request with at least one human approval;
-- require the target repo's CI status checks;
-- no bypass actor for the agent identity.
+```text
+agent/* branch ──push──► allowed (not matched by the ruleset)
+       │
+       ▼
+Draft PR ─► Reviewer ↔ Iterator ─► FlowForge result APPROVED
+       │                              (a PR comment, not a GitHub review)
+       ▼
+human GitHub approval (≥ 1) ─► human merge ─► default branch
+```
 
-This is what technically enforces "agents never push to `main`" and "a human merges".
+| Setting | Value | Why |
+|---|---|---|
+| Name | `flowforge-default-branch` | One ruleset per target, owned by the target's state |
+| Target | `~DEFAULT_BRANCH` | Follows the repository's default branch; `agent/*` branches are never matched |
+| Enforcement | `active` | |
+| Pull request required | yes | No direct push to the default branch, for anyone |
+| Required approving reviews | `1` (`required_approving_review_count`) | At least one explicit human approval |
+| Dismiss stale approvals on push | yes | An Iterator (or any) push after an approval requires a new one |
+| Last-push approval, code owners, thread resolution | no | Kept simple for the POC; the Reviewer posts a comment, not review threads |
+| Force push (`non_fast_forward`) | blocked | |
+| Deletion | blocked | |
+| Required status checks | none | No stable target check yet; a missing check would block every merge |
+| Bypass actors | none by default | FlowForge never gets a bypass |
+
+**Why agents cannot satisfy the gate.**
+
+- The FlowForge Reviewer posts a PR **comment** with its verdict, never a GitHub review:
+  Reviewer `APPROVE` ≠ GitHub approval.
+- Agent PRs are opened with the workflow `GITHUB_TOKEN` (author `github-actions[bot]`);
+  GitHub forbids a PR author from approving its own PR, and no FlowForge workflow calls
+  `gh pr review --approve`, `gh pr merge` or enables auto-merge.
+- Only approvals from accounts with **write** access count.
+
+**`admin_pull_request_bypass` (opt-in).** On a solo-maintainer target, the only writer
+cannot approve their own PRs. With this flag the built-in *admin* repository role may bypass
+the ruleset with `bypass_mode = "pull_request"`: an admin can merge a PR without approval
+(GitHub shows an explicit bypass checkbox), but **never push directly** to the default
+branch. The workflow `GITHUB_TOKEN` is not a repository admin, so agents still cannot
+bypass. Keep it `false` when the target has at least two human writers.
+
+> ⚠️ **Warning**: without the bypass, nobody bypasses the ruleset, including organization
+> owners; they can still edit or disable it in the repository settings (or through this
+> module), which is visible in the audit log.
+>
+> 💡 **Note**: a Draft PR cannot be merged anyway; promoting it to *Ready for review* stays a
+> human action (the Developer workflow only ever forces PRs back to draft).
 
 ------
 
@@ -108,8 +156,9 @@ This is what technically enforces "agents never push to `main`" and "a human mer
 `can_approve_pull_request_reviews = true` is required: the Developer agent opens its Draft
 PR with the workflow `GITHUB_TOKEN`, which GitHub otherwise forbids from creating PRs.
 
-> ⚠️ **Warning**: the same setting also lets workflows **approve** PRs. The planned ruleset
-> must therefore require a human approval that the agent identity cannot provide.
+> ⚠️ **Warning**: the same setting also lets workflows **approve** PRs. The default-branch
+> ruleset requires an approval that the agent identity cannot provide (it authors agent PRs,
+> and an author cannot approve its own PR); no FlowForge workflow submits approvals.
 
 ### 🚨 Point of attention: `default_workflow_permissions = "write"`
 
@@ -119,9 +168,10 @@ packages…).
 
 | Today | Later |
 |---|---|
-| No effect: FlowForge workflows and the caller declare explicit permissions | A workflow added without `permissions:` (e.g. a template `ci.yml`) can push to `main`, edit releases or issues if compromised (third-party action, script injection) |
+| No effect: FlowForge workflows and the caller declare explicit permissions | A workflow added without `permissions:` (e.g. a template `ci.yml`) can push branches, edit releases or issues if compromised (third-party action, script injection) — not the default branch, which the ruleset protects |
 
 Mitigations in place: fork PRs always get a read-only token; `GITHUB_TOKEN` can never modify
-`.github/workflows/`. Until the default-branch ruleset exists, **every new workflow in a
-target must declare `permissions:`** — or switch this default to `"read"` (FlowForge does
-not depend on `"write"`).
+`.github/workflows/`; the default-branch ruleset blocks direct pushes to the default branch.
+The rest (other branches, issues, releases) stays writable, so **every new workflow in a
+target must still declare `permissions:`** — or switch this default to `"read"` (FlowForge
+does not depend on `"write"`).
