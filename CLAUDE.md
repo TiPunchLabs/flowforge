@@ -63,7 +63,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 4 — Iterator in progress
+## Current phase: Phase 4 — Iterator done
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -77,13 +77,14 @@ PR head branch, Claude commits locally, workflow verifies and fast-forward pushe
 Review cycle done: `.github/workflows/review-cycle.yml` chains Reviewer #1 → Iterator #1 → … →
 Iterator #3 → Reviewer #4 with `if:` gates; final result `APPROVED` / `BLOCKED` /
 `MAX_ITERATIONS_REACHED` / `FAILED` (technical), one cycle per PR (concurrency group).
-Next: full E2E of the cycle on `demo-api` (not started).
+Full E2E done on 2026-10-07/08 (FlowForge `647e663`): 4 Developer PRs `APPROVED`, Iterator run on
+`demo-api` PR #20 (`REQUEST_CHANGES` → `COMPLETED` → `APPROVE`), `BLOCKED` and concurrency observed;
+reservations and evidence in `docs/milestones/phase4-iterator-e2e.md`. Tag not created yet.
 
 ## Out of scope for now
 
 Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
-agent, real secrets, triggering Claude Code runs, creating `demo-api` from this repository,
-the review cycle E2E (until explicitly started).
+agent, real secrets, triggering Claude Code runs, creating `demo-api` from this repository.
 
 ## Validation commands
 

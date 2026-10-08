@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–3 done (Foundation, Developer E2E, Reviewer E2E); Phase 4 Iterator in progress — specification, workflow and bounded review cycle done, end-to-end run pending. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -163,7 +163,7 @@ Reviewer   ◄── agents/reviewer.md + target CLAUDE.md (base) + issue + diff
 > Iterator definition     DONE      agents/iterator.md
 > Iterator workflow       DONE      .github/workflows/agent-iterate.yml (one iteration per call)
 > Reviewer/Iterator loop  DONE      .github/workflows/review-cycle.yml (§2.5)
-> Full E2E                NEXT
+> Full E2E                DONE      demo-api, see docs/milestones/phase4-iterator-e2e.md
 > ```
 
 ```text
