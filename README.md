@@ -99,7 +99,7 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 1 — Foundation | ✅ Done |
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
-| Phase 4 — Iterator | ✅ Done, with reservations — tag pending ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
+| Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
 
 Later phases (not started): Refiner agent, GitHub Project, Notion.
 

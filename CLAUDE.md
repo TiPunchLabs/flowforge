@@ -79,7 +79,7 @@ Iterator #3 → Reviewer #4 with `if:` gates; final result `APPROVED` / `BLOCKED
 `MAX_ITERATIONS_REACHED` / `FAILED` (technical), one cycle per PR (concurrency group).
 Full E2E done on 2026-10-07/08 (FlowForge `647e663`): 4 Developer PRs `APPROVED`, Iterator run on
 `demo-api` PR #20 (`REQUEST_CHANGES` → `COMPLETED` → `APPROVE`), `BLOCKED` and concurrency observed;
-reservations and evidence in `docs/milestones/phase4-iterator-e2e.md`. Tag not created yet.
+reservations and evidence in `docs/milestones/phase4-iterator-e2e.md`, tag `flowforge-phase4-iterator-e2e`.
 
 ## Out of scope for now
 
