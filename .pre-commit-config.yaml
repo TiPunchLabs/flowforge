@@ -26,3 +26,14 @@ repos:
     rev: v1.7.12
     hooks:
       - id: actionlint
+
+  # Iterator result rules and review-cycle gates, run against the real workflow step scripts.
+  # Requires bash, git, jq and yq (mikefarah v4) on PATH, as on GitHub-hosted runners.
+  - repo: local
+    hooks:
+      - id: iterator-partial-delivery
+        name: iterator partial delivery tests
+        entry: tests/iterator-partial-delivery.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/workflows/(agent-iterate|review-cycle)\.yml|tests/iterator-partial-delivery\.sh)$

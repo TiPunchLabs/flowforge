@@ -30,6 +30,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | `examples/target-repository/` | Files a target copies (caller workflow) | Logic: callers stay thin |
 | `docs/` | Architecture, phase plans | — |
 | `scripts/` | Maintainer helpers (Bash) | Tokens |
+| `tests/` | Tests of the workflows' step scripts (Bash, jq, yq), run by pre-commit | Network or GitHub API calls, tokens |
 
 ## FlowForge vs targets
 
@@ -97,6 +98,7 @@ terraform -chdir=terraform/modules/target-repository init -backend=false
 terraform -chdir=terraform/modules/target-repository validate
 yamllint -d relaxed .github examples               # optional, if installed
 actionlint                                         # pre-commit hook (also runs in CI)
+tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator result rules
 ```
 
 ## Conventions
