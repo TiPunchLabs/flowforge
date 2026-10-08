@@ -367,7 +367,7 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Least privilege (Terraform) | Fine-grained token limited to onboarded repositories |
 | Untrusted issue content | Read via `env` + `jq`, never `${{ }}`-interpolated into scripts; treated as data by the agent |
 | No direct push to `main` | Only `git push origin HEAD:refs/heads/<agent branch>` is allowed + agent rules + default-branch ruleset (planned in the module) |
-| Human merge | Agent opens **Draft** PRs only (forced back to draft by the workflow if needed); ruleset requires a human approval |
+| Human merge | Agent opens **Draft** PRs only (forced back to draft by the workflow if needed); a default-branch ruleset requiring a human approval is planned in the module but **not enforced yet**: until then, merging only after a human review is a convention |
 | Pinned actions | Third-party actions pinned by commit SHA |
 | Read-only Reviewer | Review job has no write permission; publish job has `pull-requests: write` only and never runs PR code; Edit/Write tools disallowed; `persist-credentials: false` |
 | Reviewer configuration not controlled by the PR | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json` reset to the base branch in the local workspace before Claude runs; fork PRs rejected |
