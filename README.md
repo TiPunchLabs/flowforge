@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening) implemented, live validation pending.** Nothing here is production-ready.
+> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening) validated end to end, with one reservation ([milestone](docs/milestones/phase41-hardening-e2e.md)).** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -120,11 +120,11 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
 | Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
-| Phase 4.1 — Hardening & lifecycle | 🔧 Implemented, live validation pending ([§2.8](docs/architecture.md#28-phase-41--hardening--lifecycle)) |
+| Phase 4.1 — Hardening & lifecycle | ✅ Validated E2E, one reservation — tag pending ([milestone](docs/milestones/phase41-hardening-e2e.md)) |
 
 Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
 label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
-Each is covered by offline tests only; the live checks are still to run.
+Each is covered by offline tests and was validated live on `demo-api` on 2026-10-09.
 
 **Future (not implemented)**: Refiner agent, GitHub Project, Notion.
 

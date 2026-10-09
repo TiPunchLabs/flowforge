@@ -89,7 +89,8 @@ Phase 4.1 (hardening): Issue label lifecycle (#19) — one `agent:*` state label
 Phase 4.1 also covers Iterator partial delivery (#17), closed/merged PR = `NO_OP` (#18) and the
 human merge gate: `github_repository_ruleset` on the default branch in the `target-repository`
 module (PR + ≥ 1 approval, no force push/deletion, no FlowForge bypass; §2.7). All Phase 4.1
-items are tested offline only; live validation is pending (§2.8).
+items were validated live on 2026-10-09 (FlowForge `77763ec`), one reservation (no human approval
+observed: admin bypass); see `docs/milestones/phase41-hardening-e2e.md`.
 
 ## Out of scope for now
 

@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) implemented, live validation pending (§2.8). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) validated E2E with one reservation (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -529,13 +529,13 @@ in its own state, like its labels.
 
 | Item | Implementation | Live validation |
 |---|---|---|
-| #17 Iterator partial delivery (`PARTIAL`) | ✅ done (§5.3, `tests/iterator-partial-delivery.sh`) | ⏳ pending: a real `PARTIAL` delivery |
-| #18 closed / merged PR = `NO_OP` | ✅ done (§2.5.1, `tests/review-no-op.sh`) | ⏳ pending: a real close / merge race during a cycle |
-| #19 Issue label lifecycle | ✅ done (§2.6, `tests/label-lifecycle.sh`), rolled out on `demo-api` | ⏳ pending: a real `pull_request: closed`, `agent:review` → `agent:done` |
-| Human merge gate (default-branch ruleset) | ✅ done (§2.7, `terraform test` of the module) | ⏳ pending: `apply` on `demo-api`, then a merge refused without approval |
+| #17 Iterator partial delivery (`PARTIAL`) | ✅ done (§5.3, `tests/iterator-partial-delivery.sh`) | ✅ live: Iterator `PARTIAL` (6 `FIXED`, 3 `NOT_ACTIONABLE`) → Reviewer, demo-api PR #25 |
+| #18 closed / merged PR = `NO_OP` | ✅ done (§2.5.1, `tests/review-no-op.sh`) | ✅ live: cycle on a merged (#25) and a closed (#26) PR → `NO_OP`; mid-cycle race not raced |
+| #19 Issue label lifecycle | ✅ done (§2.6, `tests/label-lifecycle.sh`), rolled out on `demo-api` | ✅ live: human merge of PR #25 → Issue #24 `agent:blocked` → `agent:done`, closed |
+| Human merge gate (default-branch ruleset) | ✅ done (§2.7, `terraform test` of the module) | ✅ live: ruleset active, merge blocked despite FlowForge `APPROVE`; ⚠️ merged through the admin bypass (no second human writer) |
 
-Only offline tests back these items so far; none is claimed validated live until the
-Phase 4.1 stabilization E2E has run.
+Validated live on 2026-10-09 with FlowForge `77763ec`; evidence and reservations in
+[milestones/phase41-hardening-e2e.md](milestones/phase41-hardening-e2e.md).
 
 ------
 
