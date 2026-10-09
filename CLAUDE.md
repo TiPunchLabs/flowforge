@@ -67,7 +67,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 4 — Iterator done
+## Current phase: Phase 4.1 done (frozen) — Phase 5 (Refiner) next, not started
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -89,7 +89,10 @@ Phase 4.1 (hardening): Issue label lifecycle (#19) — one `agent:*` state label
 Phase 4.1 also covers Iterator partial delivery (#17), closed/merged PR = `NO_OP` (#18) and the
 human merge gate: `github_repository_ruleset` on the default branch in the `target-repository`
 module (PR + ≥ 1 approval, no force push/deletion, no FlowForge bypass; §2.7). All Phase 4.1
-items are tested offline only; live validation is pending (§2.8).
+items were validated live on 2026-10-09 (FlowForge `77763ec`), one reservation (no human approval
+observed: admin bypass); see `docs/milestones/phase41-hardening-e2e.md`. Phase 4.1 frozen as tag
+`flowforge-phase4.1-hardening-e2e` (baseline in the milestone §9). Deferred follow-up: #22 (Iterator `NO_OP`).
+Phase 5 (Refiner agent) is next: nothing implemented yet (`docs/architecture.md` §2.9).
 
 ## Out of scope for now
 

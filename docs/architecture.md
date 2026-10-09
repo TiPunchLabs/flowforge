@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) implemented, live validation pending (§2.8). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) is next and not implemented (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -325,8 +325,8 @@ close the PR while a review is queued. That is a normal outcome, not an error.
 - **Known limit — closed during the Iterator.** `agent-iterate.yml` keeps its precondition
   "PR is `OPEN`": a PR closed or merged after `REQUEST_CHANGES` and before the Iterator
   starts makes the Iterator fail with a workflow-set `BLOCKED`, so the cycle reports
-  `FAILED`. Turning that case into `NO_OP` too (Issue #18, Iterator criterion) is a planned
-  improvement. Nothing is pushed in that case.
+  `FAILED`. Turning that case into `NO_OP` too is tracked by Issue #22 (Iterator criterion
+  of #18, deferred; not part of Phase 4.1). Nothing is pushed in that case.
 
 #### 2.5.2 One cycle per pull request
 
@@ -529,13 +529,30 @@ in its own state, like its labels.
 
 | Item | Implementation | Live validation |
 |---|---|---|
-| #17 Iterator partial delivery (`PARTIAL`) | ✅ done (§5.3, `tests/iterator-partial-delivery.sh`) | ⏳ pending: a real `PARTIAL` delivery |
-| #18 closed / merged PR = `NO_OP` | ✅ done (§2.5.1, `tests/review-no-op.sh`) | ⏳ pending: a real close / merge race during a cycle |
-| #19 Issue label lifecycle | ✅ done (§2.6, `tests/label-lifecycle.sh`), rolled out on `demo-api` | ⏳ pending: a real `pull_request: closed`, `agent:review` → `agent:done` |
-| Human merge gate (default-branch ruleset) | ✅ done (§2.7, `terraform test` of the module) | ⏳ pending: `apply` on `demo-api`, then a merge refused without approval |
+| #17 Iterator partial delivery (`PARTIAL`) | ✅ done (§5.3, `tests/iterator-partial-delivery.sh`) | ✅ live: Iterator `PARTIAL` (6 `FIXED`, 3 `NOT_ACTIONABLE`) → Reviewer, demo-api PR #25 |
+| #18 closed / merged PR = `NO_OP` | ✅ done (§2.5.1, `tests/review-no-op.sh`) | ✅ live: cycle on a merged (#25) and a closed (#26) PR → `NO_OP`; mid-cycle race not raced |
+| #19 Issue label lifecycle | ✅ done (§2.6, `tests/label-lifecycle.sh`), rolled out on `demo-api` | ✅ live: human merge of PR #25 → Issue #24 `agent:blocked` → `agent:done`, closed |
+| Human merge gate (default-branch ruleset) | ✅ done (§2.7, `terraform test` of the module) | ✅ live: ruleset active, merge blocked despite FlowForge `APPROVE`; ⚠️ merged through the admin bypass (no second human writer) |
 
-Only offline tests back these items so far; none is claimed validated live until the
-Phase 4.1 stabilization E2E has run.
+Validated live on 2026-10-09 with FlowForge `77763ec`; evidence and reservations in
+[milestones/phase41-hardening-e2e.md](milestones/phase41-hardening-e2e.md). Frozen as tag
+`flowforge-phase4.1-hardening-e2e` (baseline: milestone §9).
+
+**Known manual limitations** (accepted, not bugs): an Issue closed by hand without a PR, and
+Issues closed before #19, keep their last `agent:*` label (§2.6, *Rollout* step 4). A PR
+closed or merged between `REQUEST_CHANGES` and the Iterator start ends the cycle `FAILED`,
+with nothing pushed (§2.5.1, Issue #22).
+
+### 2.9 Next — Phase 5: Refiner agent (not implemented)
+
+```text
+rough human need ─► Refiner ─► structured executable Issue ─► Developer ─► Reviewer ⇄ Iterator ─► human
+```
+
+Goal: a Refiner agent turns a rough human need into an Issue that meets the Developer's
+contract (scope, acceptance criteria). Nothing of it exists yet: no agent rules, no workflow,
+no label. Its responsibility, security boundaries and Issue contract are to be defined first;
+the human stays in control of `agent:ready` and of the merge.
 
 ------
 
