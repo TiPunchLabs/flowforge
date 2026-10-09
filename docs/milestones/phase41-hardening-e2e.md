@@ -3,7 +3,7 @@
 > **Date**: 2026-10-09 (UTC)
 > **Status**: ✅ Validated E2E, with one reservation (§7) — Iterator `PARTIAL`, `NO_OP` on merged
 > and closed PRs, `agent:done` after a human merge, and the default-branch ruleset observed live
-> on `demo-api`. No tag yet (frozen in a separate step).
+> on `demo-api`. Frozen as tag `flowforge-phase4.1-hardening-e2e` (baseline §9).
 
 ------
 
@@ -120,8 +120,11 @@ the `BLOCKED` cycle (it only moves `agent:review`).
 - **Bot-triggered `action_required` runs**: the Iterator push queued a `FlowForge review` run
   ([37938256844](https://github.com/TiPunchLabs/demo-api/actions/runs/37938256844)) that stayed
   unapproved and ended `failure` with 0 jobs at close. No second cycle ran.
-- Manual cases kept out of scope: an Issue closed by hand without a PR, and Issues closed
-  before the lifecycle existed, keep their last label.
+- **Known manual limitations** (accepted, not bugs): an Issue closed by hand without a PR,
+  and Issues closed before the lifecycle existed, keep their last label.
+- **Deferred follow-up #22**: a PR closed or merged between `REQUEST_CHANGES` and the
+  Iterator start still ends the cycle `FAILED` (nothing pushed). The #18 scope validated here
+  is the Reviewer `NO_OP`; the Iterator `NO_OP` is not part of Phase 4.1.
 
 ## 8. 🔐 Security and concurrency
 
@@ -134,8 +137,31 @@ the `BLOCKED` cycle (it only moves `agent:review`).
 | `max_iterations` | 3 (caller and `cycle.json`), unchanged |
 | Tests on `main` `1db2601` | pytest 60 passed, `ruff check` and `ruff format --check` clean; new `CI` workflow green on PR #25 |
 
+## 9. 📌 Phase 4.1 baseline (starting point of Phase 5)
+
+| Repository | Reference |
+|---|---|
+| FlowForge | tag `flowforge-phase4.1-hardening-e2e` (annotated) on the `main` merge commit of FlowForge PR #25: docs only on top of `77763ec77f311e639dddc815e0ece97ec4d04a07`, the code validated live |
+| `demo-api` | `1db26016526cfd4f6106591c22d6af0434f9fa2e` (`main`, human merge of PR #25) |
+| `demo-api` IaC | not under Git (local state, like its sibling IaC directories): content fingerprint below |
+
+`~/Workspace/02-infrastructure/demo-api/github-terraform`, sha256 at freeze time:
+
+```text
+bde4b5e80a5d107740fc4f1d12421b850384dd9a629e5702750003d1726a7176  main.tf
+e6bdb2127d08232afc6f9ed20cdd941d17389a8fb295dabae70fa92dddb92ce8  outputs.tf
+4d3df5525d56477fea25ed1c27639ebefebe24f38ca922b5e8af454507d1b8a0  variables.tf
+58567b6763692eabce7c7a62da592061eb7691ec4d4fe3604c83566ceb8fa68d  versions.tf
+48f89355641594e6a3bd06ab8a761296a35d22b23d7fa726a116c068a2796d0a  .terraform.lock.hcl
+```
+
+Its single state owns the repository and the whole FlowForge onboarding (`terraform state list`):
+`github_repository.this`, the five `agent:*` labels, the default-branch ruleset
+(`flowforge-default-branch`, 24757548) and the workflow permissions. The FlowForge root
+declares no target and holds no state.
+
 ------
 
 > **Document created on**: 2026-10-09
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.0
+> **Version**: 1.1
