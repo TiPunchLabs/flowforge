@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) is next and not implemented (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) is specified, not implemented (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -42,7 +42,8 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Reusable workflow | `.github/workflows/review-cycle.yml` | Bounded `Reviewer ↔ Iterator` loop: decides who runs and when, computes the cycle result; no agent logic |
 | Reusable workflow | `.github/workflows/agent-lifecycle.yml` | Terminal Issue state when an agent PR is closed: `agent:done` on merge, no state otherwise; no agent |
 | State helper | `.github/scripts/flowforge-state.sh` | The one implementation of Issue state label transitions (§2.6), fetched by the workflows at their own commit |
-| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md` |
+| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md`; `refiner.md` is a specification only (Phase 5, no workflow yet) |
+| Refined Issue contract | `docs/issue-contract.md` | Format of an executable Issue, `Ready` definition, proposed `agent:needs-clarification` (Phase 5, specification) |
 | Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`, `flowforge-lifecycle.yml`) |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
 
@@ -457,7 +458,9 @@ Developer job keeps its existing permissions.
 4. Retroactive clean-up of Issues closed before #19 is a manual, one-off step.
 
 **Future GitHub Project mapping** (not implemented): one Status field value per state, so a
-Project automation (or a label → field sync) maps one-to-one.
+Project automation (or a label → field sync) maps one-to-one. The Refiner (Phase 5, §2.9)
+adds *Refining* and *Needs clarification* before *Ready*: see
+[issue-contract.md §6](issue-contract.md#6--labels-and-states).
 
 | Project status | FlowForge state |
 |---|---|
@@ -543,16 +546,44 @@ Issues closed before #19, keep their last `agent:*` label (§2.6, *Rollout* step
 closed or merged between `REQUEST_CHANGES` and the Iterator start ends the cycle `FAILED`,
 with nothing pushed (§2.5.1, Issue #22).
 
-### 2.9 Next — Phase 5: Refiner agent (not implemented)
+### 2.9 Phase 5 — Refiner agent (specified, not implemented)
+
+> **Status**: specification only — rules in [agents/refiner.md](../agents/refiner.md), Issue
+> format in [issue-contract.md](issue-contract.md). No workflow, trigger, label or secret
+> exists for it; execution is designed in Prompt 22. Developer, Reviewer and Iterator are
+> unchanged.
+
+The Refiner sits **before** the Developer. It turns a rough need into a refined Issue and a
+verdict; a human stays the gate between the two.
 
 ```text
-rough human need ─► Refiner ─► structured executable Issue ─► Developer ─► Reviewer ⇄ Iterator ─► human
+user / external source
+        │  rough need (Issue, text)
+        ▼
+     Refiner ──────────────► NEEDS_CLARIFICATION ─► requester answers ─► Refiner again
+        │ READY                BLOCKED ─► human decision
+        ▼
+  refined Issue (body = spec + original request + refinement record)
+        │  human applies agent:ready
+        ▼
+    Developer ─► Draft PR ─► Reviewer ⇄ Iterator (≤ 3) ─► human approval + merge ─► agent:done
 ```
 
-Goal: a Refiner agent turns a rough human need into an Issue that meets the Developer's
-contract (scope, acceptance criteria). Nothing of it exists yet: no agent rules, no workflow,
-no label. Its responsibility, security boundaries and Issue contract are to be defined first;
-the human stays in control of `agent:ready` and of the merge.
+Target, later:
+
+```text
+Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► FlowForge orchestration
+```
+
+| Decision | Choice | Why |
+|---|---|---|
+| Where the result goes | The Issue **body** is rewritten; the original request is kept verbatim inside it, with a refinement record | Developer, Reviewer and Iterator read the body only; nothing in them changes |
+| Who applies `agent:ready` | **A human**, never the Refiner | Human gate before any code; a `GITHUB_TOKEN` label would not trigger the Developer anyway |
+| Not-ready state | Proposed `agent:needs-clarification`, one state label at a time (§2.6) | Not created: the module keeps five labels until Prompt 22 |
+| Verdicts | `READY` / `NEEDS_CLARIFICATION` / `BLOCKED` | Same style as the other agents; refinement verdict, not a pipeline result |
+| Non-invention | Every added statement is tagged `[provided]` / `[observed]` / `[assumption]` / `[recommended]` / `[missing]` | An assumption never reads as a requirement |
+| Code access | Read-only; no branch, commit, push or PR | The Refiner prepares work, it does not do it |
+| External sources | GitHub only; Notion and GitHub Projects are future, optional sources | No dependency on an integration that does not exist |
 
 ------
 
@@ -821,3 +852,6 @@ overwritten by each review of the run, these copies keep the history.
 | Remote Terraform backend | Before the first `apply` |
 | Required status checks in the default-branch ruleset | Once targets have a stable CI check |
 | Automatic start of the review cycle after the Developer (today: `workflow_dispatch`) | After the review cycle E2E |
+| Refiner trigger (label, `workflow_dispatch`, Issue opened), permissions (`issues: write`, `contents: read`), result contract (`refinement.json`?) | Prompt 22 |
+| Creating `agent:needs-clarification` in the `target-repository` module | Prompt 22 |
+| Aligning `.github/ISSUE_TEMPLATE/feature.yml` with the refined Issue contract | Prompt 22 or later |

@@ -12,7 +12,9 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/workflows/review-cycle.yml` — reusable (`workflow_call`) bounded `Reviewer ↔ Iterator` loop, called by targets;
 - `.github/workflows/agent-lifecycle.yml` — reusable (`workflow_call`) terminal Issue state on PR close (`agent:done` on merge);
 - `.github/scripts/flowforge-state.sh` — the single implementation of `agent:*` state label transitions;
-- `agents/` — generic agent rules (`developer.md`, `reviewer.md`), independent of any target project.
+- `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`; `refiner.md` is a
+  specification only), independent of any target project;
+- `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the future Refiner.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -67,7 +69,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 4.1 done (frozen) — Phase 5 (Refiner) next, not started
+## Current phase: Phase 5 — Refiner specified, not executable
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -92,12 +94,16 @@ module (PR + ≥ 1 approval, no force push/deletion, no FlowForge bypass; §2.7)
 items were validated live on 2026-10-09 (FlowForge `77763ec`), one reservation (no human approval
 observed: admin bypass); see `docs/milestones/phase41-hardening-e2e.md`. Phase 4.1 frozen as tag
 `flowforge-phase4.1-hardening-e2e` (baseline in the milestone §9). Deferred follow-up: #22 (Iterator `NO_OP`).
-Phase 5 (Refiner agent) is next: nothing implemented yet (`docs/architecture.md` §2.9).
+Phase 5 (Refiner agent): specification done — `agents/refiner.md` (rules: non-invention, provenance
+tags, verdict `READY` / `NEEDS_CLARIFICATION` / `BLOCKED`, never applies labels) and
+`docs/issue-contract.md` (refined body format, `Ready` definition, proposed `agent:needs-clarification`,
+3 examples); `docs/architecture.md` §2.9. `agent:ready` stays human-only. No workflow, trigger,
+label or secret yet: execution is Prompt 22.
 
 ## Out of scope for now
 
 Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
-agent, real secrets, triggering Claude Code runs, creating `demo-api` from this repository.
+execution (until Prompt 22), real secrets, triggering Claude Code runs, creating `demo-api` from this repository.
 
 ## Validation commands
 
