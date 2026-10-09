@@ -142,7 +142,7 @@ the `BLOCKED` cycle (it only moves `agent:review`).
 | Repository | Reference |
 |---|---|
 | FlowForge | tag `flowforge-phase4.1-hardening-e2e` (annotated) on the `main` merge commit of FlowForge PR #25: docs only on top of `77763ec77f311e639dddc815e0ece97ec4d04a07`, the code validated live |
-| `demo-api` | `1db26016526cfd4f6106591c22d6af0434f9fa2e` (`main`, human merge of PR #25) |
+| `demo-api` | tag `flowforge-phase4.1-hardening-e2e` (annotated) on `1db26016526cfd4f6106591c22d6af0434f9fa2e` (`main`, human merge of PR #25) |
 | `demo-api` IaC | not under Git (local state, like its sibling IaC directories): content fingerprint below |
 
 `~/Workspace/02-infrastructure/demo-api/github-terraform`, sha256 at freeze time:
@@ -164,4 +164,4 @@ declares no target and holds no state.
 
 > **Document created on**: 2026-10-09
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.1
+> **Version**: 1.2
