@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): specified, executable since Prompt 22 (`agent-refine.yml`), validated end to end in Prompt 24 (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Next: Phase 6 — GitHub Projects / Kanban, not started; GitHub Projects and Notion appear below only as future sources. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -568,7 +568,8 @@ freeze, a PR closed or merged between `REQUEST_CHANGES` and the Iterator start e
 > (`agent-refine.yml`, §2.9.1). Validated in isolation (Prompt 23,
 > [milestone](milestones/phase5-refiner-simple-cases.md)) and end to end in the Refiner → Developer →
 > Reviewer chain (Prompt 24, [milestone](milestones/phase5-refiner-e2e.md); Iterator not needed). Developer,
-> Reviewer and Iterator are unchanged.
+> Reviewer and Iterator are unchanged. **Closed** in Prompt 25, validated with reservations, tag
+> `flowforge-phase5-refiner-e2e` (milestone §13).
 
 The Refiner sits **before** the Developer. It turns a rough need into a refined Issue and a
 verdict; a human stays the gate between the two.
@@ -586,7 +587,7 @@ user / external source
     Developer ─► Draft PR ─► Reviewer ⇄ Iterator (≤ 3) ─► human approval + merge ─► agent:done
 ```
 
-Target, later:
+Target, later (Phase 6 and beyond, **not implemented**):
 
 ```text
 Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► FlowForge orchestration

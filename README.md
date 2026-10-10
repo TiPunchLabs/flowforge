@@ -2,11 +2,12 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening & lifecycle) validated end to end and frozen, with one reservation ([milestone](docs/milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): executable, not yet validated end to end.** Nothing here is production-ready.
+> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening & lifecycle) validated end to end and frozen, with one reservation ([milestone](docs/milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) validated end to end and frozen, with reservations ([milestone](docs/milestones/phase5-refiner-e2e.md)). Next: Phase 6 — GitHub Projects / Kanban (not started).** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
-workflows and agent rules that turn a well-written Issue into a Draft Pull Request.
+workflows and agent rules that turn a raw need into a refined Issue, then into a Draft Pull
+Request that a human merges.
 
 ------
 
@@ -34,11 +35,14 @@ Using a coding agent on one repository is easy. Using it on **many** repositorie
 ```mermaid
 flowchart TD
     FF[FlowForge] --> TF[Terraform<br/>target-repository module]
-    FF --> WF[Reusable GitHub Actions<br/>agent-develop.yml, review-cycle.yml]
-    FF --> AG[Agents<br/>developer.md, reviewer.md, iterator.md]
+    FF --> WF[Reusable GitHub Actions<br/>agent-refine.yml, agent-develop.yml, review-cycle.yml]
+    FF --> AG[Agents<br/>refiner.md, developer.md, reviewer.md, iterator.md]
 
     TF -- labels, variables, default-branch ruleset --> T[Target repository]
-    T --> I[Issue + agent:ready]
+    T --> N[Raw need, Issue]
+    N -- workflow_dispatch --> RF[Refiner<br/>agent-refine.yml]
+    RF -- READY --> HR[Human applies agent:ready]
+    HR --> I[Issue + agent:ready]
     I --> C[flowforge-agent.yml]
     C -- workflow_call --> WF
     WF --> CC[Claude Code]
@@ -107,12 +111,10 @@ auto-merge. Details: [docs/architecture.md §2.7](docs/architecture.md#27-human-
 
 ------
 
-## 🚀 Phase 1
+## 🚀 Roadmap
 
-Goal: make the flow above work end to end on one POC repository, `demo-api`
-(FastAPI + pytest), with the Issue *"Add GET /health"*.
-
-Full plan: [docs/phase-1.md](docs/phase-1.md).
+Phase 1 goal: make the flow above work end to end on one POC repository, `demo-api`
+(FastAPI + pytest), with the Issue *"Add GET /health"*. Plan: [docs/phase-1.md](docs/phase-1.md).
 
 | Phase | Status |
 |---|---|
@@ -121,13 +123,14 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
 | Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
 | Phase 4.1 — Hardening & lifecycle | ✅ Done, validated E2E, one reservation — tag `flowforge-phase4.1-hardening-e2e` ([milestone](docs/milestones/phase41-hardening-e2e.md)) |
-| Phase 5 — Refiner agent | 🚧 In progress — specified ([agents/refiner.md](agents/refiner.md), [docs/issue-contract.md](docs/issue-contract.md)); executable via `agent-refine.yml`, not validated E2E |
+| Phase 5 — Refiner agent | ✅ Done, validated E2E, with reservations — tag `flowforge-phase5-refiner-e2e` ([milestone](docs/milestones/phase5-refiner-e2e.md)) |
+| Phase 6 — GitHub Projects / Kanban | ⏭️ Next, not started |
 
 Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
 label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
 Each is covered by offline tests and was validated live on `demo-api` on 2026-10-09.
 
-**Phase 5 — Refiner (executable, not yet validated E2E)**: turn a rough human need into a
+**Phase 5 — Refiner (done)**: turn a rough human need into a
 structured, executable Issue that the existing chain consumes. Started on demand
 (`gh workflow run flowforge-refine.yml -f issue_number=<n>` in the target); verdict `READY`,
 `NEEDS_CLARIFICATION` (label `agent:needs-clarification`) or `BLOCKED`. A human still applies
@@ -138,8 +141,14 @@ rough human need → Refiner → structured Issue → Developer → Reviewer ⇄
 ```
 
 Refiner validated in isolation (Prompt 23, [milestone](docs/milestones/phase5-refiner-simple-cases.md))
-and end to end in the chain (Prompt 24, [milestone](docs/milestones/phase5-refiner-e2e.md)).
-**Next**: Phase 5 closure (Prompt 25). **Future (not implemented)**: GitHub Project, Notion.
+and end to end in the chain (Prompt 24, [milestone](docs/milestones/phase5-refiner-e2e.md)), then
+closed with reservations (Prompt 25, same milestone §13). The Refiner is optional: a hand-written
+`agent:ready` Issue still goes straight to the Developer.
+
+**Phase 6 — GitHub Projects / Kanban (next, not implemented)**: a backlog and a Kanban view of
+the Issues FlowForge drives, with Project statuses kept in sync with the `agent:*` state
+transitions. **Future (not implemented)**: Notion, QA agent, Documentation agent, self-hosted
+runners.
 
 ------
 
