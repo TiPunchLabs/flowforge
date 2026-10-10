@@ -1,0 +1,45 @@
+# Minimal workflow to copy into a TARGET repository as
+#   .github/workflows/flowforge-refine.yml
+#
+# It holds no logic: everything lives in the FlowForge reusable workflow agent-refine.yml.
+# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+#
+# Trigger: workflow_dispatch only, started by a human for one Issue:
+#   gh workflow run flowforge-refine.yml -f issue_number=<n>
+# No `issues` trigger on purpose: refining is an explicit request, never a side effect of
+# opening or editing an Issue.
+#
+# Result: READY or NEEDS_CLARIFICATION rewrite the Issue title and body (original request kept
+# verbatim inside it); NEEDS_CLARIFICATION adds agent:needs-clarification; BLOCKED only
+# comments. The Developer is never started: a human applies `agent:ready` after reading.
+#
+# Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml, and the
+# agent:needs-clarification label (target-repository Terraform module).
+name: FlowForge refine
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue to refine
+        type: number
+        required: true
+
+permissions: {}
+
+jobs:
+  refine:
+    uses: OWNER/flowforge/.github/workflows/agent-refine.yml@main
+    # Must cover what the called workflow requests; it can only narrow, never widen.
+    #   contents, pull-requests: read   the agent reads the default branch and related PRs
+    #   issues: write                   publish job only (Issue title/body, label, comment)
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    with:
+      # fromJSON: workflow_dispatch inputs reach `inputs` as strings; the input is a number.
+      issue_number: ${{ fromJSON(inputs.issue_number) }}
+    # Explicit, minimal secrets contract: never `secrets: inherit`.
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

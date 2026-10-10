@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) is specified, not implemented (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): specified, and executable since Prompt 22 (`agent-refine.yml`), not yet validated end to end (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -13,7 +13,8 @@
            │  module                agent-review.yml          reviewer.md        │
            │                        agent-iterate.yml         iterator.md        │
            │                        review-cycle.yml          (generic rules)    │
-           │                        agent-lifecycle.yml                          │
+           │                        agent-lifecycle.yml       refiner.md         │
+           │                        agent-refine.yml                             │
            │                        (workflow_call)                              │
            └──────┬───────────────────────────┬───────────────────────────────────┘
                   │ configures                │ is called by
@@ -41,10 +42,12 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Reusable workflow | `.github/workflows/agent-iterate.yml` | Check the iteration bound and the review, run Claude Code on the existing PR branch, verify and fast-forward push one commit, produce a JSON result |
 | Reusable workflow | `.github/workflows/review-cycle.yml` | Bounded `Reviewer ↔ Iterator` loop: decides who runs and when, computes the cycle result; no agent logic |
 | Reusable workflow | `.github/workflows/agent-lifecycle.yml` | Terminal Issue state when an agent PR is closed: `agent:done` on merge, no state otherwise; no agent |
+| Reusable workflow | `.github/workflows/agent-refine.yml` | Run Claude Code read-only on one Issue and the default branch, validate the refinement, rewrite the Issue, map the verdict to a state label, one comment (§2.9.1) |
+| Refiner helper | `.github/scripts/flowforge-refine.sh` | Preconditions, result validation, deterministic rendering of the refined body (Original request, Refinement record) and of the comment |
 | State helper | `.github/scripts/flowforge-state.sh` | The one implementation of Issue state label transitions (§2.6), fetched by the workflows at their own commit |
-| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md`; `refiner.md` is a specification only (Phase 5, no workflow yet) |
-| Refined Issue contract | `docs/issue-contract.md` | Format of an executable Issue, `Ready` definition, proposed `agent:needs-clarification` (Phase 5, specification) |
-| Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`, `flowforge-lifecycle.yml`) |
+| Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md`, `refiner.md` |
+| Refined Issue contract | `docs/issue-contract.md` | Format of an executable Issue, `Ready` definition, `agent:needs-clarification` (Phase 5) |
+| Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`, `flowforge-lifecycle.yml`, `flowforge-refine.yml`) |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
 
 ------
@@ -393,12 +396,18 @@ agent:running ── technical failure (Claude Code failed / cancelled / not run
 | State | Label | Set by | Event | Removed labels |
 |---|---|---|---|---|
 | Backlog | *(none)* | human, `agent-develop.yml` or `agent-lifecycle.yml` | Issue written; Developer technical failure without a Draft PR; PR closed without merge | every FlowForge state |
+| Needs clarification | `agent:needs-clarification` | `agent-refine.yml` | Refiner verdict `NEEDS_CLARIFICATION` (§2.9.1) | every other state |
+| Backlog | *(none)* | `agent-refine.yml` | Refiner verdict `READY`: refined, waiting for a human to apply `agent:ready` | every other state (`agent:needs-clarification`) |
 | Ready | `agent:ready` | human | Issue refined | — (trigger of the Developer) |
 | Running | `agent:running` | `agent-develop.yml` | Developer starts (preconditions passed) | every other state, and `ready_label` |
 | Review | `agent:review` | `agent-develop.yml` | A Draft PR exists at the end of the Developer run (even if Claude Code then failed: the review judges it) | every other state |
 | Blocked | `agent:blocked` | `agent-develop.yml` | Claude Code ended normally without a Draft PR: the agent stopped and commented (rules §8) | every other state |
 | Blocked | `agent:blocked` | `review-cycle.yml` (`issue_state`) | cycle result `BLOCKED` or `MAX_ITERATIONS_REACHED`, PR still open, Issue in `agent:review` | every other state |
 | Done | `agent:done` | `agent-lifecycle.yml` | PR **merged** (by a human), Issue in `agent:review` or `agent:blocked` | every other state |
+
+The Refiner only runs on an Issue with no state or `agent:needs-clarification`, and never
+sets `agent:ready`. `agent:needs-clarification` is part of the state set since Prompt 22: the
+Developer's `agent:running` transition removes it like any other stale state.
 
 **Unchanged on purpose.**
 
@@ -442,7 +451,7 @@ the meantime to the lifecycle workflow.
 
 **Transitions are idempotent.** `flowforge_set_state <issue> <state|"">` reads the Issue
 labels, removes every *other* label of the fixed set `agent:ready`, `agent:running`,
-`agent:review`, `agent:blocked`, `agent:done` (plus `ready_label`), adds the target if
+`agent:review`, `agent:blocked`, `agent:done`, `agent:needs-clarification` (plus `ready_label`), adds the target if
 missing, and makes no write call when nothing changes. Removing an absent label or adding a
 present one is a no-op. Other labels (`bug`, `priority:high`, …) are never touched. A target
 state label that does not exist on the repository yet is skipped with a warning, the stale
@@ -552,12 +561,13 @@ Issues closed before #19, keep their last `agent:*` label (§2.6, *Rollout* step
 freeze, a PR closed or merged between `REQUEST_CHANGES` and the Iterator start ended the cycle
 `FAILED`; fixed after the freeze by Issue #22 (Iterator `NO_OP`, §2.5.1).
 
-### 2.9 Phase 5 — Refiner agent (specified, not implemented)
+### 2.9 Phase 5 — Refiner agent
 
-> **Status**: specification only — rules in [agents/refiner.md](../agents/refiner.md), Issue
-> format in [issue-contract.md](issue-contract.md). No workflow, trigger, label or secret
-> exists for it; execution is designed in Prompt 22. Developer, Reviewer and Iterator are
-> unchanged.
+> **Status**: rules in [agents/refiner.md](../agents/refiner.md), Issue format in
+> [issue-contract.md](issue-contract.md) (Prompt 21). **Executable** since Prompt 22
+> (`agent-refine.yml`, §2.9.1), **not yet validated end to end**: functional validation is
+> Prompt 23, the Refiner → Developer → Reviewer / Iterator chain Prompt 24. Developer,
+> Reviewer and Iterator are unchanged.
 
 The Refiner sits **before** the Developer. It turns a rough need into a refined Issue and a
 verdict; a human stays the gate between the two.
@@ -585,11 +595,44 @@ Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► Flo
 |---|---|---|
 | Where the result goes | The Issue **body** is rewritten; the original request is kept verbatim inside it, with a refinement record | Developer, Reviewer and Iterator read the body only; nothing in them changes |
 | Who applies `agent:ready` | **A human**, never the Refiner | Human gate before any code; a `GITHUB_TOKEN` label would not trigger the Developer anyway |
-| Not-ready state | Proposed `agent:needs-clarification`, one state label at a time (§2.6) | Not created: the module keeps five labels until Prompt 22 |
+| Not-ready state | `agent:needs-clarification`, one state label at a time (§2.6) | Added to the module and the state helper in Prompt 22 |
 | Verdicts | `READY` / `NEEDS_CLARIFICATION` / `BLOCKED` | Same style as the other agents; refinement verdict, not a pipeline result |
 | Non-invention | Every added statement is tagged `[provided]` / `[observed]` / `[assumption]` / `[recommended]` / `[missing]` | An assumption never reads as a requirement |
 | Code access | Read-only; no branch, commit, push or PR | The Refiner prepares work, it does not do it |
 | External sources | GitHub only; Notion and GitHub Projects are future, optional sources | No dependency on an integration that does not exist |
+
+#### 2.9.1 Execution (Prompt 22)
+
+```text
+human: gh workflow run flowforge-refine.yml -f issue_number=<n>      (target repository)
+        │ uses: agent-refine.yml@main
+        ▼
+ refine job  (contents / issues / pull-requests: read, Claude token)
+   Issue + comments ─► preconditions ─► checkout default branch (no credentials)
+   ─► Claude Code (Read/Glob/Grep, read-only git, gh issue|pr view|list; Edit/Write denied)
+   ─► structured output ─► workspace unchanged? ─► validate ─► render body / title / comment
+        │ artifact flowforge-refine-issue-<n>
+        ▼
+ publish job (issues: write only, no checkout, no Claude)
+   re-read Issue: unchanged since the agent read it? still no state / needs-clarification?
+   ├─ READY                ─► title + body rewritten, state label removed, comment   STOP
+   ├─ NEEDS_CLARIFICATION  ─► title + body rewritten, agent:needs-clarification, comment
+   └─ BLOCKED              ─► comment only
+```
+
+| Topic | Behaviour |
+|---|---|
+| Trigger | `workflow_dispatch` with `issue_number`, in the target (`examples/target-repository/flowforge-refine.yml`). No `issues` event: refining is an explicit request; a label trigger can come later |
+| Preconditions (technical failure if not met) | Issue exists, is open, is not a PR, carries no state other than `agent:needs-clarification` (an Issue already handed to the Developer is never re-specified); a refined body has intact markers |
+| Agent input | Rules `agents/refiner.md` and `docs/issue-contract.md` fetched at `job.workflow_sha`; Issue title, author, labels, body; the 30 latest human comments (requester answers); the default branch checked out. All of it untrusted data except the rules |
+| Read-only | `Edit`, `Write`, `MultiEdit`, `NotebookEdit` disallowed; Bash limited to read-only git and `gh issue|pr view|list`; read-only token; `persist-credentials: false`; no push step. After Claude, a modified tracked file or a moved `HEAD` fails the run (nothing published); untracked files are listed as a warning, never committed |
+| Result | Structured output (`--json-schema`), validated by `flowforge_refine_validate`: shape, verdict enum, `READY` ⇒ no blocking question and every required section filled, `NEEDS_CLARIFICATION` ⇒ ≥ 1 blocking question, `BLOCKED` ⇒ a reason, every criterion tagged, every non-blocking question has a default |
+| Issue update | Option *rewrite the body, keep the original inside* (contract §2): title and body replaced. The workflow, not the model, writes *Original request* (first run: current title and body quoted verbatim; later runs: block carried over unchanged) and *Refinement record* (earlier entries kept, one appended). GitHub keeps the edit history |
+| Comment | One FlowForge comment per Issue (`<!-- flowforge-refiner -->`, `github-actions[bot]`), created once then updated: verdict, blocking questions or block reason, run link |
+| Labels | `READY` → no state (human applies `agent:ready`); `NEEDS_CLARIFICATION` → `agent:needs-clarification`; `BLOCKED` → unchanged. Via `flowforge_set_state`, idempotent |
+| Technical failure (`FAILED`) | Issue unreadable, preconditions, Claude Code error, invalid or inconsistent output, dirty workspace, body > 65 536 characters, Issue edited or relabelled during the run, GitHub write error: the run fails; before `publish`, the Issue is untouched |
+| Idempotence | Same input ⇒ same body (deterministic rendering); re-runs never duplicate sections, never re-quote a refined body as the original, update the single comment, and add one record entry each |
+| Not done | No Developer start (`agent:ready` stays human; a `GITHUB_TOKEN` label would not trigger it anyway), no branch, commit, push or PR, no GitHub Project, no Notion |
 
 ------
 
@@ -597,7 +640,7 @@ Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► Flo
 
 | Item | Provided by | Notes |
 |---|---|---|
-| `agent:*` labels | FlowForge (Terraform) | Created by the module: `agent:ready`, `agent:running`, `agent:review`, `agent:blocked`, `agent:done` (§2.6) |
+| `agent:*` labels | FlowForge (Terraform) | Created by the module: `agent:needs-clarification`, `agent:ready`, `agent:running`, `agent:review`, `agent:blocked`, `agent:done` (§2.6) |
 | `flowforge-lifecycle.yml` | target (copied from `examples/`) | `pull_request: closed` on `agent/*` → `agent-lifecycle.yml`; `issues: write`, `pull-requests: read`, no secret |
 | Review cycle job permissions | target caller | `contents: write`, `issues: write` (the `issue_state` job only), `pull-requests: write`, `checks`, `statuses: read` |
 | `flowforge-agent.yml` | target (copied from `examples/`) | Only trigger + `uses:` + inputs |
@@ -617,6 +660,11 @@ Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► Flo
 | `pull_request_number`, `max_iterations` (+ `setup_uv`, `review_allowed_tools`, `iterate_allowed_tools`) | target → FlowForge (cycle) | Base/head branches resolved from the PR by each agent workflow, never passed in |
 | Cycle job permissions | target caller | Union of both agents: `contents: write`, `pull-requests: write`, `issues`/`checks`/`statuses: read`; each called job narrows it |
 | `result`, `iterations_used`, `final_reviewer_verdict`, `cycle_json` | FlowForge → target (cycle) | `workflow_call` outputs |
+| `flowforge-refine.yml` | target (copied from `examples/`) | Calls `agent-refine.yml`, `workflow_dispatch` only |
+| `issue_number` | target → FlowForge (Refiner) | Only input; default branch resolved from the repository |
+| Refiner job permissions | target caller | `contents: read`, `pull-requests: read`, `issues: write` (the `publish` job only; the agent job has `issues: read`) |
+| `verdict`, `result_artifact`, `refinement_json` | FlowForge → target (Refiner) | `refinement_json`: `refinement.json` compact (§5.8); empty on technical failure |
+| `agent:needs-clarification` | FlowForge (Terraform) | Sixth state label; until a target applies the module, the Refiner skips it with a warning |
 | `CLAUDE.md` | target | Optional but strongly recommended |
 | CI | target | FlowForge never replaces the target's CI |
 
@@ -645,6 +693,7 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | No silent approval | Missing, invalid or inconsistent Reviewer output becomes a workflow-set `BLOCKED` and fails the run |
 | Iterator push is not in the agent's hands | Claude runs with a read-only token and no push permission; a separate job, which runs no PR code, verifies the commit and fast-forward pushes it to the PR head branch only |
 | Bounded Iterator | `iteration_number <= max_iterations`, ceiling 3, checked before any checkout; stale review (`head_sha` ≠ PR head) refused |
+| Read-only Refiner | Agent job has read permissions only, no push credentials, edit tools disallowed, Bash read-only; a changed workspace fails the run; the `publish` job (`issues: write`) runs no agent; the original request and the record are written by the workflow, not by the model |
 | Bounded review cycle | Static chain with exactly three Iterator jobs (no 4th pass can exist), `max_iterations` checked before any agent, one active cycle per PR (concurrency group); the cycle never merges, never marks a PR ready, never deletes a branch |
 
 ------
@@ -853,6 +902,51 @@ overwritten by each review of the run, these copies keep the history.
 - `iterations_used`: Iterator jobs engaged (succeeded or not). `final_reviewer_verdict`: the
   last verdict produced, empty when no Reviewer produced one.
 
+### 5.7 Refiner decisions (Phase 5, Prompt 22)
+
+| Topic | Decision |
+|---|---|
+| Workflow | `agent-refine.yml` (`workflow_call`), two jobs like the Reviewer: agent read-only, publish write-only |
+| Trigger | `workflow_dispatch` on the target, one Issue per run |
+| Where the result goes | Issue title and body rewritten (contract §2), original kept verbatim in it by the workflow; single updated comment |
+| Labels | `agent:needs-clarification` created in the module and added to the state helper; `READY` removes it; `agent:ready` stays human-only |
+| Technical failure | Run fails, Issue untouched; no workflow-set verdict (unlike the Reviewer's `BLOCKED`): a refinement is a proposal, there is nothing safe to publish without one |
+| Result contract | `refinement.json`, `schema_version: 1` (§5.8) |
+
+### 5.8 Refinement result contract (`refinement.json`, `schema_version: 1`)
+
+Artifact `flowforge-refine-issue-<n>` holds `refinement.json` (also the `refinement_json`
+output), `comment.md`, and for `READY` / `NEEDS_CLARIFICATION` `title.txt` and `body.md`; a
+rejected agent output is kept as `rejected-output.json`.
+
+```json
+{
+  "schema_version": 1,
+  "repository": "owner/name",
+  "issue": 12,
+  "author": "requester-login",
+  "original_title": "Version endpoint",
+  "input_digest": "sha256 of title + body read before the agent ran",
+  "run_url": "https://github.com/...",
+  "rules_sha": "FlowForge commit of agents/refiner.md",
+  "refined_at": "2026-10-10T12:00:00Z",
+  "verdict": "READY",
+  "blocked_reason": "",
+  "title": "feat: add GET /version endpoint",
+  "context": ["… `[provided]`"], "goal": "…", "scope": ["…"], "out_of_scope": ["…"],
+  "acceptance_criteria": ["… `[recommended]`"], "constraints": ["…"], "references": ["…"],
+  "open_questions": [{ "question": "…", "blocking": false, "default": "…" }],
+  "assumptions": ["`[assumption]` …"], "notes_for_agents": ["…"],
+  "proposed_labels": ["`agent:ready` (to be applied by a human)"],
+  "added": "…", "references_used": ["…"]
+}
+```
+
+- `verdict` ∈ `READY | NEEDS_CLARIFICATION | BLOCKED`; `FAILED` is never written: it is a
+  failed run without artifact result.
+- Fields after `verdict` are the agent's structured output; the ones before are added by the
+  workflow.
+
 ## 6. 🚧 Open design decisions
 
 | Topic | To decide at |
@@ -860,6 +954,5 @@ overwritten by each review of the run, these copies keep the history.
 | Remote Terraform backend | Before the first `apply` |
 | Required status checks in the default-branch ruleset | Once targets have a stable CI check |
 | Automatic start of the review cycle after the Developer (today: `workflow_dispatch`) | After the review cycle E2E |
-| Refiner trigger (label, `workflow_dispatch`, Issue opened), permissions (`issues: write`, `contents: read`), result contract (`refinement.json`?) | Prompt 22 |
-| Creating `agent:needs-clarification` in the `target-repository` module | Prompt 22 |
-| Aligning `.github/ISSUE_TEMPLATE/feature.yml` with the refined Issue contract | Prompt 22 or later |
+| Refiner label trigger (`agent:refine`) or automatic refinement on Issue opened | After the Refiner E2E (Prompts 23–24) |
+| Aligning `.github/ISSUE_TEMPLATE/feature.yml` with the refined Issue contract | After the Refiner E2E |

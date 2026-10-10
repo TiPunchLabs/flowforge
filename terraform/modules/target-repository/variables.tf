@@ -16,6 +16,10 @@ variable "labels" {
   }))
 
   default = {
+    "agent:needs-clarification" = {
+      color       = "D876E3"
+      description = "FlowForge: the Refiner needs answers before the issue can be ready"
+    }
     "agent:ready" = {
       color       = "0E8A16"
       description = "FlowForge: issue is refined and can be picked up by the Developer agent"

@@ -1,9 +1,10 @@
 # 📋 FlowForge — Refined Issue contract
 
-> **Status**: Phase 5 — specification. This is the format of an Issue the FlowForge chain
-> can execute, whoever writes it: the future Refiner agent ([rules](../agents/refiner.md)) or
-> a human. No workflow produces or validates it yet (Prompt 22). The Developer, Reviewer and
-> Iterator are unchanged: they already read the whole Issue body as their specification.
+> **Status**: Phase 5. This is the format of an Issue the FlowForge chain can execute,
+> whoever writes it: the Refiner agent ([rules](../agents/refiner.md)), run by
+> `agent-refine.yml` (executable, not yet validated end to end), or a human. The Developer,
+> Reviewer and Iterator are unchanged: they already read the whole Issue body as their
+> specification.
 
 ------
 
@@ -108,8 +109,15 @@ The expected result, in one or two sentences.
 | Refinement record | ✅ | §7 |
 
 The first line, `<!-- flowforge-refiner: schema_version=1 -->`, is invisible on GitHub and lets
-a future workflow recognise an already refined Issue. An Issue written by a human without it
+the Refiner workflow recognise an already refined Issue. An Issue written by a human without it
 is still valid.
+
+The workflow (not the agent) writes the last two sections, between invisible markers:
+`<!-- flowforge-original-request:start -->` / `:end -->` around the quoted original request,
+and `<!-- flowforge-refinement-record:start -->` / `:end -->` around the record entries
+(`### Refinement <n>`). On a re-refinement it carries the first block over unchanged and
+appends one entry to the second. Do not remove these markers: a refined body without them is
+refused rather than guessed (restore it from the Issue edit history).
 
 ## 4. 🔖 Provenance tags
 
@@ -138,19 +146,20 @@ If any condition fails, the verdict is `NEEDS_CLARIFICATION` (answers missing) o
 
 ## 6. 🚦 Labels and states
 
-**Proposed convention — not created.** The Terraform module keeps its five labels
-(`agent:ready`, `agent:running`, `agent:review`, `agent:blocked`, `agent:done`); adding a sixth
-is a Prompt 22 decision.
+**Implemented in Prompt 22.** The Terraform module manages a sixth state label,
+`agent:needs-clarification`, and the state helper treats it like the others (at most one state
+label per Issue).
 
-| Label | State | Set by (future) | Meaning |
+| Label | State | Set by | Meaning |
 |---|---|---|---|
 | *(none)* | Backlog | — | Raw or refined Issue, not started |
 | `agent:needs-clarification` | Needs clarification | Refiner workflow, from the verdict | Blocking questions wait for the requester |
 | `agent:ready` | Ready | **human only** | Accepted specification; starts the Developer |
 
-- The Refiner **agent** applies no label; a future workflow maps its verdict:
-  `NEEDS_CLARIFICATION` → `agent:needs-clarification`; `READY` → no label change (the
-  human applies `agent:ready`); `BLOCKED` → no label change, the reason is commented.
+- The Refiner **agent** applies no label; the workflow `agent-refine.yml` maps its verdict:
+  `NEEDS_CLARIFICATION` → `agent:needs-clarification`; `READY` → no state label
+  (`agent:needs-clarification` removed; the human applies `agent:ready`); `BLOCKED` → no label
+  change, the reason is commented.
 - `agent:needs-clarification` follows the existing rule of [architecture §2.6](architecture.md#26-issue-label-lifecycle-phase-41):
   **at most one** `agent:*` state label per Issue.
 - `agent:ready` stays human-only. Besides keeping a human gate before any code is written,
@@ -422,4 +431,4 @@ can drop it before applying `agent:ready`.
 
 > **Document created on**: 2026-10-09
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.0
+> **Version**: 1.1 (2026-10-10: workflow-written markers, `agent:needs-clarification` implemented)
