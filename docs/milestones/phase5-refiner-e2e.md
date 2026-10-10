@@ -3,8 +3,8 @@
 > **Date**: 2026-10-10 (UTC)
 > **Status**: ✅ Validated (Prompt 24). One raw need went through Refiner → `READY` → Developer →
 > Draft PR → Reviewer `APPROVE` with **no** manual change to the need. The only human action was
-> applying `agent:ready`. The Iterator was **not needed** (first review `APPROVE`). The human merge
-> is still pending and stays a human decision. Reservations are in §10.
+> applying `agent:ready`. The Iterator was **not needed** (first review `APPROVE`). A human merged
+> PR #34 (admin bypass), and the lifecycle set `agent:done` on #33 (§8). Reservations are in §10.
 
 ------
 
@@ -23,7 +23,10 @@
   Reviewer #1                     run 38079505751 → APPROVE, 9/9 Refiner criteria PASS
           │  Iterator #1..#3 skipped (iterations_used 0 / 3)
           ▼
-  human validation                PR #34 open, Draft, not merged — Issue #33 agent:review
+  human validation                PR #34 merged by a human (admin bypass) → main 2739ea2
+          │  flowforge-lifecycle.yml                     run 38082074993
+          ▼
+  Issue #33 closed, agent:done
 ```
 
 ------
@@ -165,7 +168,9 @@ Issue #33 timeline (GitHub API):
 19:21:24  cross-referenced by PR #34
 19:21:29  agent:running → agent:review        Draft PR opened
           (review cycle APPROVED: no label change, by design)
-now       agent:review, OPEN                  waiting for the human merge → agent:done
+20:01:04  PR #34 merged by xgueret             admin bypass, merge commit 2739ea2
+20:01:06  closed by xgueret                   `Closes #33`
+20:01:14  agent:review → agent:done           lifecycle run 38082074993
 ```
 
 At most one `agent:*` label at every step; no leftover `agent:ready` or
@@ -184,6 +189,8 @@ Each link of the chain points to the next one:
 | Draft PR | #34, `Closes #33` |
 | Reviewer run | review comment → run 38079505751, reviewed commit `a42b0bd` |
 | Iterator | none (`iterations_used: 0`) |
+| Human merge | PR #34 merged 2026-10-10T20:01:04Z by @xgueret, merge commit `2739ea2` |
+| Lifecycle run | [38082074993](https://github.com/TiPunchLabs/demo-api/actions/runs/38082074993) → #33 `agent:done`, closed |
 | Artifacts | `flowforge-refine-issue-33`, `flowforge-review-pr-34`, `flowforge-review-cycle-pr-34` |
 
 **Decoupling.** The Refiner adds no precondition downstream: the Developer reads the Issue body
@@ -204,8 +211,8 @@ code, not by a new run.
 | Secrets in logs (3 runs, all jobs) | 0 credential-like string (`sk-ant-`, `gh[pso]_`); secrets only as `***` |
 | `##[error]` | 0 |
 | Force push | none: the only `+refs/` hits are `actions/checkout` fetch refspecs; repository events show no forced push |
-| Merge | none: PR #34 `OPEN`, Draft |
-| `main` | `7a5be0d` before and after; branches: `main` + the agent branch only |
+| Merge | no agent merge: during the agent runs PR #34 stayed `OPEN`, Draft; merged later by a human (admin bypass) |
+| `main` | `7a5be0d` during the whole agent chain; `2739ea2` only through the human merge of PR #34 (no direct push) |
 
 ## 10. ⚠️ Interventions, reservations and limitations
 
@@ -217,6 +224,7 @@ code, not by a new run.
 | `gh workflow run flowforge-refine.yml -f issue_number=33` | administrative (manual trigger by design) |
 | Read the `READY` body, then apply `agent:ready` | administrative (human gate by design) |
 | `gh workflow run flowforge-review-cycle.yml -f pull_request_number=34` | administrative (manual trigger by design) |
+| Merge PR #34 (admin bypass) | human gate by design (§2.7), after the E2E evidence was recorded |
 
 **No functional change** to the need between the Refiner and the Developer: body sha256 identical
 before and after the Developer run, no comment added by a human.
@@ -227,8 +235,9 @@ before and after the Developer run, no comment added by a human.
    run. This is a valid outcome, but the Iterator's reading of a refined Issue stays
    unproven. Its behaviour on Developer PRs was validated in Phase 4 and does not depend on the
    body format.
-2. **Human merge pending.** PR #34 is waiting for a human approval and merge (ruleset §2.7). Then
-   `agent-lifecycle.yml` should set `agent:done` on #33. Not observed here.
+2. **Human merge through the admin bypass.** PR #34 was merged by @xgueret with the admin bypass of
+   the default-branch ruleset (§2.7), as in Phase 4.1: no second human writer, so no GitHub
+   approval was observed. The lifecycle then worked: `agent:review` → `agent:done`, Issue closed.
 3. **Proposed label not in the repository.** The Refiner proposed `type:feature`, which does not
    exist on `demo-api`. Harmless (proposals are never applied), but a later rule could limit
    *Proposed labels* to existing labels.
@@ -252,7 +261,8 @@ flowchart TD
     F -->|"human: gh workflow run<br/>flowforge-review-cycle.yml"| G["Reviewer #1<br/>run 38079505751"]
     G -->|"APPROVE, 9/9 PASS"| H["Cycle result APPROVED<br/>iterations_used 0 / 3"]
     G -.->|"REQUEST_CHANGES<br/>(not taken)"| I["Iterator #1..#3<br/>skipped"]
-    H --> J["Human validation<br/>approval + merge pending"]
+    H --> J["Human merge of PR #34<br/>admin bypass → main 2739ea2"]
+    J -->|"flowforge-lifecycle.yml<br/>run 38082074993"| K["Issue #33 closed<br/>agent:done"]
 ```
 
 ## 12. ✅ Acceptance criteria (Prompt 24)
@@ -274,7 +284,7 @@ flowchart TD
 | If `REQUEST_CHANGES`, the Iterator ran normally | PASS (not applicable: `APPROVE`) |
 | If the Iterator ran, the bound held | PASS (not applicable: 0 / 3) |
 | No agent merged | PASS |
-| `main` not modified directly | PASS (`7a5be0d`) |
+| `main` not modified directly | PASS (`7a5be0d` during the chain; `2739ea2` = human merge of #34) |
 | No force push | PASS |
 | No secret exposed | PASS |
 | Main transitions traceable | PASS (§8) |
@@ -287,4 +297,4 @@ flowchart TD
 
 > **Document created on**: 2026-10-10
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.0
+> **Version**: 1.1 (human merge and `agent:done` recorded)
