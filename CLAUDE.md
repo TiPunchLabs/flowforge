@@ -93,7 +93,7 @@ human merge gate: `github_repository_ruleset` on the default branch in the `targ
 module (PR + ≥ 1 approval, no force push/deletion, no FlowForge bypass; §2.7). All Phase 4.1
 items were validated live on 2026-10-09 (FlowForge `77763ec`), one reservation (no human approval
 observed: admin bypass); see `docs/milestones/phase41-hardening-e2e.md`. Phase 4.1 frozen as tag
-`flowforge-phase4.1-hardening-e2e` (baseline in the milestone §9). Deferred follow-up: #22 (Iterator `NO_OP`).
+`flowforge-phase4.1-hardening-e2e` (baseline in the milestone §9). Follow-up #22 (Iterator `NO_OP`) done after the freeze.
 Phase 5 (Refiner agent): specification done — `agents/refiner.md` (rules: non-invention, provenance
 tags, verdict `READY` / `NEEDS_CLARIFICATION` / `BLOCKED`, never applies labels) and
 `docs/issue-contract.md` (refined body format, `Ready` definition, proposed `agent:needs-clarification`,
@@ -118,6 +118,7 @@ yamllint -d relaxed .github examples               # optional, if installed
 actionlint                                         # pre-commit hook (also runs in CI)
 tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator result rules
 tests/review-no-op.sh                              # pre-commit hook: closed/merged PR = NO_OP
+tests/iterate-no-op.sh                             # pre-commit hook: Iterator NO_OP (#22)
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 ```

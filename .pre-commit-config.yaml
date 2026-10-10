@@ -44,6 +44,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/workflows/(agent-review|review-cycle)\.yml|tests/review-no-op\.sh)$
+      # Closed / merged pull request = NO_OP for the Iterator (Issue #22): preconditions,
+      # last read before the push, cycle result.
+      - id: iterate-no-op
+        name: iterate no-op tests
+        entry: tests/iterate-no-op.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/workflows/(agent-iterate|review-cycle)\.yml|tests/iterate-no-op\.sh)$
       # Issue label lifecycle (Issue #19): one FlowForge state label, idempotent transitions.
       - id: label-lifecycle
         name: label lifecycle tests

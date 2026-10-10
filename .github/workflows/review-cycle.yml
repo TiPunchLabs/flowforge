@@ -26,13 +26,13 @@
 #   APPROVED                last Reviewer returned APPROVE
 #   BLOCKED                 a Reviewer or an Iterator returned BLOCKED (agent result)
 #   MAX_ITERATIONS_REACHED  last Reviewer returned REQUEST_CHANGES with no Iterator pass left
-#   NO_OP                   a Reviewer found the pull request already CLOSED or MERGED: it
-#                           no longer requires or allows review-cycle processing
+#   NO_OP                   a Reviewer or an Iterator found the pull request already CLOSED or
+#                           MERGED: it no longer requires or allows review-cycle processing
 #   FAILED                  technical failure: a called workflow failed or was cancelled
 #                           (this includes a BLOCKED set by the workflow, not by an agent)
-# NO_OP has no verdict, so no later job runs. Only FAILED fails this run. BLOCKED,
-# MAX_ITERATIONS_REACHED and FAILED require a human; APPROVED requires one too, for the merge;
-# NO_OP requires nothing. Nothing here merges, marks the PR ready, or deletes a branch.
+# NO_OP has no verdict and no Iterator result, so no later job runs. Only FAILED fails this
+# run. BLOCKED, MAX_ITERATIONS_REACHED and FAILED require a human; APPROVED requires one too,
+# for the merge; NO_OP requires nothing. Nothing here merges, marks the PR ready, or deletes a branch.
 #
 # Issue state label (job issue_state, docs/architecture.md §2.6): BLOCKED and
 # MAX_ITERATIONS_REACHED move the linked Issue from agent:review to agent:blocked. APPROVED
@@ -306,6 +306,7 @@ jobs:
                   doc($n.outputs.iteration_json) as $d
                   | {step: "iterate", iteration_number: ($k | tonumber), job: $job, job_result: $n.result,
                      result: ($n.outputs.result // ""), commit_sha: (($n.outputs.commit_sha // "") | select(. != "") // null),
+                     no_op_reason: (doc($n.outputs.no_op_json).reason // null),
                      produced_by: ($d.produced_by // null), counts: ($d.counts // null),
                      document: $d}
                 end
@@ -327,6 +328,8 @@ jobs:
                  {result: "BLOCKED", reason: "Reviewer #\($last.round) returned BLOCKED."}
                elif $last.step == "review" and $last.verdict == "REQUEST_CHANGES" and $used >= $max then
                  {result: "MAX_ITERATIONS_REACHED", reason: "Reviewer #\($last.round) still returned REQUEST_CHANGES after \($used) Iterator pass(es) (max_iterations = \($max))."}
+               elif $last.step == "iterate" and $last.no_op_reason != null then
+                 {result: "NO_OP", reason: "Iterator #\($last.iteration_number) delivered nothing: pull request #\($pr) is no longer open (\($last.no_op_reason))."}
                elif $last.step == "iterate" and $last.result == "BLOCKED" then
                  {result: "BLOCKED", reason: "Iterator #\($last.iteration_number) returned BLOCKED."}
                else
@@ -385,6 +388,7 @@ jobs:
                     "- Iterator #\(.iteration_number) → "
                     + (if .job_result != "success" then "**technical failure** (\(.job_result))"
                          + (if .result != "" then ", workflow-set \(.result)" else "" end)
+                       elif .no_op_reason then "**NO_OP** (\(.no_op_reason))"
                        else "**\(.result)**" + (.counts | counts) end)
                     + (if .commit_sha then " · pushed `\(.commit_sha[0:12])`" else " · no commit pushed" end)
                   end
@@ -399,7 +403,7 @@ jobs:
              elif .result == "MAX_ITERATIONS_REACHED" then
                "Human intervention required: the Iterator budget is spent and the Reviewer still requests changes."
              elif .result == "NO_OP" then
-               "Nothing to do: the pull request is already closed or merged. No further Reviewer or Iterator ran, nothing was published."
+               "Nothing to do: the pull request is already closed or merged. No further Reviewer or Iterator ran, nothing more was published or pushed."
              else
                "Human intervention required: technical failure, see the failed job log. Re-run the cycle once fixed."
              end),
