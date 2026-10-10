@@ -203,7 +203,8 @@ target caller (pull_request_number, iteration_number, max_iterations, review_jso
 job iterate  (contents/issues/pull-requests: read)
   │  guards, before any checkout or Claude run — failure = BLOCKED, nothing pushed:
   │    iteration_number <= max_iterations (<= 3) · review verdict REQUEST_CHANGES
-  │    PR open, same repo · head branch ≠ base / default / main · PR head == reviewed head_sha
+  │    PR same repo · head branch ≠ base / default / main · PR head == reviewed head_sha
+  │    PR CLOSED | MERGED → NO_OP: stop here, nothing checked out, no Claude run, run succeeds
   │  checkout the PR head branch · branch, HEAD and clean tree verified
   │  pin CLAUDE.md/.claude/.mcp.json to the base branch (working tree only)
   │  Claude Code: edit + target checks + git add/commit; push, branch, reset… denied
@@ -213,7 +214,8 @@ job iterate  (contents/issues/pull-requests: read)
 artifact flowforge-iteration-pr-<n>-<iteration>  (iteration.json + commit bundle)
   │
   ▼
-job publish  (contents: write only, no Claude, no PR code run)
+job publish  (contents: write + pull-requests: read, no Claude, no PR code run)
+     re-check PR state first: CLOSED | MERGED → NO_OP, no checkout, nothing pushed
      bundle = one commit on top of the reviewed head · remote branch unchanged
      git push origin <sha>:refs/heads/<head_branch>   (fast-forward, never forced)
      iteration.json (pushed) + iteration.md → artifact + job summary
@@ -248,6 +250,7 @@ Reviewer #1      iteration_number = 0
   └── REQUEST_CHANGES  (and 1 <= max_iterations)
         ▼
 Iterator #1      iteration_number = 1, review_json = Reviewer #1 review.json
+  ├── (PR CLOSED | MERGED, nothing pushed) ► NO_OP      same for every Iterator #k
   ├── BLOCKED ─────────────────────────────► BLOCKED
   └── COMPLETED | PARTIAL
         ▼
@@ -295,7 +298,7 @@ can act).
 | `APPROVED` | Last Reviewer returned `APPROVE` | ✅ success | Reviews and merges (FlowForge never merges, never marks the PR ready, never deletes the branch) |
 | `BLOCKED` | A Reviewer or an Iterator returned `BLOCKED` (agent result) | ✅ success | Required: read the blocked reason |
 | `MAX_ITERATIONS_REACHED` | Last Reviewer returned `REQUEST_CHANGES` and `max_iterations` Iterator passes were used | ✅ success | Required: budget spent, changes still requested |
-| `NO_OP` | A Reviewer found the PR already `CLOSED` or `MERGED`: the PR no longer requires or allows review-cycle processing | ✅ success | None: nothing was reviewed, published or iterated |
+| `NO_OP` | A Reviewer or an Iterator found the PR already `CLOSED` or `MERGED`: the PR no longer requires or allows review-cycle processing | ✅ success | None: nothing more was reviewed, published or pushed |
 | `FAILED` | A called workflow failed or was cancelled, or the inputs were rejected | ❌ failure | Required: technical failure, see the failed job |
 
 **Agent verdict vs technical failure.** A `BLOCKED` returned by an agent is a result. A
@@ -306,28 +309,31 @@ never turned into a business `BLOCKED`. Nothing resumes automatically after `BLO
 `MAX_ITERATIONS_REACHED` or `FAILED`.
 
 **`NO_OP` — pull request no longer open.** Runs are asynchronous: a human may merge or
-close the PR while a review is queued. That is a normal outcome, not an error.
+close the PR while a review or an iteration is queued or running. That is a normal outcome,
+not an error.
 
 | PR state (read at runtime) | Reviewer | Iterator | Result |
 |---|---|---|---|
 | `OPEN` | runs normally | per the gates above | `APPROVED` / `BLOCKED` / `MAX_ITERATIONS_REACHED` / `FAILED` |
-| `CLOSED` | not executed, nothing published | not executed | `NO_OP` (`PR_ALREADY_CLOSED`) |
-| `MERGED` | not executed, nothing published | not executed | `NO_OP` (`PR_ALREADY_MERGED`) |
+| `CLOSED` | not executed, nothing published | not executed, or its commit not pushed | `NO_OP` (`PR_ALREADY_CLOSED`) |
+| `MERGED` | not executed, nothing published | not executed, or its commit not pushed | `NO_OP` (`PR_ALREADY_MERGED`) |
 
-- `NO_OP` ≠ `BLOCKED`: no agent ran, nobody has anything to fix or decide.
+- `NO_OP` ≠ `BLOCKED`: nothing was delivered, nobody has anything to fix or decide.
 - `NO_OP` ≠ `FAILED`: nothing broke. A GitHub API error, missing permissions, a PR not
   found or an unknown state while reading the PR remain technical failures (`FAILED`), never
   `NO_OP`.
-- `NO_OP` is an orchestration result, **not a Reviewer verdict**: the verdicts stay
-  `APPROVE | REQUEST_CHANGES | BLOCKED`, and a no-op Reviewer has an empty `verdict`.
+- `NO_OP` is an orchestration result, **not a Reviewer verdict nor an Iterator result**: the
+  verdicts stay `APPROVE | REQUEST_CHANGES | BLOCKED` and the Iterator results `COMPLETED |
+  PARTIAL | BLOCKED`; a no-op Reviewer has an empty `verdict`, a no-op Iterator an empty
+  `result`. Both explain themselves in `no_op_json`.
 - The state is read twice by `agent-review.yml`: with the PR context (before any checkout)
   and again right before Claude starts. A merge or close *during* the review cannot be
   prevented: its verdict is published on the already merged or closed PR.
-- **Known limit — closed during the Iterator.** `agent-iterate.yml` keeps its precondition
-  "PR is `OPEN`": a PR closed or merged after `REQUEST_CHANGES` and before the Iterator
-  starts makes the Iterator fail with a workflow-set `BLOCKED`, so the cycle reports
-  `FAILED`. Turning that case into `NO_OP` too is tracked by Issue #22 (Iterator criterion
-  of #18, deferred; not part of Phase 4.1). Nothing is pushed in that case.
+- The state is read twice by `agent-iterate.yml` (Issue #22): in the preconditions (before
+  any checkout or Claude run, `stage: preconditions`) and again by the publish job before
+  its checkout and push (`stage: before_push`). A PR closed or merged while Claude runs gets
+  no push; its `iteration.json` is kept in the artifact with `commit.pushed: false`. The
+  first read comes after the `review_json` checks: an invalid review stays a failure.
 
 #### 2.5.2 One cycle per pull request
 
@@ -542,9 +548,9 @@ Validated live on 2026-10-09 with FlowForge `77763ec`; evidence and reservations
 `flowforge-phase4.1-hardening-e2e` (baseline: milestone §9).
 
 **Known manual limitations** (accepted, not bugs): an Issue closed by hand without a PR, and
-Issues closed before #19, keep their last `agent:*` label (§2.6, *Rollout* step 4). A PR
-closed or merged between `REQUEST_CHANGES` and the Iterator start ends the cycle `FAILED`,
-with nothing pushed (§2.5.1, Issue #22).
+Issues closed before #19, keep their last `agent:*` label (§2.6, *Rollout* step 4). At the
+freeze, a PR closed or merged between `REQUEST_CHANGES` and the Iterator start ended the cycle
+`FAILED`; fixed after the freeze by Issue #22 (Iterator `NO_OP`, §2.5.1).
 
 ### 2.9 Phase 5 — Refiner agent (specified, not implemented)
 
@@ -606,7 +612,7 @@ Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► Flo
 | `pull_request_number`, `iteration_number`, `max_iterations`, `review_json` | target → FlowForge (Iterator) | `review_json` = the Reviewer's `review.json`; base, head, Issue resolved from the PR |
 | Iterator job permissions | target caller | `contents: write` (the push job only), `issues: read`, `pull-requests: read` |
 | `verdict`, `result_artifact`, `review_json`, `no_op_json` | FlowForge → target (Reviewer) | `review_json`: full `review.json`, compact JSON; `no_op_json`: set only on `NO_OP` (§5.2) |
-| `result`, `commit_sha`, `result_artifact`, `iteration_json` | FlowForge → target (Iterator) | `iteration_json`: final `iteration.json` (per-finding statuses), compact JSON |
+| `result`, `commit_sha`, `result_artifact`, `iteration_json`, `no_op_json` | FlowForge → target (Iterator) | `iteration_json`: final `iteration.json` (per-finding statuses), compact JSON; `no_op_json`: set only on `NO_OP`, then `result` is empty (§2.5.1) |
 | `flowforge-review-cycle.yml` | target (copied from `examples/`) | Calls `review-cycle.yml`, `workflow_dispatch` only |
 | `pull_request_number`, `max_iterations` (+ `setup_uv`, `review_allowed_tools`, `iterate_allowed_tools`) | target → FlowForge (cycle) | Base/head branches resolved from the PR by each agent workflow, never passed in |
 | Cycle job permissions | target caller | Union of both agents: `contents: write`, `pull-requests: write`, `issues`/`checks`/`statuses: read`; each called job narrows it |
@@ -743,6 +749,7 @@ no `review.json` exists: `verdict` and `review_json` are empty and `no_op_json` 
 | Partial delivery | Finding status ≠ global result. A `BLOCKED` or `NOT_ACTIONABLE` finding does not, by itself, block independent safe fixes: they are validated, committed, pushed, and the result is `PARTIAL` (`iterator.md` §10). Global `BLOCKED` is kept for unsafe or impossible situations: failed preconditions or validations, prompt injection, nothing `FIXED`, fixes that depend on a remaining finding |
 | Protected paths | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json`, `.github/workflows/`: never committed (commit rejected by the workflow). A finding that needs one is `NOT_ACTIONABLE`, "Human required: protected file `<path>`", not `BLOCKED` (`iterator.md` §6.3) |
 | Tests | `tests/iterator-partial-delivery.sh` runs the real step scripts (result rules, Git contract, render, cycle gates) on throwaway repositories; pre-commit hook, so also in CI |
+| PR no longer open | `CLOSED` or `MERGED` when read (preconditions, then before the push): `NO_OP`, run succeeds, nothing pushed, `result` empty, `no_op_json` with `reason` and `stage` (§2.5.1). Every other precondition failure stays a workflow `BLOCKED` |
 | No auto-review | The workflow stops after the push. Pushing with `GITHUB_TOKEN` does not start the target's `pull_request` workflows either |
 
 ### 5.4 Iteration result contract (`iteration.json`, `schema_version: 1`)
@@ -839,8 +846,9 @@ overwritten by each review of the run, these copies keep the history.
 ```
 
 - `result` ∈ `APPROVED | BLOCKED | MAX_ITERATIONS_REACHED | NO_OP | FAILED` (§2.5.1).
-- Review entries carry `no_op_reason`: `PR_ALREADY_CLOSED` or `PR_ALREADY_MERGED` for a
-  no-op Reviewer (then `verdict` is empty), `null` otherwise.
+- Review and iterate entries carry `no_op_reason`: `PR_ALREADY_CLOSED` or
+  `PR_ALREADY_MERGED` for a no-op Reviewer (then `verdict` is empty) or Iterator (then
+  `result` is empty), `null` otherwise.
 - `timeline`: only the jobs that ran, in order; `job_result` ∈ `success | failure | cancelled`.
 - `iterations_used`: Iterator jobs engaged (succeeded or not). `final_reviewer_verdict`: the
   last verdict produced, empty when no Reviewer produced one.

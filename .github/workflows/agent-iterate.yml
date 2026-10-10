@@ -11,6 +11,11 @@
 #        to the base branch, force-pushes, merges, nor starts the Reviewer: this workflow
 #        stops after the push. The Reviewer <-> Iterator loop lives in review-cycle.yml.
 #
+# NO_OP: a pull request already CLOSED or MERGED is a normal asynchronous outcome, not an
+# error. The state is read in the preconditions (nothing checked out, no Claude run) and again
+# before the push (nothing pushed). `no_op_json` explains why, `result` stays empty and the run
+# succeeds. NO_OP is not an Iterator result.
+#
 # Two jobs, so that no job holds both untrusted PR code and a write token:
 #   iterate  read-only token; checks out the PR branch, runs Claude and the target's checks;
 #            Claude commits locally, the commit leaves the job as a git bundle
@@ -74,7 +79,9 @@ on:
         required: true
     outputs:
       result:
-        description: COMPLETED, PARTIAL or BLOCKED; empty if the iteration could not start.
+        description: >-
+          COMPLETED, PARTIAL or BLOCKED; empty if the iteration could not start or nothing was
+          delivered because the pull request is no longer open (NO_OP, see `no_op_json`).
         value: ${{ jobs.publish.outputs.result }}
       commit_sha:
         description: Commit pushed to the PR head branch by this iteration, empty if none.
@@ -85,8 +92,15 @@ on:
       iteration_json:
         description: >-
           Final iteration.json (schema_version 1) as compact JSON: result, per-finding
-          statuses, validations, pushed commit. Empty if the iteration could not start.
+          statuses, validations, pushed commit. Empty if the iteration could not start or
+          stopped at the preconditions on NO_OP.
         value: ${{ jobs.publish.outputs.iteration_json }}
+      no_op_json:
+        description: >-
+          Set only when the pull request was already CLOSED or MERGED (nothing pushed):
+          {"schema_version": 1, "result": "NO_OP", "reason": "PR_ALREADY_CLOSED" or
+          "PR_ALREADY_MERGED", "stage": "preconditions" or "before_push", ...}. Empty otherwise.
+        value: ${{ jobs.iterate.outputs.no_op_json || jobs.publish.outputs.no_op_json }}
 
 # Nothing by default; each job requests only what it needs.
 permissions: {}
@@ -112,6 +126,7 @@ jobs:
       commit_sha: ${{ steps.result.outputs.commit_sha }}
       head_branch: ${{ steps.result.outputs.head_branch }}
       result_artifact: ${{ steps.result.outputs.artifact }}
+      no_op_json: ${{ steps.no_op.outputs.no_op_json }}
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ inputs.pull_request_number }}
@@ -177,7 +192,9 @@ jobs:
           [[ "$(jq 'length' "$dir/worklist.json")" -gt 0 ]] \
             || block "REQUEST_CHANGES review without any finding or FAIL criterion: nothing to iterate on."
 
-          # 3. Pull request: open, same repository, head still the reviewed commit.
+          # 3. Pull request: open, same repository, head still the reviewed commit. A pull
+          # request closed or merged since the review is a NO_OP (step `no_op`), not an error:
+          # stop here, before any checkout or agent.
           # shellcheck disable=SC2016  # $owner, $name, $number are GraphQL variables
           gh api graphql \
             -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
@@ -198,7 +215,16 @@ jobs:
           [[ "$(jq -r '.number // empty' "$dir/pr.json")" == "$PR_NUMBER" ]] \
             || block "Pull request #$PR_NUMBER not found in $GITHUB_REPOSITORY."
           state="$(jq -r '.state' "$dir/pr.json")"
-          [[ "$state" == "OPEN" ]] || block "Pull request #$PR_NUMBER is $state, expected OPEN."
+          echo "PR #$PR_NUMBER state: $state"
+          case "$state" in
+            OPEN) ;;
+            CLOSED | MERGED)
+              echo "Skipping FlowForge iteration."
+              echo "state=$state" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            *) block "Pull request #$PR_NUMBER has an unknown state '$state'." ;;
+          esac
           [[ "$(jq -r '.isCrossRepository' "$dir/pr.json")" != "true" ]] \
             || block "Pull request #$PR_NUMBER comes from a fork; FlowForge only iterates on same-repository branches."
 
@@ -231,6 +257,7 @@ jobs:
             || block "Issue #$issue_number could not be read."
 
           {
+            echo "state=OPEN"
             echo "base_branch=$base_branch"
             echo "head_branch=$head_branch"
             echo "head_sha=$head_sha"
@@ -243,9 +270,46 @@ jobs:
             echo "- Issue: #$issue_number · work list: $(jq 'length' "$dir/worklist.json") item(s)"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # The pull request is no longer open: a business outcome, the job succeeds. No checkout,
+      # no agent, no result artifact; the result only goes to the step summary and to the
+      # `no_op_json` output (consumed by review-cycle.yml).
+      - name: Record no-op
+        id: no_op
+        if: contains(fromJSON('["CLOSED", "MERGED"]'), steps.preflight.outputs.state)
+        env:
+          STATE: ${{ steps.preflight.outputs.state }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          case "$STATE" in
+            CLOSED) reason=PR_ALREADY_CLOSED; text="closed" ;;
+            MERGED) reason=PR_ALREADY_MERGED; text="merged" ;;
+            *) echo "::error::Unexpected state '$STATE' for a no-op."; exit 1 ;;
+          esac
+          no_op_json="$(jq -cn --arg reason "$reason" --arg repository "$GITHUB_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" --arg state "$STATE" --argjson iteration "$ITERATION" \
+            --arg run_url "$RUN_URL" \
+            '{schema_version: 1, result: "NO_OP", reason: $reason, stage: "preconditions",
+              repository: $repository, pull_request: $pr, state: $state,
+              iteration_number: $iteration, run_url: $run_url}')"
+
+          echo "::notice::Pull request #$PR_NUMBER is already $text: nothing to iterate on (NO_OP)."
+          echo "no_op_json=$no_op_json" >> "$GITHUB_OUTPUT"
+          {
+            echo "## FlowForge Iterator"
+            echo
+            echo "Result: **NO_OP** (\`$reason\`)"
+            echo
+            echo "Pull request #$PR_NUMBER is already $text: it no longer requires or allows fixes."
+            echo
+            echo "- Iterator: NOT EXECUTED"
+            echo "- Push: NONE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # The existing PR branch itself, never the base branch. Full history: the base branch
       # is available as origin/<base> for git diff / git log.
       - name: Check out pull request head branch
+        if: steps.preflight.outputs.state == 'OPEN'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.preflight.outputs.head_branch }}
@@ -257,6 +321,7 @@ jobs:
       # directory as configuration: they are reset to their base-branch version in the WORKING
       # TREE only (the index stays at the PR head), so they can never end up in the commit.
       - name: Check workspace and pin agent configuration
+        if: steps.preflight.outputs.state == 'OPEN'
         env:
           HEAD_BRANCH: ${{ steps.preflight.outputs.head_branch }}
           HEAD_SHA: ${{ steps.preflight.outputs.head_sha }}
@@ -286,11 +351,12 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up uv
-        if: inputs.setup_uv
+        if: steps.preflight.outputs.state == 'OPEN' && inputs.setup_uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Build Iterator prompt
         id: prompt
+        if: steps.preflight.outputs.state == 'OPEN'
         env:
           BASE_BRANCH: ${{ steps.preflight.outputs.base_branch }}
           HEAD_BRANCH: ${{ steps.preflight.outputs.head_branch }}
@@ -487,6 +553,7 @@ jobs:
       # change; the job timeout is the second bound.
       - name: Run Claude Code Iterator
         id: claude
+        if: steps.preflight.outputs.state == 'OPEN'
         uses: anthropics/claude-code-action@86d88e619d8e6caf07b5c3944dd14f441c533718 # v1.0.243
         with:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
@@ -505,10 +572,10 @@ jobs:
 
       # Runs even when an earlier step failed: a guard, a missing, invalid or inconsistent
       # result, or a commit that breaks the Git contract becomes an explicit BLOCKED produced
-      # by the workflow, and nothing is pushed.
+      # by the workflow, and nothing is pushed. Never on NO_OP: nothing ran.
       - name: Validate iteration result
         id: result
-        if: always()
+        if: always() && !contains(fromJSON('["CLOSED", "MERGED"]'), steps.preflight.outputs.state)
         env:
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
           STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
@@ -705,13 +772,17 @@ jobs:
     timeout-minutes: 10
     # The only write the Iterator has. This job never runs Claude nor any code of the PR.
     permissions:
-      contents: write  # fast-forward push of the verified Iterator commit to the PR head branch
+      contents: write       # fast-forward push of the verified Iterator commit to the PR head branch
+      pull-requests: read   # PR state right before the push
     outputs:
       result: ${{ steps.render.outputs.result }}
       commit_sha: ${{ steps.render.outputs.commit_sha }}
       iteration_json: ${{ steps.render.outputs.iteration_json }}
+      no_op_json: ${{ steps.no_op.outputs.no_op_json }}
     env:
       GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+      ITERATION: ${{ inputs.iteration_number }}
       PUSH: ${{ needs.iterate.outputs.push }}
       COMMIT_SHA: ${{ needs.iterate.outputs.commit_sha }}
       HEAD_BRANCH: ${{ needs.iterate.outputs.head_branch }}
@@ -722,8 +793,67 @@ jobs:
           name: ${{ needs.iterate.outputs.result_artifact }}
           path: ${{ runner.temp }}/flowforge-iterate
 
-      - name: Check out pull request head branch
+      # Last state read, before the checkout: the head branch of a merged PR may already be
+      # deleted. A PR closed or merged while Claude ran receives no push (step `no_op`).
+      - name: Re-check pull request state
+        id: recheck
         if: env.PUSH == 'true'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/flowforge-iterate"
+          mkdir -p "$dir"
+          # shellcheck disable=SC2016  # $owner, $name, $number are GraphQL variables
+          gh api graphql \
+            -F owner="${GITHUB_REPOSITORY%/*}" -F name="${GITHUB_REPOSITORY#*/}" -F number="$PR_NUMBER" \
+            -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) { number state }
+                }
+              }' \
+            --jq '.data.repository.pullRequest' > "$dir/pr-state.json"
+
+          if [[ "$(jq -r '.number // empty' "$dir/pr-state.json")" != "$PR_NUMBER" ]]; then
+            echo "::error::Pull request #$PR_NUMBER not found in $GITHUB_REPOSITORY."
+            exit 1
+          fi
+          state="$(jq -r '.state' "$dir/pr-state.json")"
+          echo "PR #$PR_NUMBER state: $state"
+          case "$state" in
+            OPEN) ;;
+            CLOSED | MERGED) echo "Skipping the push." ;;
+            *)
+              echo "::error::Pull request #$PR_NUMBER has an unknown state '$state'."
+              exit 1
+              ;;
+          esac
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+      - name: Record no-op
+        id: no_op
+        if: contains(fromJSON('["CLOSED", "MERGED"]'), steps.recheck.outputs.state)
+        env:
+          STATE: ${{ steps.recheck.outputs.state }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          case "$STATE" in
+            CLOSED) reason=PR_ALREADY_CLOSED; text="closed" ;;
+            MERGED) reason=PR_ALREADY_MERGED; text="merged" ;;
+            *) echo "::error::Unexpected state '$STATE' for a no-op."; exit 1 ;;
+          esac
+          no_op_json="$(jq -cn --arg reason "$reason" --arg repository "$GITHUB_REPOSITORY" \
+            --argjson pr "$PR_NUMBER" --arg state "$STATE" --argjson iteration "$ITERATION" \
+            --arg run_url "$RUN_URL" \
+            '{schema_version: 1, result: "NO_OP", reason: $reason, stage: "before_push",
+              repository: $repository, pull_request: $pr, state: $state,
+              iteration_number: $iteration, run_url: $run_url}')"
+
+          echo "::notice::Pull request #$PR_NUMBER was $text during the iteration: nothing pushed (NO_OP)."
+          echo "no_op_json=$no_op_json" >> "$GITHUB_OUTPUT"
+
+      - name: Check out pull request head branch
+        if: env.PUSH == 'true' && steps.recheck.outputs.state == 'OPEN'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.iterate.outputs.head_branch }}
@@ -738,7 +868,7 @@ jobs:
       # Reviewer is NOT triggered by this push.
       - name: Push Iterator commit to the PR head branch
         id: push
-        if: env.PUSH == 'true'
+        if: env.PUSH == 'true' && steps.recheck.outputs.state == 'OPEN'
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/flowforge-iterate"
@@ -771,15 +901,18 @@ jobs:
         if: always()
         env:
           ARTIFACT: ${{ needs.iterate.outputs.result_artifact }}
+          NO_OP_JSON: ${{ steps.no_op.outputs.no_op_json }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/flowforge-iterate"
           json="$dir/iteration.json"
           artifact_note="machine-readable result: artifact \`$ARTIFACT\`"
 
-          # A valid commit that could not be pushed turns the iteration into a workflow BLOCKED.
+          # A valid commit that could not be pushed turns the iteration into a workflow BLOCKED,
+          # unless the pull request was closed or merged meanwhile (NO_OP: nothing to deliver).
           reliable=true
-          if [[ "$PUSH" == "true" ]]; then
+          no_op_reason="$(if [[ -n "${NO_OP_JSON:-}" ]]; then jq -r '.reason' <<<"$NO_OP_JSON"; fi)"
+          if [[ "$PUSH" == "true" && -z "$no_op_reason" ]]; then
             if [[ -s "$dir/pushed_sha.txt" ]]; then
               jq '.commit.pushed = true' "$json" > "$json.tmp" && mv "$json.tmp" "$json"
             else
@@ -811,6 +944,9 @@ jobs:
             (if .produced_by == "workflow"
               then "> ⚠️ This result was set by the workflow, not by the Iterator.", ""
               else empty end),
+            (if $no_op != "" then
+              "> NO_OP (`\($no_op)`): the pull request is no longer open, nothing was pushed.", ""
+              else empty end),
             (if .result == "BLOCKED" then "**Blocked:** \(.blocked_reason)", "" else empty end),
             (if (.findings | length) == 0 then "### Findings", "", "_No work list._", ""
               else section("Delivered"; ["FIXED", "ALREADY_RESOLVED"]; "_Nothing delivered._"),
@@ -841,11 +977,12 @@ jobs:
             "The Reviewer is not started by this workflow: re-run it on the new head commit.",
             "",
             "<sub>FlowForge Iterator · [workflow run](\(.run_url)) · \($note)</sub>"
-          ' "$json" > "$dir/iteration.md"
+          ' --arg no_op "$no_op_reason" "$json" > "$dir/iteration.md"
 
           cat "$dir/iteration.md" >> "$GITHUB_STEP_SUMMARY"
           {
-            echo "result=$(jq -r '.result' "$json")"
+            # On NO_OP the Iterator delivered nothing: no result, so no later Reviewer.
+            echo "result=$(if [[ -n "$no_op_reason" ]]; then echo ""; else jq -r '.result' "$json"; fi)"
             echo "commit_sha=$(jq -r 'if .commit.pushed then .commit.sha else "" end' "$json")"
             echo "reliable=$reliable"
             # Compact JSON is a single line (newlines in strings stay escaped).

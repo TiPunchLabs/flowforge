@@ -70,7 +70,7 @@ Before reading the code, check — and stop with result `BLOCKED` (§10) if any 
 | Iteration bound | `iteration_number <= max_iterations` |
 | Review verdict | `REQUEST_CHANGES` — `APPROVE` and `BLOCKED` stop the loop, nothing to iterate on |
 | Review freshness | The PR head commit is still the reviewed `head_sha`; otherwise the findings describe other code and a new review is needed |
-| Pull Request state | Open, not merged, same repository (no fork) |
+| Pull Request state | Open, same repository (no fork). A closed or merged PR never reaches you: the workflow ends the iteration as `NO_OP` before you run |
 | Branch | `head_branch` is not `main` nor the default branch |
 | Essential inputs | Issue, findings, diff and `CLAUDE.md` are accessible — never guess a missing one |
 
