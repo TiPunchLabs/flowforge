@@ -137,8 +137,9 @@ structured, executable Issue that the existing chain consumes. Started on demand
 rough human need → Refiner → structured Issue → Developer → Reviewer ⇄ Iterator → human
 ```
 
-**Next**: Refiner functional validation (Prompt 23) and the Refiner → Developer → Reviewer /
-Iterator E2E (Prompt 24). **Future (not implemented)**: GitHub Project, Notion.
+Refiner validated in isolation (Prompt 23, [milestone](docs/milestones/phase5-refiner-simple-cases.md))
+and end to end in the chain (Prompt 24, [milestone](docs/milestones/phase5-refiner-e2e.md)).
+**Next**: Phase 5 closure (Prompt 25). **Future (not implemented)**: GitHub Project, Notion.
 
 ------
 

@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): specified, and executable since Prompt 22 (`agent-refine.yml`), not yet validated end to end (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): specified, executable since Prompt 22 (`agent-refine.yml`), validated end to end in Prompt 24 (§2.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -565,8 +565,9 @@ freeze, a PR closed or merged between `REQUEST_CHANGES` and the Iterator start e
 
 > **Status**: rules in [agents/refiner.md](../agents/refiner.md), Issue format in
 > [issue-contract.md](issue-contract.md) (Prompt 21). **Executable** since Prompt 22
-> (`agent-refine.yml`, §2.9.1), **not yet validated end to end**: functional validation is
-> Prompt 23, the Refiner → Developer → Reviewer / Iterator chain Prompt 24. Developer,
+> (`agent-refine.yml`, §2.9.1). Validated in isolation (Prompt 23,
+> [milestone](milestones/phase5-refiner-simple-cases.md)) and end to end in the Refiner → Developer →
+> Reviewer chain (Prompt 24, [milestone](milestones/phase5-refiner-e2e.md); Iterator not needed). Developer,
 > Reviewer and Iterator are unchanged.
 
 The Refiner sits **before** the Developer. It turns a rough need into a refined Issue and a
