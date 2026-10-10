@@ -105,7 +105,9 @@ Prompt 22 (execution): `.github/workflows/agent-refine.yml` (`workflow_dispatch`
 publish), structured output validated and rendered by `.github/scripts/flowforge-refine.sh`
 (Original request and Refinement record written by the workflow), `agent:needs-clarification`
 added to the module and the state helper, tested by `tests/refiner.sh`; §2.9.1, §5.7, §5.8.
-Not validated E2E yet: functional validation is Prompt 23, Refiner → Developer chain Prompt 24.
+Prompt 23 (functional validation in isolation) done on 2026-10-10 (FlowForge `109e459`): 7 runs on
+`demo-api` Issues #28–#32, all scenarios `PASS`, no correction, see
+`docs/milestones/phase5-refiner-simple-cases.md`. Refiner → Developer chain not validated yet: Prompt 24.
 
 ## Out of scope for now
 
