@@ -71,7 +71,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 5 — Refiner validated E2E, closure pending
+## Current phase: Phase 5 closed — next: Phase 6 (GitHub Projects / Kanban)
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -110,8 +110,10 @@ Prompt 23 (functional validation in isolation) done on 2026-10-10 (FlowForge `10
 `docs/milestones/phase5-refiner-simple-cases.md`.
 Prompt 24 (E2E in the chain) done on 2026-10-10 (FlowForge `7054a3e`): raw need `demo-api` #33 →
 Refiner `READY` → human `agent:ready` → Developer Draft PR #34 → Reviewer `APPROVE` (Iterator not
-needed), no manual change to the need; see `docs/milestones/phase5-refiner-e2e.md`. Phase 5
-closure (roadmap, tag): Prompt 25.
+needed), no manual change to the need; see `docs/milestones/phase5-refiner-e2e.md`.
+Prompt 25 (closure) done on 2026-10-10: validated with reservations, tag
+`flowforge-phase5-refiner-e2e` in FlowForge and `demo-api`; audit and reservations in the milestone §13.
+Next: Phase 6 — GitHub Projects / Kanban (not started).
 
 ## Out of scope for now
 

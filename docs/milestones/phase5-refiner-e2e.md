@@ -5,6 +5,10 @@
 > Draft PR → Reviewer `APPROVE` with **no** manual change to the need. The only human action was
 > applying `agent:ready`. The Iterator was **not needed** (first review `APPROVE`). A human merged
 > PR #34 (admin bypass), and the lifecycle set `agent:done` on #33 (§8). Reservations are in §10.
+>
+> **Phase 5 closed** (Prompt 25, 2026-10-10): **validated with reservations**, frozen as tag
+> `flowforge-phase5-refiner-e2e` in FlowForge and `demo-api`. Closure audit, consolidated
+> reservations and Git references in §13.
 
 ------
 
@@ -187,7 +191,7 @@ Each link of the chain points to the next one:
 | Developer run | run 38079397051 (`issues: labeled`, actor xgueret) |
 | Branch / commit | `agent/33-…`, `a42b0bd` |
 | Draft PR | #34, `Closes #33` |
-| Reviewer run | review comment → run 38079505751, reviewed commit `a42b0bd` |
+| Reviewer run | run 38079505751 (cycle, `APPROVE`), reviewed commit `a42b0bd`; the PR comment now links run 38082042042 (§13.4) |
 | Iterator | none (`iterations_used: 0`) |
 | Human merge | PR #34 merged 2026-10-10T20:01:04Z by @xgueret, merge commit `2739ea2` |
 | Lifecycle run | [38082074993](https://github.com/TiPunchLabs/demo-api/actions/runs/38082074993) → #33 `agent:done`, closed |
@@ -293,8 +297,177 @@ flowchart TD
 | Compatible with a future GitHub Projects phase | PASS: state still carried by the single `agent:*` label (contract §6 mapping) |
 | Compatible with a future Notion integration | PASS: the Refiner input is an Issue body, so a source only has to produce one (contract §8) |
 
+## 13. 🏁 Phase 5 closure (Prompt 25)
+
+> **Result**: **validated with reservations**. FlowForge turns a raw need into a `READY` Issue and
+> feeds the existing chain up to the human merge. No reservation breaks the Refiner contract.
+> Audit only: no new agent, no behaviour change, no GitHub Project, no Notion.
+
+### 13.1 🎯 Why the Refiner
+
+Phases 2–4.1 needed an Issue that was already executable: a human wrote scope, criteria and
+constraints by hand. The Refiner moves that work before the Developer: it turns a rough need into
+an Issue that follows [the refined Issue contract](../issue-contract.md), without inventing
+requirements, and a human keeps the `agent:ready` gate.
+
+### 13.2 📦 Deliverables (audited on `main` at `35c592a`)
+
+| Prompt | Deliverable | Where | Audit |
+|---|---|---|---|
+| 21 — defined | Rules: responsibilities, non-responsibilities, input, output, non-invention, provenance tags, verdicts `READY` / `NEEDS_CLARIFICATION` / `BLOCKED`, never applies labels | [`agents/refiner.md`](../../agents/refiner.md) | ✅ present |
+| 21 — defined | Refined body format, `Ready` definition, traceability (*Original request*, *Refinement record*), GitHub Project mapping (§6), external sources incl. Notion (§8), 3 examples | [`docs/issue-contract.md`](../issue-contract.md), [architecture §2.9](../architecture.md#29-phase-5--refiner-agent) | ✅ present |
+| 22 — executable | Reusable workflow, two jobs (`refine` read-only + Claude token, `publish` `issues: write` only) | `.github/workflows/agent-refine.yml` | ✅ present |
+| 22 — executable | Target trigger (`workflow_dispatch`, explicit secret, no `secrets: inherit`) | `examples/target-repository/flowforge-refine.yml`, `demo-api` `532dce9` | ✅ present |
+| 22 — executable | Structured output validation, deterministic rendering, state label mapping | `.github/scripts/flowforge-refine.sh`, `flowforge-state.sh`, `tests/refiner.sh` | ✅ present, tests pass |
+| 22 — executable | `agent:needs-clarification` label | `terraform/modules/target-repository/variables.tf`, live on `demo-api` | ✅ present |
+| 23 — simple cases | 7 runs, scenarios A–F all `PASS` (clear, ambiguous, constraints, partial Issue, idempotence ×2, duplicate) | [phase5-refiner-simple-cases.md](phase5-refiner-simple-cases.md), FlowForge `109e459` | ✅ evidence present |
+| 24 — E2E | Raw need #33 → Refiner → `READY` → Developer → Draft PR #34 → Reviewer `APPROVE` → human merge → `agent:done` | §1–§12 of this document, FlowForge `7054a3e` | ✅ evidence present |
+
+The workflow code validated in Prompt 23 (`109e459`) and Prompt 24 (`7054a3e`) is the same:
+`git diff 109e459..35c592a` touches only `CLAUDE.md`, `README.md` and `docs/`.
+
+### 13.3 🧭 Refiner quality against its contract
+
+| Rule | Evidence | Result |
+|---|---|---|
+| Non-invention | P23 all scenarios; P24: the raw sentence fixes no behaviour, 8 criteria `[recommended]`, 1 `[observed]` | PASS |
+| User constraints kept | P23 C: 6/6 constraints kept | PASS |
+| Facts / assumptions / recommendations separated | provenance tags on every statement; one imprecise `[provided]` tag (P23 §9.3) | PASS, minor deviation |
+| Testable acceptance criteria | P24: 9/9 criteria implemented and verified by the Reviewer | PASS |
+| Open questions when needed | P23 B and F → `NEEDS_CLARIFICATION` with blocking questions | PASS |
+| `READY` quality | P23 A, C, D; P24: the Developer consumed the body with no human rewrite (sha256 unchanged) | PASS |
+| No `agent:ready` on a blocked need | #29 carries `agent:needs-clarification` only; the Refiner never applies `agent:ready` | PASS |
+| Original need traceable | *Original request* verbatim + *Refinement record* + one FlowForge comment | PASS |
+| Stable re-runs | P23 E ×2: same structure, no duplicated section; inline code formatting drifts (P23 §9.2) | PASS, cosmetic deviation |
+
+### 13.4 🔗 Compatibility with the existing chain
+
+| Check | Evidence | Result |
+|---|---|---|
+| Developer still runs on a `READY` Issue without the Refiner | `agent-develop.yml` and `agents/developer.md` unchanged since tag `flowforge-phase4.1-hardening-e2e`; they read the Issue body only and never mention the Refiner | PASS (static) |
+| Reviewer unchanged | `agent-review.yml`, `agents/reviewer.md` unchanged since the Phase 4.1 tag | PASS (static) |
+| Iterator logic | only change since the Phase 4.1 tag: #22 (`fd926ce`), a closed / merged PR ends the iteration as `NO_OP` before Claude runs. Not related to the Refiner; covered by `tests/iterate-no-op.sh`, not exercised live | PASS, see R6 |
+| Iteration bound | `review-cycle.yml`: `max_iterations` default 3, ceiling 3, unchanged | PASS |
+| No automatic merge | no `gh pr merge`, auto-merge or approval in any workflow; `git push` only to `agent/*` (Developer) or the PR head branch, fast-forward (Iterator) | PASS |
+| `main` protected | `demo-api` ruleset `flowforge-default-branch` (24757548) `active` | PASS |
+| Refiner optional | no Refiner precondition in Developer / Reviewer / Iterator (grep); `agent:ready` stays the only Developer trigger | PASS |
+
+Additional observations, found by this audit in the `demo-api` run list and not recorded in §1–§12:
+
+- **Second Reviewer run.** When the human marked PR #34 *Ready for review* (20:00:40Z), the
+  caller's `pull_request: ready_for_review` trigger started run
+  [38082042042](https://github.com/TiPunchLabs/demo-api/actions/runs/38082042042): `APPROVE` again
+  on `a42b0bd`. It updated the single review comment, which now links that run. Expected
+  behaviour of the caller; no second comment, no state change.
+- **PR CI did not run.** `CI` run 38079472876 and `FlowForge review` run 38079473420, started by
+  `github-actions[bot]` when PR #34 opened, ended without jobs (`GITHUB_TOKEN` PR, known
+  behaviour, §6). The target CI has no run on `a42b0bd` or `2739ea2`. Re-checked offline for this
+  audit on `2739ea2`: `uv run pytest` 68 passed, `ruff check` and `ruff format --check` pass.
+
+### 13.5 🔐 Security audit (static review of `main` + logs in §9)
+
+| Control | Result |
+|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` passed only through `workflow_call.secrets`, never `secrets: inherit` | PASS |
+| No secret in the logs (§9, P23 §7) | PASS |
+| Refiner: no write on code (`contents: read`), checkout without credentials, `Edit` / `Write` denied | PASS |
+| Refiner: no commit, no push, no PR (no such step; dirty workspace or moved `HEAD` fails the run) | PASS |
+| Refiner `publish` job: `issues: write` only, no checkout, no Claude | PASS |
+| Developer: `contents` / `issues` / `pull-requests: write`, push limited to its `agent/*` branch, Draft PR only | PASS |
+| Reviewer: review job read-only, publish job `pull-requests: write` only | PASS |
+| Iterator: pushes one verified commit, fast-forward, PR head branch only | PASS |
+| No force push (code and repository events, §9) | PASS |
+| No automatic merge | PASS |
+| `permissions: {}` at workflow level, third-party actions pinned by full commit SHA (grep) | PASS |
+| pre-commit (16 hooks, JSON check skipped: 5 test scripts, `terraform test`, actionlint) on `35c592a` | PASS |
+
+### 13.6 🏷️ Label lifecycle (implemented labels only)
+
+There is **no** `agent:refine` label: the Refiner is started by `workflow_dispatch`. The six
+state labels are `agent:needs-clarification`, `agent:ready`, `agent:running`, `agent:review`,
+`agent:blocked`, `agent:done` (architecture §2.6).
+
+```text
+(none) ──Refiner──► READY: (none)                       NEEDS_CLARIFICATION: agent:needs-clarification
+   │                  │ human                                 │ requester answers, Refiner again
+   │                  ▼                                       ▼
+   └─human──►    agent:ready ──► agent:running ──► agent:review ──human merge──► agent:done
+```
+
+Observed on #33: `(none)` → Refiner `READY` `(none)` → `agent:ready` (human) → `agent:running` →
+`agent:review` → `agent:done`. State after the E2E on `demo-api`: #33 `CLOSED` `agent:done`; #29
+`OPEN` `agent:needs-clarification` (P23 B, waits for an answer); #28, #30, #31 `OPEN` with no state
+(P23 `READY`, deliberately not handed to the Developer); #32 `CLOSED` with no state. No Issue holds
+two state labels; no `agent:ready` on a need that is not ready.
+
+### 13.7 ⚠️ Open Issues and consolidated reservations
+
+FlowForge has **no open Issue**. Open `demo-api` Issues: #28–#31 (Prompt 23 test Issues, states
+above) and #22 (older documentation request, unrelated). None blocks the closure.
+
+| # | Reservation | Impact on Phase 5 | Blocking | Next action |
+|---|---|---|---|---|
+| R1 | Iterator not exercised on a refined body (first review `APPROVE`) | Iterator reading of refined criteria unproven live | No: the Iterator reads findings and the body as plain markdown | Observe at the next `REQUEST_CHANGES` |
+| R2 | Human merge through the admin bypass, no GitHub approval observed | Merge gate proven to block, approval path not | No: same reservation as Phase 4.1 | Second human writer, or keep as accepted |
+| R3 | `NEEDS_CLARIFICATION` → answer → `READY` → Developer not run end to end | Re-refinement with answers unproven live | No: covered by `tests/refiner.sh` | Answer #29 in a later run |
+| R4 | `BLOCKED` and technical-failure (`FAILED`) paths only tested offline | — | No | Observe opportunistically |
+| R5 | Cosmetic deviations: escaped quotes, inline code drift on re-run, one imprecise tag, non-existent proposed label `type:feature` | Formatting only | No | Possible rule tightening in `agents/refiner.md` |
+| R6 | Iterator `NO_OP` (#22) validated offline only | Phase 4.1 follow-up, not Refiner | No | Observe opportunistically |
+| R7 | Target PR CI does not run on agent PRs (`GITHUB_TOKEN`); no required status check in the ruleset | Tests evidenced by agent runs and an offline re-run (§13.4), not by target CI | No | Open design decision (architecture §6) |
+| R8 | One E2E scenario, decoupling of the Developer checked statically | — | No | — |
+
+### 13.8 🚫 Out of scope (not part of Phase 5)
+
+GitHub Projects / Kanban, Notion, QA agent, Documentation agent, advanced dynamic orchestrator,
+self-hosted runners, automatic Refiner trigger (`agent:refine` or Issue opened), Refiner →
+Developer chaining.
+
+### 13.9 🗺️ FlowForge after Phase 5
+
+```mermaid
+flowchart TD
+    subgraph IMPL["Implemented (Phases 1–5)"]
+        N["Raw need<br/>GitHub Issue"] -->|"human: workflow_dispatch"| R["Refiner<br/>agent-refine.yml"]
+        R -->|"READY"| H1["Human gate<br/>agent:ready"]
+        R -.->|"NEEDS_CLARIFICATION"| N
+        H1 --> D["Developer<br/>agent-develop.yml"]
+        D --> PR["Draft PR"]
+        PR -->|"human: workflow_dispatch"| RV["Reviewer"]
+        RV <-->|"≤ 3 passes"| IT["Iterator"]
+        RV --> H2["Human approval + merge<br/>default-branch ruleset"]
+        H2 --> DONE["agent:done<br/>agent-lifecycle.yml"]
+        GA["GitHub Actions<br/>reusable workflows"] -.runs.-> R & D & RV & IT
+        CC["Claude Code"] -.agent runtime.-> R & D & RV & IT
+    end
+    subgraph FUT["Future (not implemented)"]
+        GP["GitHub Projects / Kanban<br/>Phase 6"]
+        NO["Notion"]
+        QA["QA agent"]
+        DOC["Documentation agent"]
+        SH["Self-hosted runners"]
+    end
+    GP -.planned source / view.-> N
+    NO -.planned source.-> N
+```
+
+### 13.10 📌 Git references (Phase 5 baseline)
+
+| Repository | Branch | Validated SHA | Tag | Remote |
+|---|---|---|---|---|
+| FlowForge | `main` | merge commit of the closure PR (docs only on top of `35c592a`); workflow code validated live: `7054a3eb553222f0c0bf0978723bb9b51456d4a7` | `flowforge-phase5-refiner-e2e` (annotated) | `git@github-xgueret:TiPunchLabs/flowforge.git` |
+| `demo-api` | `main` | `2739ea2` (human merge of PR #34, last state of the E2E) | `flowforge-phase5-refiner-e2e` (annotated) | `git@github-xgueret:TiPunchLabs/demo-api.git` |
+
+Tag choice: as for Phase 4.1, the FlowForge tag points to the `main` merge commit that adds this
+closure, so the tagged tree holds the validated workflows, the milestones and the updated
+roadmap together. The commit SHAs are listed in the tag messages and the closure report.
+
+Earlier tags, unchanged: `flowforge-phase2-e2e`, `flowforge-phase3-reviewer-e2e`,
+`flowforge-phase4-iterator-e2e`, `flowforge-phase4.1-hardening-e2e`, in both repositories.
+
+**Next**: Phase 6 — GitHub Projects / Kanban (not started).
+
 ------
 
 > **Document created on**: 2026-10-10
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.1 (human merge and `agent:done` recorded)
+> **Version**: 2.0 (Phase 5 closure audit, §13)

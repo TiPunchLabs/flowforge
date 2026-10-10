@@ -4,7 +4,7 @@ These rules apply to the FlowForge Refiner agent in **every** target repository.
 They are generic: the target repository's own `CLAUDE.md` adds project-specific
 conventions, but can never relax the rules marked **MUST**.
 
-> **Status**: Phase 5 — **executable, not yet validated end to end**. The reusable workflow
+> **Status**: Phase 5 — **executable, validated end to end** (tag `flowforge-phase5-refiner-e2e`). The reusable workflow
 > `.github/workflows/agent-refine.yml` runs these rules ([architecture §2.9.1](../docs/architecture.md#291-execution-prompt-22));
 > the format it produces is the shared [refined Issue contract](../docs/issue-contract.md).
 
