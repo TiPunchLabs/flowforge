@@ -71,7 +71,7 @@ esac
 EOF
 chmod +x "$work/bin/gh"
 
-state_labels='["agent:ready","agent:running","agent:review","agent:blocked","agent:done"]'
+state_labels='["agent:needs-clarification","agent:ready","agent:running","agent:review","agent:blocked","agent:done"]'
 user_labels='["bug","enhancement","priority:high"]'
 
 # new_case <name> <issue 1 labels JSON> [repo labels JSON]: fresh stub state, prints its dir.
@@ -118,6 +118,10 @@ expect "A  helper fetched at the pinned FlowForge commit" \
 c="$(new_case a-stale '["agent:ready","agent:review","agent:done","priority:high"]')"
 run "$c" "$work/running.sh"
 expect "A  stale states from an earlier run removed" "$(labels "$c")" '["agent:running","priority:high"]'
+
+c="$(new_case a-refined '["agent:needs-clarification","agent:ready","bug"]')"
+run "$c" "$work/running.sh"
+expect "A  Refiner state agent:needs-clarification removed too" "$(labels "$c")" '["agent:running","bug"]'
 
 c="$(new_case a-custom '["flowforge:go","enhancement"]')"
 run "$c" "$work/running.sh" READY_LABEL=flowforge:go
@@ -277,7 +281,7 @@ expect "W  lifecycle caller: pull_request closed only" \
 expect "W  no write-all anywhere" "$(grep -rl 'write-all' "$wf" "$root/examples" | wc -l)" 0
 expect "W  no merge, no ready-for-review in the lifecycle" "$(grep -cE 'gh pr (merge|ready)' "$wf/agent-lifecycle.yml" || true)" 0
 expect "W  Terraform manages every state label" \
-  "$(grep -oE '"agent:[a-z]+" = \{' "$root/terraform/modules/target-repository/variables.tf" | sed -E 's/"([^"]+)".*/\1/' | jq -Rnc '[inputs] | sort')" \
+  "$(grep -oE '"agent:[a-z-]+" = \{' "$root/terraform/modules/target-repository/variables.tf" | sed -E 's/"([^"]+)".*/\1/' | jq -Rnc '[inputs] | sort')" \
   "$(jq -c sort <<<"$state_labels")"
 expect "W  helper and module agree on the state set" \
   "$(bash -c 'source "$1"; printf "%s\n" "${FLOWFORGE_STATE_LABELS[@]}"' _ "$helper" | jq -Rnc '[inputs] | sort')" \

@@ -4,9 +4,9 @@ These rules apply to the FlowForge Refiner agent in **every** target repository.
 They are generic: the target repository's own `CLAUDE.md` adds project-specific
 conventions, but can never relax the rules marked **MUST**.
 
-> **Status**: Phase 5 — **specification only**. No workflow runs the Refiner yet; its
-> execution (trigger, permissions, result contract) is designed in Prompt 22. The format it
-> produces is the shared [refined Issue contract](../docs/issue-contract.md).
+> **Status**: Phase 5 — **executable, not yet validated end to end**. The reusable workflow
+> `.github/workflows/agent-refine.yml` runs these rules ([architecture §2.9.1](../docs/architecture.md#291-execution-prompt-22));
+> the format it produces is the shared [refined Issue contract](../docs/issue-contract.md).
 
 ------
 
@@ -57,8 +57,9 @@ testable acceptance criteria, and an honest list of what is known, assumed and m
 | business context, existing criteria | — | Given by the requester; kept as **provided** |
 | external references | — | Documentation links; later a Notion page, a GitHub Project item ([contract §8](../docs/issue-contract.md#8--future-sources-github-projects-and-notion)) |
 
-> 💡 **Note**: these inputs are conceptual. How they are passed (`workflow_call` inputs,
-> files, environment) is decided with the Refiner workflow (Prompt 22), not here.
+> 💡 **Note**: in `agent-refine.yml`, `repository` is the calling repository, `issue_number`
+> the only input; the Issue (title, body, labels, author), its human comments and the
+> checked-out default branch are the rest of the context.
 
 **Missing inputs.**
 
@@ -181,7 +182,7 @@ Reviewer or Iterator result.
 ### 7.2 Labels
 
 - The Refiner **MUST NOT** apply or remove `agent:*` labels. It **proposes** labels in the
-  Issue (*Proposed labels*); the future Refiner workflow maps the verdict to a state label
+  Issue (*Proposed labels*); the Refiner workflow maps the verdict to a state label
   ([contract §6](../docs/issue-contract.md#6--labels-and-states)).
 - **`agent:ready` stays human-only**, as today: it starts the Developer. A human applying it
   is also the moment the `[recommended]` items become accepted requirements.

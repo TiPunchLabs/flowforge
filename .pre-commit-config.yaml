@@ -59,6 +59,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/(agent-develop|review-cycle|agent-lifecycle)\.yml|scripts/flowforge-state\.sh)|examples/target-repository/flowforge-lifecycle\.yml|terraform/modules/target-repository/variables\.tf|tests/label-lifecycle\.sh)$
+      # Refiner (Phase 5): result contract, Original request / record rendering, idempotent
+      # re-refinement, label mapping, race guard, read-only workflow.
+      - id: refiner
+        name: refiner tests
+        entry: tests/refiner.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/agent-refine\.yml|scripts/flowforge-(refine|state)\.sh)|examples/target-repository/flowforge-refine\.yml|tests/refiner\.sh)$
       # Default-branch ruleset (human merge gate): `terraform test` with a mocked provider, no GitHub call.
       - id: target-repository-module-test
         name: target-repository module tests

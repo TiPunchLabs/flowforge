@@ -11,10 +11,12 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/workflows/agent-iterate.yml` — reusable (`workflow_call`) Iterator workflow (one iteration);
 - `.github/workflows/review-cycle.yml` — reusable (`workflow_call`) bounded `Reviewer ↔ Iterator` loop, called by targets;
 - `.github/workflows/agent-lifecycle.yml` — reusable (`workflow_call`) terminal Issue state on PR close (`agent:done` on merge);
+- `.github/workflows/agent-refine.yml` — reusable (`workflow_call`) Refiner workflow: refines one Issue, read-only agent;
 - `.github/scripts/flowforge-state.sh` — the single implementation of `agent:*` state label transitions;
-- `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`; `refiner.md` is a
-  specification only), independent of any target project;
-- `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the future Refiner.
+- `.github/scripts/flowforge-refine.sh` — Refiner preconditions, result validation, refined body rendering;
+- `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`, `refiner.md`),
+  independent of any target project;
+- `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -26,7 +28,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | Path | Contains | Must NOT contain |
 |---|---|---|
 | `.github/workflows/` | Reusable workflows for targets + FlowForge's own CI (`ci.yml`) | Target-specific logic |
-| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`) | Target-specific logic, tokens |
+| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`) | Target-specific logic, tokens |
 | `.github/ISSUE_TEMPLATE/` | Issue forms | — |
 | `agents/` | Generic agent rules | Project-specific conventions (those live in the target's `CLAUDE.md`) |
 | `terraform/` | Root module: provider, one `module` block per target **without its own IaC** | Credentials, backend secrets, targets already onboarded in their own IaC |
@@ -69,7 +71,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 5 — Refiner specified, not executable
+## Current phase: Phase 5 — Refiner executable, not validated E2E
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -97,13 +99,19 @@ observed: admin bypass); see `docs/milestones/phase41-hardening-e2e.md`. Phase 4
 Phase 5 (Refiner agent): specification done — `agents/refiner.md` (rules: non-invention, provenance
 tags, verdict `READY` / `NEEDS_CLARIFICATION` / `BLOCKED`, never applies labels) and
 `docs/issue-contract.md` (refined body format, `Ready` definition, proposed `agent:needs-clarification`,
-3 examples); `docs/architecture.md` §2.9. `agent:ready` stays human-only. No workflow, trigger,
-label or secret yet: execution is Prompt 22.
+3 examples); `docs/architecture.md` §2.9. `agent:ready` stays human-only.
+Prompt 22 (execution): `.github/workflows/agent-refine.yml` (`workflow_dispatch` caller
+`examples/target-repository/flowforge-refine.yml`), two jobs (read-only agent / `issues: write`
+publish), structured output validated and rendered by `.github/scripts/flowforge-refine.sh`
+(Original request and Refinement record written by the workflow), `agent:needs-clarification`
+added to the module and the state helper, tested by `tests/refiner.sh`; §2.9.1, §5.7, §5.8.
+Not validated E2E yet: functional validation is Prompt 23, Refiner → Developer chain Prompt 24.
 
 ## Out of scope for now
 
-Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, Refiner
-execution (until Prompt 22), real secrets, triggering Claude Code runs, creating `demo-api` from this repository.
+Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, automatic
+Refiner triggers or Refiner → Developer chaining, real secrets, triggering Claude Code runs,
+creating `demo-api` from this repository.
 
 ## Validation commands
 
@@ -120,6 +128,7 @@ tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator r
 tests/review-no-op.sh                              # pre-commit hook: closed/merged PR = NO_OP
 tests/iterate-no-op.sh                             # pre-commit hook: Iterator NO_OP (#22)
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
+tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 ```
 

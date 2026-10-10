@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening & lifecycle) validated end to end and frozen, with one reservation ([milestone](docs/milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): specification only, not executable.** Nothing here is production-ready.
+> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening & lifecycle) validated end to end and frozen, with one reservation ([milestone](docs/milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner): executable, not yet validated end to end.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -121,21 +121,24 @@ Full plan: [docs/phase-1.md](docs/phase-1.md).
 | Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
 | Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
 | Phase 4.1 — Hardening & lifecycle | ✅ Done, validated E2E, one reservation — tag `flowforge-phase4.1-hardening-e2e` ([milestone](docs/milestones/phase41-hardening-e2e.md)) |
-| Phase 5 — Refiner agent | 🚧 In progress — specification only ([agents/refiner.md](agents/refiner.md), [docs/issue-contract.md](docs/issue-contract.md)); no workflow |
+| Phase 5 — Refiner agent | 🚧 In progress — specified ([agents/refiner.md](agents/refiner.md), [docs/issue-contract.md](docs/issue-contract.md)); executable via `agent-refine.yml`, not validated E2E |
 
 Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
 label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
 Each is covered by offline tests and was validated live on `demo-api` on 2026-10-09.
 
-**Phase 5 — Refiner (specified, not executable)**: turn a rough human need into a structured,
-executable Issue that the existing chain consumes. A human still applies `agent:ready`:
+**Phase 5 — Refiner (executable, not yet validated E2E)**: turn a rough human need into a
+structured, executable Issue that the existing chain consumes. Started on demand
+(`gh workflow run flowforge-refine.yml -f issue_number=<n>` in the target); verdict `READY`,
+`NEEDS_CLARIFICATION` (label `agent:needs-clarification`) or `BLOCKED`. A human still applies
+`agent:ready`:
 
 ```text
 rough human need → Refiner → structured Issue → Developer → Reviewer ⇄ Iterator → human
 ```
 
-**Future (not implemented)**: Refiner execution (workflow, trigger, `agent:needs-clarification`
-label), GitHub Project, Notion.
+**Next**: Refiner functional validation (Prompt 23) and the Refiner → Developer → Reviewer /
+Iterator E2E (Prompt 24). **Future (not implemented)**: GitHub Project, Notion.
 
 ------
 
@@ -158,12 +161,14 @@ label), GitHub Project, Notion.
 .github/workflows/agent-iterate.yml   reusable Iterator workflow (one iteration per call)
 .github/workflows/review-cycle.yml    reusable bounded Reviewer ↔ Iterator loop (≤ 3 Iterator passes)
 .github/workflows/agent-lifecycle.yml reusable lifecycle workflow (Issue terminal state on PR close)
+.github/workflows/agent-refine.yml    reusable Refiner workflow (refines one Issue, read-only agent)
 .github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
+.github/scripts/flowforge-refine.sh   Refiner result validation and refined body rendering
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules
 agents/iterator.md                    generic Iterator agent rules
-agents/refiner.md                     Refiner agent rules (specification only, Phase 5)
+agents/refiner.md                     generic Refiner agent rules (Phase 5)
 examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module (labels, ruleset…)
 docs/                                 architecture, refined Issue contract, phase plans, milestones

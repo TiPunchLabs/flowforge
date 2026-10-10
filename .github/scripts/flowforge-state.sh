@@ -7,7 +7,8 @@
 # An Issue carries AT MOST ONE FlowForge state label: its current lifecycle state. Labels are
 # not a log; history lives in the GitHub timeline, Actions runs, PRs and reviews.
 #
-#   (none) ──human──► agent:ready ──Developer starts──► agent:running
+#   (none) ──Refiner NEEDS_CLARIFICATION──► agent:needs-clarification ──Refiner READY──► (none)
+#   (none) | agent:needs-clarification ──human──► agent:ready ──Developer starts──► agent:running
 #   agent:running ──Draft PR──► agent:review   ──agent stopped, no PR──► agent:blocked
 #   agent:running ──technical failure, no PR──► (none)
 #   agent:review  ──cycle BLOCKED / MAX_ITERATIONS_REACHED──► agent:blocked
@@ -16,7 +17,7 @@
 #
 # See docs/architecture.md §2.6. Requires gh (GH_TOKEN), jq and GITHUB_REPOSITORY.
 
-FLOWFORGE_STATE_LABELS=(agent:ready agent:running agent:review agent:blocked agent:done)
+FLOWFORGE_STATE_LABELS=(agent:needs-clarification agent:ready agent:running agent:review agent:blocked agent:done)
 
 # Prints, as a compact JSON array, the names of all labels the Issue $1 carries.
 _flowforge_issue_labels() {

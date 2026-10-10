@@ -28,6 +28,7 @@ The module never creates, renames, archives or deletes the repository itself.
 
 | Label | Phase | Meaning |
 |---|---|---|
+| `agent:needs-clarification` | **5** | The Refiner returned `NEEDS_CLARIFICATION`: blocking questions wait for the requester |
 | `agent:ready` | **1** | Issue is refined; adding this label triggers the Developer agent |
 | `agent:running` | **1** | An agent is currently working on the issue |
 | `agent:review` | **1** | A Draft PR is waiting for human review |
@@ -35,8 +36,8 @@ The module never creates, renames, archives or deletes the repository itself.
 | `agent:done` | **4.1** | The agent PR was merged by a human; terminal state |
 
 An Issue carries at most one of these state labels (lifecycle: `docs/architecture.md` §2.6).
-`agent:ready` is set by a human; the Developer, review-cycle and lifecycle workflows switch
-the others.
+`agent:ready` is set by a human; the Refiner, Developer, review-cycle and lifecycle workflows
+switch the others.
 
 > 💡 **Note**: adding a label to the module does not create it on targets already onboarded:
 > the next `terraform plan` / `apply` of each target's own state does. Until then the
@@ -67,7 +68,7 @@ module "demo_api" {
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `repository` | `string` | — | Bare name of the existing repository |
-| `labels` | `map(object({color, description}))` | the 5 `agent:*` state labels | Labels to manage |
+| `labels` | `map(object({color, description}))` | the 6 `agent:*` state labels | Labels to manage |
 | `actions_variables` | `map(string)` | `{}` | Non-secret Actions variables |
 | `default_branch_ruleset_enabled` | `bool` | `true` | Manage the default-branch ruleset |
 | `required_approving_review_count` | `number` | `1` | Approvals required to merge (1–10) |
