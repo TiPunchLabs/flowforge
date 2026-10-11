@@ -669,8 +669,11 @@ Iterator publish job           App token (contents write) for the verified fast-
 - **Tests.** `tests/developer-delivery.sh` runs the real *Verify delivery request* step on
   throwaway repositories and checks the invariants (Claude cannot push, token minted after
   Claude, no `issues` permission, token used by the push step only).
-- **Not yet.** Live validation on `demo-api` (Issue #34 protocol), then the target CI as a
-  required status check of the ruleset (separate step).
+- **Validated live** on 2026-10-11: `demo-api` Issue #28 → Draft PR #37 authored by the App, CI
+  without approval, human approval and merge without bypass
+  ([milestone §14.3](milestones/phase5-refiner-e2e.md)).
+- **Not yet.** Iterator push through the App observed live (needs a `REQUEST_CHANGES`), then the
+  target CI as a required status check of the ruleset (separate step).
 
 ------
 

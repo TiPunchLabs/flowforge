@@ -116,7 +116,8 @@ Prompt 25 (closure) done on 2026-10-10: validated with reservations, tag
 `flowforge-phase5-refiner-e2e` in FlowForge and `demo-api`; audit and reservations in the milestone §13.
 Post-closure (#34, 2026-10-11): delivery identity = one FlowForge GitHub App for all targets;
 Claude commits, the workflow verifies then pushes and opens the Draft PR with the App token
-(`GITHUB_TOKEN` fallback); anti-loop rules in `docs/architecture.md` §2.10.
+(`GITHUB_TOKEN` fallback); anti-loop rules in `docs/architecture.md` §2.10. Validated live on
+`demo-api` #28 → PR #37 (CI without approval, merge without bypass): milestone §14.3.
 Next: Phase 6 — GitHub Projects / Kanban (not started).
 
 ## Out of scope for now
