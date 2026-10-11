@@ -409,11 +409,11 @@ above) and #22 (older documentation request, unrelated). None blocks the closure
 |---|---|---|---|---|
 | R1 | Iterator not exercised on a refined body (first review `APPROVE`) | Iterator reading of refined criteria unproven live | No: the Iterator reads findings and the body as plain markdown | Observe at the next `REQUEST_CHANGES` |
 | R2 | Human merge through the admin bypass, no GitHub approval observed | Merge gate proven to block, approval path not | No: same reservation as Phase 4.1 | Second human writer, or keep as accepted |
-| R3 | `NEEDS_CLARIFICATION` → answer → `READY` → Developer not run end to end | Re-refinement with answers unproven live | No: covered by `tests/refiner.sh` | Answer #29 in a later run |
+| R3 | `NEEDS_CLARIFICATION` → answer → `READY` → Developer not run end to end | Re-refinement with answers unproven live | No: covered by `tests/refiner.sh` | ✅ **Lifted on 2026-10-11** (§14.1) |
 | R4 | `BLOCKED` and technical-failure (`FAILED`) paths only tested offline | — | No | Observe opportunistically |
 | R5 | Cosmetic deviations: escaped quotes, inline code drift on re-run, one imprecise tag, non-existent proposed label `type:feature` | Formatting only | No | Possible rule tightening in `agents/refiner.md` |
 | R6 | Iterator `NO_OP` (#22) validated offline only | Phase 4.1 follow-up, not Refiner | No | Observe opportunistically |
-| R7 | Target PR CI does not run on agent PRs (`GITHUB_TOKEN`); no required status check in the ruleset | Tests evidenced by agent runs and an offline re-run (§13.4), not by target CI | No | Open design decision (architecture §6) |
+| R7 | Target PR CI does not run on agent PRs (`GITHUB_TOKEN`); no required status check in the ruleset | Tests evidenced by agent runs and an offline re-run (§13.4), not by target CI | No | FlowForge Issue #34 (§14.2) |
 | R8 | One E2E scenario, decoupling of the Developer checked statically | — | No | — |
 
 ### 13.8 🚫 Out of scope (not part of Phase 5)
@@ -466,8 +466,54 @@ Earlier tags, unchanged: `flowforge-phase2-e2e`, `flowforge-phase3-reviewer-e2e`
 
 **Next**: Phase 6 — GitHub Projects / Kanban (not started).
 
+## 14. 🔁 Follow-up after closure (2026-10-11)
+
+> Recorded after the tag `flowforge-phase5-refiner-e2e`. The tag does not move. FlowForge code is
+> unchanged: the runs below use `main` at `35c592a` (Refiner) and `3d804e0` (docs only on top).
+
+### 14.1 R3 lifted: `NEEDS_CLARIFICATION` → answer → `READY` → Developer → human merge
+
+`demo-api` Issue [#29](https://github.com/TiPunchLabs/demo-api/issues/29), the Prompt 23 scenario B
+need *"Améliorer les logs."*, went through the whole chain:
+
+```text
+2026-10-10T18:19:42Z  agent:needs-clarification   Refiner pass 1 (4 blocking questions); pass 2 unchanged
+2026-10-10T22:35:25Z  requester comment           answers to the 4 blocking questions
+2026-10-10T22:38:34Z  READY, label removed        Refiner pass 3, run 38092087564
+2026-10-10T23:55:53Z  agent:ready (human)
+2026-10-10T23:56:06Z  agent:ready → agent:running Developer run 38096701948
+2026-10-10T23:57:43Z  agent:running → agent:review Draft PR #35, commit e711f2e (+141 −7)
+2026-10-11T16:08Z     review cycle                run 38154185103: APPROVE, 11/11 criteria, iterations 0 / 3
+2026-10-11T16:19:18Z  PR #35 merged (human)       merge commit 470db06, admin bypass, 0 GitHub approval
+2026-10-11T16:19:28Z  agent:review → agent:done   lifecycle run 38154967161, Issue closed
+```
+
+| Check | Result |
+|---|---|
+| The answers came from the requester only | PASS: one human comment. Claude answered as the requester of this reference project, at the user's request |
+| Refiner used the answers without invention | PASS: the 4 answers tagged `[provided]`; 8 modifying endpoints `[observed]`. Two derived criteria tagged `[provided]` instead of `[recommended]` (same kind as R5) |
+| Developer consumed the refined body | PASS: diff limited to `main.py`, `routes/tasks.py`, `tests/test_logging.py`, no dependency |
+| Reviewer used the refined criteria | PASS: 11/11 listed with evidence |
+| One state label at every step | PASS (timeline above) |
+
+**R3 is lifted.**
+
+### 14.2 Other observations
+
+- **R1 still open**: Reviewer #1 approved, so the Iterator did not run.
+- **R2 unchanged**: PR #35 was merged through the admin bypass with 0 GitHub approval.
+- **R7 worked around by hand, not fixed**: the bot-triggered `CI` run 38096790589 was approved
+  alone, through `POST /repos/TiPunchLabs/demo-api/actions/runs/38096790589/approve`. It
+  succeeded, and the Reviewer cited it ("CI check concluded success"), a first for an agent PR.
+  The `FlowForge review` run 38096790948 stayed pending and ended `failure` with 0 jobs at close.
+  After approval, the run's `actor` stays `github-actions[bot]`.
+  Durable fix: FlowForge Issue [#34](https://github.com/TiPunchLabs/flowforge/issues/34) (GitHub App
+  token for delivery, with anti-loop rules).
+- *Ready for review* started one more read-only review (run 38154735001), as on PR #34.
+
+
 ------
 
 > **Document created on**: 2026-10-10
 > **Author**: xgueret, with Claude Code
-> **Version**: 2.0 (Phase 5 closure audit, §13)
+> **Version**: 2.1 (follow-up after closure: R3 lifted, §14)
