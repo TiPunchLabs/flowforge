@@ -93,3 +93,50 @@ run "zero_approvals_rejected" {
 
   expect_failures = [var.required_approving_review_count]
 }
+
+run "no_required_status_checks_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(github_repository_ruleset.default_branch[0].rules[0].required_status_checks) == 0
+    error_message = "No required status check by default: a missing check would block every merge."
+  }
+}
+
+run "required_status_checks" {
+  command = plan
+
+  variables {
+    required_status_checks = [
+      { context = "Tests, lint and format", integration_id = 15368 },
+      { context = "lint" },
+    ]
+  }
+
+  assert {
+    condition = (
+      length(github_repository_ruleset.default_branch[0].rules[0].required_status_checks) == 1 &&
+      !github_repository_ruleset.default_branch[0].rules[0].required_status_checks[0].strict_required_status_checks_policy &&
+      length(github_repository_ruleset.default_branch[0].rules[0].required_status_checks[0].required_check) == 2
+    )
+    error_message = "Each listed check must be required, without the strict (up-to-date branch) policy."
+  }
+
+  assert {
+    condition = contains(
+      [for c in github_repository_ruleset.default_branch[0].rules[0].required_status_checks[0].required_check : "${c.context}/${coalesce(c.integration_id, 0)}"],
+      "Tests, lint and format/15368"
+    )
+    error_message = "The integration_id must pin the check source."
+  }
+}
+
+run "required_status_check_empty_context" {
+  command = plan
+
+  variables {
+    required_status_checks = [{ context = " " }]
+  }
+
+  expect_failures = [var.required_status_checks]
+}

@@ -14,7 +14,7 @@ The module never creates, renames, archives or deletes the repository itself.
 | Non-secret Actions variables | ✅ Implemented (empty by default) | `github_actions_variable` |
 | Workflow token permissions (`GITHUB_TOKEN` default `write`, Actions may create PRs) | ✅ Implemented | `github_workflow_repository_permissions` |
 | Default-branch ruleset (human merge gate) | ✅ Implemented (enabled by default) | `github_repository_ruleset` |
-| Required status checks on the default branch | 📝 Planned, once targets have a stable CI check | `github_repository_ruleset` |
+| Required status checks on the default branch | ✅ Implemented, opt-in (`required_status_checks`, empty by default) | `github_repository_ruleset` |
 | Actions permissions / allowed actions | 📝 Planned | `github_actions_repository_permissions` |
 | Deployment environments | 📝 Planned, only if needed | `github_repository_environment` |
 | Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`, `FLOWFORGE_APP_PRIVATE_KEY`, …) | 🚫 Out of Terraform | organization secret (Selected repositories), set manually or via `gh secret set --org` |
@@ -73,6 +73,7 @@ module "demo_api" {
 | `default_branch_ruleset_enabled` | `bool` | `true` | Manage the default-branch ruleset |
 | `required_approving_review_count` | `number` | `1` | Approvals required to merge (1–10) |
 | `admin_pull_request_bypass` | `bool` | `false` | Repository admins may bypass the ruleset **through a PR merge only** |
+| `required_status_checks` | `list(object({context, integration_id}))` | `[]` | Checks that must pass before merging; set only with the FlowForge GitHub App (see below) |
 
 ### Outputs
 
@@ -124,17 +125,33 @@ human GitHub approval (≥ 1) ─► human merge ─► default branch
 | Last-push approval, code owners, thread resolution | no | Kept simple for the POC; the Reviewer posts a comment, not review threads |
 | Force push (`non_fast_forward`) | blocked | |
 | Deletion | blocked | |
-| Required status checks | none | No stable target check yet; a missing check would block every merge |
+| Required status checks | none by default (`required_status_checks`) | Opt-in: the target CI job name(s), not strict (no forced rebase of agent branches) |
 | Bypass actors | none by default | FlowForge never gets a bypass |
 
 **Why agents cannot satisfy the gate.**
 
 - The FlowForge Reviewer posts a PR **comment** with its verdict, never a GitHub review:
   Reviewer `APPROVE` ≠ GitHub approval.
-- Agent PRs are opened with the workflow `GITHUB_TOKEN` (author `github-actions[bot]`);
-  GitHub forbids a PR author from approving its own PR, and no FlowForge workflow calls
-  `gh pr review --approve`, `gh pr merge` or enables auto-merge.
+- Agent PRs are opened by the FlowForge GitHub App (author `<app>[bot]`), or by the workflow
+  `GITHUB_TOKEN` without it (author `github-actions[bot]`). Neither identity submits reviews:
+  no FlowForge workflow calls `gh pr review --approve`, `gh pr merge` or enables auto-merge,
+  and the App has no permission to approve.
 - Only approvals from accounts with **write** access count.
+
+**`required_status_checks` (opt-in).** List the target CI check runs that must succeed
+(context = job name, `integration_id = 15368` pins GitHub Actions as the source):
+
+```hcl
+required_status_checks = [
+  { context = "Tests, lint and format", integration_id = 15368 },
+]
+```
+
+> ⚠️ **Warning**: enable it only when the target delivers agent PRs with the FlowForge GitHub
+> App ([docs/target-onboarding.md](../../../docs/target-onboarding.md)). With `GITHUB_TOKEN`,
+> agent PR CI waits for a manual approval and the required check would block the merge until
+> someone approves the run. The CI must also run on every PR to the default branch (no
+> `paths:` filter), or PRs it skips can never be merged.
 
 **`admin_pull_request_bypass` (opt-in).** On a solo-maintainer target, the only writer
 cannot approve their own PRs. With this flag the built-in *admin* repository role may bypass
@@ -142,6 +159,8 @@ the ruleset with `bypass_mode = "pull_request"`: an admin can merge a PR without
 (GitHub shows an explicit bypass checkbox), but **never push directly** to the default
 branch. The workflow `GITHUB_TOKEN` is not a repository admin, so agents still cannot
 bypass. Keep it `false` when the target has at least two human writers.
+Agent PRs do not need it: their author is a bot, so the single writer can approve them
+(validated on `demo-api` PR #37, merged without bypass). Only the maintainer's own PRs do.
 
 > ⚠️ **Warning**: without the bypass, nobody bypasses the ruleset, including organization
 > owners; they can still edit or disable it in the repository settings (or through this

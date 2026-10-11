@@ -76,3 +76,17 @@ variable "admin_pull_request_bypass" {
   type        = bool
   default     = false
 }
+
+variable "required_status_checks" {
+  description = "Status checks (check run names, e.g. the target CI job name) that must pass before merging into the default branch. integration_id pins the source app (15368 = GitHub Actions). Empty: none. Set only when the FlowForge GitHub App delivers agent PRs, otherwise their CI never runs on its own."
+  type = list(object({
+    context        = string
+    integration_id = optional(number)
+  }))
+  default = []
+
+  validation {
+    condition     = alltrue([for c in var.required_status_checks : trimspace(c.context) != ""])
+    error_message = "Every required status check needs a non-empty context."
+  }
+}

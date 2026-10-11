@@ -532,7 +532,8 @@ agent-lifecycle.yml ──► agent:done
 - at least one approving review (`required_approving_review_count = 1`); approvals are
   dismissed by any new push (an Iterator commit after a human approval needs a new one);
 - force push and deletion blocked;
-- no required status check yet (no stable target check);
+- required status checks opt-in (`required_status_checks`, not strict), once the FlowForge
+  GitHub App delivers agent PRs (§2.10);
 - no bypass actor by default. Opt-in `admin_pull_request_bypass` for solo-maintainer targets:
   the *admin* repository role may merge a PR without approval, never push directly. Agents
   run as `github-actions[bot]`, which is not an admin.
@@ -672,8 +673,9 @@ Iterator publish job           App token (contents write) for the verified fast-
 - **Validated live** on 2026-10-11: `demo-api` Issue #28 → Draft PR #37 authored by the App, CI
   without approval, human approval and merge without bypass
   ([milestone §14.3](milestones/phase5-refiner-e2e.md)).
-- **Not yet.** Iterator push through the App observed live (needs a `REQUEST_CHANGES`), then the
-  target CI as a required status check of the ruleset (separate step).
+- **Required status check.** The `target-repository` module takes `required_status_checks`
+  (opt-in, not strict); set it on a target only once the App delivers its agent PRs.
+- **Not yet.** Iterator push through the App observed live (needs a `REQUEST_CHANGES`).
 
 ------
 

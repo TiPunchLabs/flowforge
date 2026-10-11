@@ -48,6 +48,11 @@ or in FlowForge's `terraform/` root (one module block per target, never both). I
 `agent:*` state labels, the default-branch ruleset (human merge gate) and the workflow token
 settings. Details and inputs: [`terraform/modules/target-repository/README.md`](../terraform/modules/target-repository/README.md).
 
+Once the FlowForge App delivers agent PRs (§3) and the first agent PR shows its CI check, make
+that check required (`required_status_checks`, the CI job name, `integration_id = 15368`):
+merges are then blocked until CI is green. Not before: with `GITHUB_TOKEN` delivery, agent PR
+CI waits for approval and the required check would block the merge.
+
 > ⚠️ **Warning**: `terraform apply` changes a real repository; run it only after reviewing
 > the plan. Terraform never manages Actions secrets (they would land in plain-text state).
 
@@ -175,7 +180,8 @@ agents read it first; FlowForge's own rules (`agents/`) stay generic.
 | `flowforge-review.yml` on that PR | skipped (bot actor) until a human acts or dispatches it |
 | Review cycle with `REQUEST_CHANGES` | Iterator push starts CI, no extra `FlowForge review` run |
 | Issue timeline | the App appears in no label event |
-| Merge | by a human, after an approval (ruleset) |
+| Merge | by a human, after an approval (ruleset), without bypass for agent PRs |
+| Required status check (if set) | merge blocked until the CI check is green |
 
 > 💡 **Note**: the Developer run summary shows *Delivered by: `<app-slug>[bot] (GitHub App)`*
 > or *`GITHUB_TOKEN`*, which tells at a glance whether the App was used.
