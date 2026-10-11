@@ -408,12 +408,12 @@ above) and #22 (older documentation request, unrelated). None blocks the closure
 | # | Reservation | Impact on Phase 5 | Blocking | Next action |
 |---|---|---|---|---|
 | R1 | Iterator not exercised on a refined body (first review `APPROVE`) | Iterator reading of refined criteria unproven live | No: the Iterator reads findings and the body as plain markdown | Observe at the next `REQUEST_CHANGES` |
-| R2 | Human merge through the admin bypass, no GitHub approval observed | Merge gate proven to block, approval path not | No: same reservation as Phase 4.1 | Second human writer, or keep as accepted |
+| R2 | Human merge through the admin bypass, no GitHub approval observed | Merge gate proven to block, approval path not | No: same reservation as Phase 4.1 | ✅ **Lifted on 2026-10-11** for App-authored agent PRs (§14.3) |
 | R3 | `NEEDS_CLARIFICATION` → answer → `READY` → Developer not run end to end | Re-refinement with answers unproven live | No: covered by `tests/refiner.sh` | ✅ **Lifted on 2026-10-11** (§14.1) |
 | R4 | `BLOCKED` and technical-failure (`FAILED`) paths only tested offline | — | No | Observe opportunistically |
 | R5 | Cosmetic deviations: escaped quotes, inline code drift on re-run, one imprecise tag, non-existent proposed label `type:feature` | Formatting only | No | Possible rule tightening in `agents/refiner.md` |
 | R6 | Iterator `NO_OP` (#22) validated offline only | Phase 4.1 follow-up, not Refiner | No | Observe opportunistically |
-| R7 | Target PR CI does not run on agent PRs (`GITHUB_TOKEN`); no required status check in the ruleset | Tests evidenced by agent runs and an offline re-run (§13.4), not by target CI | No | FlowForge Issue #34 (§14.2) |
+| R7 | Target PR CI does not run on agent PRs (`GITHUB_TOKEN`); no required status check in the ruleset | Tests evidenced by agent runs and an offline re-run (§13.4), not by target CI | No | ✅ **Lifted on 2026-10-11 for the Developer** (§14.3). Open: Iterator push live, required status check (#34) |
 | R8 | One E2E scenario, decoupling of the Developer checked statically | — | No | — |
 
 ### 13.8 🚫 Out of scope (not part of Phase 5)
@@ -511,9 +511,58 @@ need *"Améliorer les logs."*, went through the whole chain:
   token for delivery, with anti-loop rules).
 - *Ready for review* started one more read-only review (run 38154735001), as on PR #34.
 
+### 14.3 R7 and R2 lifted: delivery by the FlowForge GitHub App (#34)
+
+> FlowForge code changed here: [#36](https://github.com/TiPunchLabs/flowforge/pull/36) (merge
+> `6cfd79b`) implements #34 option A (the workflow, not Claude, pushes and opens the Draft PR with
+> an App token; design in `docs/architecture.md` §2.10). `demo-api`
+> [#36](https://github.com/TiPunchLabs/demo-api/pull/36) (merge `5bc009e`) passes the App to its
+> callers and makes the review caller ignore every `[bot]` actor. App `tipunchlabs-flowforge`
+> (Contents RW, Pull requests RW, Metadata R, no Issues), installed on `demo-api` only.
+
+`demo-api` Issue [#28](https://github.com/TiPunchLabs/demo-api/issues/28) (`READY` since Prompt 23):
+
+```text
+2026-10-11T20:41Z     agent:ready (human)         Developer run 38173257133: Claude committed, delivery
+                                                  request verified, "Create App delivery token" failed
+                                                  (Not Found: App created but not installed). Nothing
+                                                  pushed, no PR, Issue left with no state (technical)
+                      App installed on demo-api
+2026-10-11T20:45:47Z  agent:ready (human)
+2026-10-11T20:46:00Z  agent:ready → agent:running Developer run 38173567238, every step success
+2026-10-11T20:46:53Z  Draft PR #37 opened         author app/tipunchlabs-flowforge; agent:running → agent:review
+2026-10-11T20:46:53Z  CI run 38173639728          pull_request, actor tipunchlabs-flowforge[bot], started at
+                                                  creation, no approval: success
+2026-10-11T20:46:53Z  FlowForge review 38173640236 skipped (bot actor, anti-loop rule 2)
+2026-10-11T20:48:46Z  review cycle 38173769467    Reviewer #1 APPROVE, 5/5 criteria, cites the CI run
+2026-10-11T20:52:49Z  ready for review (human)    FlowForge review 38174045081 (read-only), success
+2026-10-11T20:54:51Z  GitHub review APPROVED      by xgueret
+2026-10-11T20:55:10Z  PR #37 merged (human)       merge commit 6d6afb2; ruleset evaluation: pass (no bypass)
+2026-10-11T20:55:13Z  agent:review → agent:done   lifecycle run 38174206499, Issue closed
+```
+
+| Check (#34 protocol) | Result |
+|---|---|
+| PR authored by `<app>[bot]`, Draft | PASS: `app/tipunchlabs-flowforge`, draft |
+| Target CI starts with no approval banner | PASS: run 38173639728, `success` |
+| No `FlowForge review` run from the bot event | PASS: `skipped` |
+| Exactly one Developer run per `agent:ready` | PASS |
+| The App in no label event of the Issue | PASS: every label event by `github-actions[bot]`; the App's only event on #28 is the cross-reference from "Closes #28" |
+| App misconfigured → technical failure, nothing pushed | PASS (first run, not installed) |
+| Human approval satisfies the ruleset | PASS: rule-suite `pass` for `6d6afb2`, where `470db06` (PR #35) and earlier merges show `bypass` |
+
+**R7 is lifted for the Developer**: agent PRs now get target CI evidence, and the Reviewer uses it.
+**R2 is lifted for App-authored agent PRs**: the PR author is the App, so the single human writer
+can give the required approval; the admin bypass is no longer needed.
+
+Still open (#34): Iterator push through the App (the cycle approved at Reviewer #1, so R1 stays
+open too), and the target CI as a required status check of the ruleset (Terraform, separate step).
+Commits keep the `github-actions[bot]` git identity set by `claude-code-action`; only the push and
+the PR use the App.
+
 
 ------
 
 > **Document created on**: 2026-10-10
 > **Author**: xgueret, with Claude Code
-> **Version**: 2.1 (follow-up after closure: R3 lifted, §14)
+> **Version**: 2.2 (follow-up after closure: R3 lifted §14.1; R7 for the Developer and R2 lifted §14.3)
