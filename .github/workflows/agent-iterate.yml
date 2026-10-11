@@ -22,6 +22,10 @@
 #   publish  contents: write only; no Claude, no PR code executed; verifies the bundle is a
 #            single fast-forward commit on the reviewed head, pushes it, renders the result
 #
+# The push uses a FlowForge GitHub App installation token when the caller configures the App
+# (`app_client_id` + `app_private_key`, Issue #34): the target's CI then runs on the new head
+# without manual approval. Without the App, GITHUB_TOKEN pushes (those runs need approval).
+#
 # Result artifact `flowforge-iteration-pr-<n>-<iteration>` (contract in docs/architecture.md):
 #   iteration.json    machine-readable result, for humans and review-cycle.yml
 #   iteration.md      human-readable result, rendered deterministically from iteration.json
@@ -70,6 +74,13 @@ on:
         type: string
         required: false
         default: ""
+      app_client_id:
+        description: >-
+          Client ID of the FlowForge GitHub App used for the push (e.g.
+          vars.FLOWFORGE_APP_CLIENT_ID). Empty: GITHUB_TOKEN pushes instead.
+        type: string
+        required: false
+        default: ""
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -77,6 +88,9 @@ on:
       claude_code_oauth_token:
         description: Claude Code OAuth token authenticating the Iterator agent.
         required: true
+      app_private_key:
+        description: Private key of the FlowForge GitHub App; required when app_client_id is set.
+        required: false
     outputs:
       result:
         description: >-
@@ -852,6 +866,17 @@ jobs:
           echo "::notice::Pull request #$PR_NUMBER was $text during the iteration: nothing pushed (NO_OP)."
           echo "no_op_json=$no_op_json" >> "$GITHUB_OUTPUT"
 
+      # Scoped to the calling repository (default) and to contents only: the push. No
+      # `issues` permission, so it can never apply a label (anti-loop rule 1, Issue #34).
+      - name: Create App delivery token
+        id: app_token
+        if: env.PUSH == 'true' && steps.recheck.outputs.state == 'OPEN' && inputs.app_client_id != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-contents: write
+
       - name: Check out pull request head branch
         if: env.PUSH == 'true' && steps.recheck.outputs.state == 'OPEN'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -859,13 +884,15 @@ jobs:
           ref: ${{ needs.iterate.outputs.head_branch }}
           fetch-depth: 0
           # Credentials are needed here, and only here, for the push below.
+          token: ${{ steps.app_token.outputs.token || github.token }}
           persist-credentials: true
 
       # Deterministic delivery: the bundle must hold exactly one commit whose parent is the
       # reviewed commit, the remote branch must still be at the reviewed commit, and the push
       # is a plain fast-forward to the PR head branch (no force, no other ref).
-      # Pushing with GITHUB_TOKEN does not start the target's pull_request workflows: the
-      # Reviewer is NOT triggered by this push.
+      # The review cycle, not this push, starts the next Reviewer: with GITHUB_TOKEN the
+      # target's pull_request runs wait for approval; with the App token they run (CI), and the
+      # review caller ignores bot actors (anti-loop rule 2, Issue #34).
       - name: Push Iterator commit to the PR head branch
         id: push
         if: env.PUSH == 'true' && steps.recheck.outputs.state == 'OPEN'

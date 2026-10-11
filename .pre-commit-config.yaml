@@ -59,6 +59,13 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/(agent-develop|review-cycle|agent-lifecycle)\.yml|scripts/flowforge-state\.sh)|examples/target-repository/flowforge-lifecycle\.yml|terraform/modules/target-repository/variables\.tf|tests/label-lifecycle\.sh)$
+      # Developer delivery gate (Issue #34): the workflow, not Claude, pushes and opens the PR.
+      - id: developer-delivery
+        name: developer delivery tests
+        entry: tests/developer-delivery.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/workflows/agent-develop\.yml|tests/developer-delivery\.sh)$
       # Refiner (Phase 5): result contract, Original request / record rendering, idempotent
       # re-refinement, label mapping, race guard, read-only workflow.
       - id: refiner

@@ -16,7 +16,8 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/scripts/flowforge-refine.sh` — Refiner preconditions, result validation, refined body rendering;
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`, `refiner.md`),
   independent of any target project;
-- `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner.
+- `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
+- `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -113,6 +114,9 @@ Refiner `READY` → human `agent:ready` → Developer Draft PR #34 → Reviewer 
 needed), no manual change to the need; see `docs/milestones/phase5-refiner-e2e.md`.
 Prompt 25 (closure) done on 2026-10-10: validated with reservations, tag
 `flowforge-phase5-refiner-e2e` in FlowForge and `demo-api`; audit and reservations in the milestone §13.
+Post-closure (#34, 2026-10-11): delivery identity = one FlowForge GitHub App for all targets;
+Claude commits, the workflow verifies then pushes and opens the Draft PR with the App token
+(`GITHUB_TOKEN` fallback); anti-loop rules in `docs/architecture.md` §2.10.
 Next: Phase 6 — GitHub Projects / Kanban (not started).
 
 ## Out of scope for now
@@ -137,6 +141,7 @@ tests/review-no-op.sh                              # pre-commit hook: closed/mer
 tests/iterate-no-op.sh                             # pre-commit hook: Iterator NO_OP (#22)
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
 tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
+tests/developer-delivery.sh                        # pre-commit hook: Developer delivery gate (#34)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 ```
 

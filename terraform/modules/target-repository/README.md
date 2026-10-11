@@ -17,7 +17,7 @@ The module never creates, renames, archives or deletes the repository itself.
 | Required status checks on the default branch | 📝 Planned, once targets have a stable CI check | `github_repository_ruleset` |
 | Actions permissions / allowed actions | 📝 Planned | `github_actions_repository_permissions` |
 | Deployment environments | 📝 Planned, only if needed | `github_repository_environment` |
-| Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`, …) | 🚫 Out of Terraform | organization secret (Selected repositories), set manually or via `gh secret set --org` |
+| Actions secrets (`CLAUDE_CODE_OAUTH_TOKEN`, `FLOWFORGE_APP_PRIVATE_KEY`, …) | 🚫 Out of Terraform | organization secret (Selected repositories), set manually or via `gh secret set --org` |
 
 > ⚠️ **Warning**: secrets are deliberately kept out of Terraform. Anything passed to a
 > `github_actions_secret` resource ends up in plain text in the Terraform state.
@@ -154,8 +154,10 @@ bypass. Keep it `false` when the target has at least two human writers.
 
 ## 🔑 Workflow token permissions
 
-`can_approve_pull_request_reviews = true` is required: the Developer agent opens its Draft
-PR with the workflow `GITHUB_TOKEN`, which GitHub otherwise forbids from creating PRs.
+`can_approve_pull_request_reviews = true` is required when the target delivers with the
+workflow `GITHUB_TOKEN` (no FlowForge GitHub App configured, see
+[docs/target-onboarding.md](../../../docs/target-onboarding.md)): GitHub otherwise forbids it
+from creating PRs. With the App, agent PRs are opened by the App, not by `GITHUB_TOKEN`.
 
 > ⚠️ **Warning**: the same setting also lets workflows **approve** PRs. The default-branch
 > ruleset requires an approval that the agent identity cannot provide (it authors agent PRs,

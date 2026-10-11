@@ -73,12 +73,22 @@ on:
         type: string
         required: false
         default: ""
+      app_client_id:
+        description: >-
+          `app_client_id` of agent-iterate.yml: FlowForge GitHub App used for the Iterator
+          push. Empty: GITHUB_TOKEN pushes.
+        type: string
+        required: false
+        default: ""
     secrets:
       # Long-lived token from `claude setup-token`, forwarded explicitly to both agents.
       # Never use `secrets: inherit` towards FlowForge.
       claude_code_oauth_token:
         description: Claude Code OAuth token authenticating the Reviewer and Iterator agents.
         required: true
+      app_private_key:
+        description: Private key of the FlowForge GitHub App, forwarded to the Iterator only.
+        required: false
     outputs:
       result:
         description: APPROVED, BLOCKED, MAX_ITERATIONS_REACHED, NO_OP or FAILED.
@@ -162,8 +172,10 @@ jobs:
       review_json: ${{ needs.review_1.outputs.review_json }}
       setup_uv: ${{ inputs.setup_uv }}
       allowed_tools: ${{ inputs.iterate_allowed_tools }}
+      app_client_id: ${{ inputs.app_client_id }}
     secrets:
       claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+      app_private_key: ${{ secrets.app_private_key }}
 
   review_2:
     name: "Reviewer #2"
@@ -199,8 +211,10 @@ jobs:
       review_json: ${{ needs.review_2.outputs.review_json }}
       setup_uv: ${{ inputs.setup_uv }}
       allowed_tools: ${{ inputs.iterate_allowed_tools }}
+      app_client_id: ${{ inputs.app_client_id }}
     secrets:
       claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+      app_private_key: ${{ secrets.app_private_key }}
 
   review_3:
     name: "Reviewer #3"
@@ -236,8 +250,10 @@ jobs:
       review_json: ${{ needs.review_3.outputs.review_json }}
       setup_uv: ${{ inputs.setup_uv }}
       allowed_tools: ${{ inputs.iterate_allowed_tools }}
+      app_client_id: ${{ inputs.app_client_id }}
     secrets:
       claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+      app_private_key: ${{ secrets.app_private_key }}
 
   # Final review after Iterator #3. Nothing follows it: REQUEST_CHANGES here ends the cycle
   # with MAX_ITERATIONS_REACHED.

@@ -8,6 +8,13 @@
 #        automation mode) -> branch agent/<issue>-<slug> -> code + tests -> Draft PR
 #        -> human review. The agent never merges and never pushes to the base branch.
 #
+# Delivery (Issue #34): Claude Code only commits and writes the PR title and body to files.
+# The workflow verifies the commits, then pushes the branch and opens the Draft PR itself,
+# with a FlowForge GitHub App installation token when the caller configures the App
+# (`app_client_id` + `app_private_key`): the target's `pull_request` workflows (CI) then run
+# without manual approval. Without the App, GITHUB_TOKEN delivers (runs need approval).
+# Claude never holds the App token; labels and comments always use GITHUB_TOKEN.
+#
 # Labels:  agent:ready -> agent:running -> agent:review  (Draft PR open)
 #                                       -> agent:blocked (agent stopped: no PR, Claude Code succeeded)
 #                                       -> no state      (technical failure: no PR, Claude Code
@@ -46,6 +53,13 @@ on:
         type: string
         required: false
         default: ""
+      app_client_id:
+        description: >-
+          Client ID of the FlowForge GitHub App used to push the branch and open the Draft PR
+          (e.g. vars.FLOWFORGE_APP_CLIENT_ID). Empty: GITHUB_TOKEN delivers instead.
+        type: string
+        required: false
+        default: ""
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -53,6 +67,9 @@ on:
       claude_code_oauth_token:
         description: Claude Code OAuth token authenticating the Developer agent.
         required: true
+      app_private_key:
+        description: Private key of the FlowForge GitHub App; required when app_client_id is set.
+        required: false
     outputs:
       branch:
         description: Name of the branch the agent works on.
@@ -75,9 +92,9 @@ jobs:
     timeout-minutes: 30
     # The caller must grant at least these (a called workflow can only narrow them).
     permissions:
-      contents: write       # push the agent/* branch (never the base branch)
+      contents: write       # push the agent/* branch without the App (never the base branch)
       issues: write         # switch agent:* labels, let the agent comment when it stops
-      pull-requests: write  # open the Draft PR, force it back to draft if needed
+      pull-requests: write  # open the Draft PR without the App, force it back to draft if needed
     outputs:
       branch: ${{ steps.context.outputs.branch }}
       pull_request: ${{ steps.finalize.outputs.pull_request }}
@@ -150,15 +167,21 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.base_branch }}
-          # claude-code-action configures its own git credentials for the push.
+          # Nothing is pushed with the checkout credentials (step "Push branch and open Draft PR").
           persist-credentials: false
 
       # The branch is created here, deterministically; Claude Code (automation mode)
-      # creates no branch itself and only commits to and pushes this one.
+      # creates no branch itself and only commits to this one. The PR request directory is
+      # git-ignored locally so that Claude cannot commit it by mistake.
       - name: Create agent branch
+        id: branch
         env:
           BRANCH: ${{ steps.context.outputs.branch }}
-        run: git switch -c "$BRANCH"
+        run: |
+          set -euo pipefail
+          git switch -c "$BRANCH"
+          echo "/.flowforge-pr/" >> .git/info/exclude
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up uv
         if: inputs.setup_uv
@@ -200,11 +223,15 @@ jobs:
 
           ## How this run works
 
-          - Commit on $BRANCH only. Push with exactly: git push origin HEAD:refs/heads/$BRANCH
-          - Open the PR with: gh pr create --draft --base $BASE_BRANCH --head $BRANCH --title "..." --body "..."
+          - Commit on $BRANCH only. Do not push and do not run gh pr create: the workflow
+            verifies your commits, pushes $BRANCH and opens the Draft PR after you finish.
+          - To request the Draft PR (rules, section 7), write two files (they are git-ignored,
+            never commit them):
+              .flowforge-pr/title.txt  one line, the PR title
+              .flowforge-pr/body.md    the PR body
           - If you must stop (rules, section 8), run: gh issue comment $ISSUE_NUMBER --body "..."
-            and do not push or open a PR.
-          - Never push to $BASE_BRANCH, never merge, never mark the PR ready for review.
+            and do not write .flowforge-pr/: no PR is opened.
+          - Never merge, never mark the PR ready for review.
 
           ## FlowForge Developer rules
 
@@ -227,6 +254,7 @@ jobs:
 
       # Automation mode (a `prompt` is set): no tracking comment, no branch or PR created
       # by the action itself. Bash is denied unless allowed below.
+      # Claude gets GITHUB_TOKEN (never the App token) and may not push nor open a PR.
       # --max-turns 40: enough for read -> change -> test -> fix -> commit -> PR on an
       # Issue-sized change; an ambiguous Issue stops there instead of burning quota.
       # The 30-minute job timeout is the second bound.
@@ -244,23 +272,105 @@ jobs:
             --allowedTools "Read,Glob,Grep,Edit,Write,
             Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),
             Bash(git add:*),Bash(git commit:*),
-            Bash(git push origin HEAD:refs/heads/${{ steps.context.outputs.branch }}),
             Bash(gh issue view ${{ inputs.issue_number }}:*),
-            Bash(gh issue comment ${{ inputs.issue_number }}:*),
-            Bash(gh pr create --draft:*),Bash(gh pr view:*)
+            Bash(gh issue comment ${{ inputs.issue_number }}:*)
             ${{ inputs.allowed_tools != '' && format(',{0}', inputs.allowed_tools) || '' }}"
+
+      # Deterministic delivery, the only push of this workflow. A PR is delivered only if
+      # Claude requested one (.flowforge-pr/title.txt): no request = the agent stopped.
+      # Checks: still on the agent branch, at least one commit on top of the base branch,
+      # never the base or default branch, valid title and body. Nothing is pushed otherwise.
+      - name: Verify delivery request
+        id: delivery
+        if: >-
+          !cancelled() && steps.running.outcome == 'success'
+          && contains(fromJSON('["success", "failure"]'), steps.claude.outcome)
+        env:
+          BRANCH: ${{ steps.context.outputs.branch }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          BASE_SHA: ${{ steps.branch.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          request=.flowforge-pr
+          if [[ ! -f "$request/title.txt" ]]; then
+            echo "No PR requested by the agent: nothing to deliver."
+            echo "deliver=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
+          for protected in "$BASE_BRANCH" "$default_branch" main; do
+            [[ "$BRANCH" != "$protected" ]] || { echo "::error::Refusing to deliver to '$BRANCH'."; exit 1; }
+          done
+          [[ "$(git branch --show-current)" == "$BRANCH" ]] \
+            || { echo "::error::HEAD is not on the agent branch '$BRANCH'."; exit 1; }
+          # The base branch may have moved meanwhile: compare with the commit branched from.
+          git merge-base --is-ancestor "$BASE_SHA" HEAD \
+            || { echo "::error::'$BRANCH' no longer contains the base commit $BASE_SHA."; exit 1; }
+          commits="$(git rev-list --count "$BASE_SHA..HEAD")"
+          (( commits > 0 )) || { echo "::error::PR requested but no commit on top of $BASE_BRANCH."; exit 1; }
+          if git ls-tree -r --name-only HEAD | grep -q '^\.flowforge-pr/'; then
+            echo "::error::The PR request files were committed."
+            exit 1
+          fi
+
+          title="$(head -n 1 "$request/title.txt" | tr -d '\r')"
+          [[ -n "${title// }" && ${#title} -le 256 ]] \
+            || { echo "::error::PR title must be one non-empty line of at most 256 characters."; exit 1; }
+          touch "$request/body.md"
+          (( $(wc -c < "$request/body.md") <= 60000 )) \
+            || { echo "::error::PR body exceeds 60000 bytes."; exit 1; }
+          printf '%s\n' "$title" > "$RUNNER_TEMP/flowforge-pr-title.txt"
+          cp "$request/body.md" "$RUNNER_TEMP/flowforge-pr-body.md"
+
+          echo "deliver=true" >> "$GITHUB_OUTPUT"
+          echo "- Commits to deliver: $commits" >> "$GITHUB_STEP_SUMMARY"
+
+      # Minted only now, after Claude Code ended: the App token never reaches the agent.
+      # Scoped to the calling repository (default) and to the two delivery permissions; no
+      # `issues` permission, so it can never apply a label (anti-loop rule 1, Issue #34).
+      - name: Create App delivery token
+        id: app_token
+        if: steps.delivery.outputs.deliver == 'true' && inputs.app_client_id != ''
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Push branch and open Draft PR
+        id: deliver
+        if: steps.delivery.outputs.deliver == 'true'
+        env:
+          BRANCH: ${{ steps.context.outputs.branch }}
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+          DELIVERY_IDENTITY: ${{ steps.app_token.outputs['app-slug'] && format('{0}[bot] (GitHub App)', steps.app_token.outputs['app-slug']) || 'GITHUB_TOKEN' }}
+        # claude-code-action rewrote `origin` with its own token: push to an explicit URL.
+        run: |
+          set -euo pipefail
+          git -c credential.helper= push \
+            "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/$BRANCH"
+          gh pr create --repo "$GITHUB_REPOSITORY" --draft \
+            --base "$BASE_BRANCH" --head "$BRANCH" \
+            --title "$(cat "$RUNNER_TEMP/flowforge-pr-title.txt")" \
+            --body-file "$RUNNER_TEMP/flowforge-pr-body.md"
+          echo "- Delivered by: $DELIVERY_IDENTITY" >> "$GITHUB_STEP_SUMMARY"
 
       # Runs even when Claude Code fails, so the issue never stays "running". The label
       # follows facts: a Draft PR exists -> review; the agent ended normally without one (it
       # stopped and commented, rules §8) -> blocked, a business state; Claude Code failed,
-      # was cancelled or never ran -> no state: a technical failure is not BLOCKED, it only
-      # needs a re-run (re-add the ready label).
+      # was cancelled or never ran, or the delivery failed -> no state: a technical failure
+      # is not BLOCKED, it only needs a re-run (re-add the ready label).
       - name: Enforce Draft PR and set final label
         id: finalize
         if: always() && steps.running.outcome == 'success'
         env:
           BRANCH: ${{ steps.context.outputs.branch }}
           CLAUDE_OUTCOME: ${{ steps.claude.outcome }}
+          DELIVERY_FAILED: ${{ contains(fromJSON('["failure", "cancelled"]'), steps.delivery.outcome) || contains(fromJSON('["failure", "cancelled"]'), steps.app_token.outcome) || contains(fromJSON('["failure", "cancelled"]'), steps.deliver.outcome) }}
           FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
           FLOWFORGE_SHA: ${{ job.workflow_sha }}
         run: |
@@ -280,12 +390,12 @@ jobs:
             if [[ "$CLAUDE_OUTCOME" != "success" ]]; then
               echo "::warning::Claude Code ended with '$CLAUDE_OUTCOME' after opening Draft PR #$number; the review will judge it."
             fi
-          elif [[ "$CLAUDE_OUTCOME" == "success" ]]; then
+          elif [[ "$CLAUDE_OUTCOME" == "success" && "$DELIVERY_FAILED" != "true" ]]; then
             label=agent:blocked
             echo "::warning::The agent stopped without a Draft PR (see its Issue comment). Issue marked $label."
           else
             label=""
-            echo "::warning::Technical failure (Claude Code: ${CLAUDE_OUTCOME:-not run}), no Draft PR. Issue left without a FlowForge state: re-add the ready label to retry (delete the agent branch first if it was pushed)."
+            echo "::warning::Technical failure (Claude Code: ${CLAUDE_OUTCOME:-not run}, delivery failed: $DELIVERY_FAILED), no Draft PR. Issue left without a FlowForge state: re-add the ready label to retry (delete the agent branch first if it was pushed)."
           fi
           # Fetched here rather than reused from a file: Claude Code ran in between.
           helper="$(gh api -H "Accept: application/vnd.github.raw+json" \

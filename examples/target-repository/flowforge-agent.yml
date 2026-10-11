@@ -4,8 +4,14 @@
 # It holds no logic: everything lives in the FlowForge reusable workflow.
 # Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
 #
-# Prerequisite: a CLAUDE_CODE_OAUTH_TOKEN secret (from `claude setup-token`) visible to this
-# repository — typically an organization secret with "Selected repositories" access.
+# Prerequisites, visible to this repository (typically organization-level, with
+# "Selected repositories" access):
+# - secret CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`);
+# - optional, recommended: the FlowForge GitHub App installed on this repository, with
+#   variable FLOWFORGE_APP_CLIENT_ID and secret FLOWFORGE_APP_PRIVATE_KEY. The App pushes the
+#   agent branch and opens the Draft PR, so this repository's CI runs without manual
+#   approval. Without them, GITHUB_TOKEN delivers and every PR run waits for approval.
+#   See docs/target-onboarding.md.
 name: FlowForge agent
 
 on:
@@ -29,6 +35,8 @@ jobs:
       # Project-specific: tooling to install and the commands the agent may run.
       # setup_uv: true
       # allowed_tools: "Bash(uv sync:*),Bash(uv run pytest:*),Bash(uv run ruff:*)"
+      app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
     # Explicit, minimal secrets contract: never `secrets: inherit`.
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}

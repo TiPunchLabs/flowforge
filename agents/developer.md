@@ -64,7 +64,9 @@ Before modifying any file:
 
 ## 7. Pull Request
 
-- You **MUST** open a **Draft** Pull Request from your branch to the base branch.
+- You **MUST** deliver your branch as a **Draft** Pull Request to the base branch.
+  In FlowForge runs you do not push nor open it yourself: you request it as the run
+  prompt says, and the workflow verifies your commits, pushes and opens the Draft PR.
 - Title: Conventional Commit style, e.g. `feat: add GET /health endpoint`.
 - Body:
   - `Closes #<issue-number>`;
