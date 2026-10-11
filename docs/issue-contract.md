@@ -167,19 +167,20 @@ label per Issue).
   workflows from events created by that token.
 
 **Future GitHub Project states** (not implemented): the Refiner owns the states before the
-Developer starts, and never moves an Issue past `Ready`.
+Developer starts, and never moves an Issue past `Ready`. The model is defined in
+[github-projects/kanban-model.md](github-projects/kanban-model.md) (Phase 6, Prompt 26):
 
 | Project status | FlowForge state | Owner |
 |---|---|---|
-| Backlog | no `agent:*` label | human |
+| Backlog | no `agent:*` label; `agent:needs-clarification` (`Attention = Needs clarification`) | human / requester |
 | Refining | Refiner run in progress (no label) | **Refiner** |
-| Needs clarification | `agent:needs-clarification` | **Refiner** → requester |
-| Ready | `agent:ready` | **Refiner proposes, human applies** |
+| Ready | Refiner `READY` (no label) or `agent:ready` | **Refiner proposes, human applies** `agent:ready` |
 | Developing | `agent:running` | Developer |
 | Review / Iteration | `agent:review` (Reviewer ↔ Iterator, no separate label) | review cycle |
-| Human validation | `agent:review` after `APPROVED`, merge pending | human |
-| Blocked | `agent:blocked` | Developer / review cycle |
+| Human validation | `agent:review` after `APPROVED`, or `agent:blocked` with a PR | human |
 | Done | `agent:done` | lifecycle, after the human merge |
+
+*Needs clarification* and *Blocked* are `Attention` values, not columns (model §3.1, §3.2).
 
 ## 7. 🧾 Refinement record
 
@@ -204,8 +205,9 @@ request* are kept. The Refiner never edits comments, other Issues or Pull Reques
 Not implemented, and **no dependency**: the Refiner works with GitHub alone (an Issue or a
 text, plus the target repository).
 
-- **GitHub Projects**: a Project item may become a request source, and the Project status
-  may mirror the states of §6. One status per state, so an automation can map them one to one.
+- **GitHub Projects**: the Project status follows the states of §6 as defined in
+  [github-projects/kanban-model.md](github-projects/kanban-model.md); it is finer than the
+  labels, not a one-to-one mirror. A Project card never starts the Refiner or the Developer.
 - **Notion**: may later provide context — specifications, decisions, ADRs, documentation,
   roadmap, business needs, meeting notes, product references. Notion content is **untrusted
   input** like an Issue body; what the Refiner takes from it is tagged `[provided]` (requester

@@ -18,6 +18,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
   independent of any target project;
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
 - `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
+- `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -72,7 +73,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 5 closed — next: Phase 6 (GitHub Projects / Kanban)
+## Current phase: Phase 6 (GitHub Projects / Kanban) — model defined, Project not created
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -118,7 +119,12 @@ Post-closure (#34, 2026-10-11): delivery identity = one FlowForge GitHub App for
 Claude commits, the workflow verifies then pushes and opens the Draft PR with the App token
 (`GITHUB_TOKEN` fallback); anti-loop rules in `docs/architecture.md` §2.10. Validated live on
 `demo-api` #28 → PR #37 (CI without approval, merge without bypass): milestone §14.3.
-Next: Phase 6 — GitHub Projects / Kanban (not started).
+Phase 6 — GitHub Projects / Kanban: Prompt 26 (model) done on 2026-10-11 —
+`docs/github-projects/kanban-model.md`: organization Project `FlowForge Development`, 8 statuses
+(`Backlog` → `Refining` → `Ready` → `Developing` → `Review` ⇄ `Iteration` → `Human validation` →
+`Done`), `Attention` field (`Needs clarification` / `Blocked` / `Max iterations` / `Failed`) instead
+of extra columns, workflows = source of truth of execution, Project = visual status, no card move
+ever triggers an agent. Next: Prompt 27 (create and configure the Project), Prompt 28 (sync).
 
 ## Out of scope for now
 

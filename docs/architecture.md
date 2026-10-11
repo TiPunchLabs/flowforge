@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Next: Phase 6 — GitHub Projects / Kanban, not started; GitHub Projects and Notion appear below only as future sources. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Phase 6 — GitHub Projects / Kanban in progress: model defined in [github-projects/kanban-model.md](github-projects/kanban-model.md) (Prompt 26), no Project created, no sync; Notion appears below only as a future source. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -472,19 +472,13 @@ Developer job keeps its existing permissions.
    `issues: read` makes the cycle fail at startup.
 4. Retroactive clean-up of Issues closed before #19 is a manual, one-off step.
 
-**Future GitHub Project mapping** (not implemented): one Status field value per state, so a
-Project automation (or a label → field sync) maps one-to-one. The Refiner (Phase 5, §2.9)
-adds *Refining* and *Needs clarification* before *Ready*: see
-[issue-contract.md §6](issue-contract.md#6--labels-and-states).
-
-| Project status | FlowForge state |
-|---|---|
-| Backlog | no `agent:*` state label |
-| Ready | `agent:ready` |
-| Developing | `agent:running` |
-| Review | `agent:review` |
-| Blocked | `agent:blocked` |
-| Done | `agent:done` |
+**GitHub Project mapping** (Phase 6, model defined in Prompt 26, not implemented): see
+[github-projects/kanban-model.md](github-projects/kanban-model.md). Eight statuses
+(`Backlog`, `Refining`, `Ready`, `Developing`, `Review`, `Iteration`, `Human validation`,
+`Done`) plus an `Attention` field; there is no *Blocked* or *Needs clarification* column. The
+Project is finer than the labels (`agent:review` maps to `Review`, `Iteration` or
+`Human validation`), labels keep their trigger and guard roles, and workflows stay the source
+of truth of execution.
 
 ### 2.7 Human merge gate (Phase 4.1)
 
