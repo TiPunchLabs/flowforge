@@ -5,13 +5,13 @@
 # Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
 #
 # Triggers (validated by the first Reviewer E2E, see docs/architecture.md §5.1):
-# - workflow_dispatch: Draft PRs opened by the Developer with GITHUB_TOKEN do not start
-#   `pull_request` workflows on their own (the run waits for approval), so agent PRs are
-#   reviewed on demand:
+# - workflow_dispatch: agent PRs are reviewed on demand (or by the review cycle):
 #     gh workflow run flowforge-review.yml -f pull_request_number=<n>
 # - pull_request: human activity (push, reopen, ready for review) on an `agent/*` branch
-#   of the target repository. Forks and other branches are ignored, and so are runs
-#   whose actor is github-actions[bot] (claude-code-action refuses bot actors).
+#   of the target repository. Forks and other branches are ignored, and so are runs whose
+#   actor is a bot: github-actions[bot] (GITHUB_TOKEN) or the FlowForge GitHub App that
+#   pushes agent branches. An Iterator push must never start a Reviewer outside the review
+#   cycle (anti-loop rule 2, FlowForge Issue #34); claude-code-action refuses bot actors anyway.
 #
 # Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml.
 name: FlowForge review
@@ -38,7 +38,7 @@ jobs:
       github.event_name == 'workflow_dispatch'
       || (github.event.pull_request.head.repo.full_name == github.repository
           && startsWith(github.event.pull_request.head.ref, 'agent/')
-          && github.actor != 'github-actions[bot]')
+          && !endsWith(github.actor, '[bot]'))
     uses: OWNER/flowforge/.github/workflows/agent-review.yml@main
     # Must cover what the called workflow requests; it can only narrow, never widen.
     # Code stays read-only; the only write is the FlowForge comment on the PR.

@@ -636,6 +636,42 @@ human: gh workflow run flowforge-refine.yml -f issue_number=<n>      (target rep
 | Idempotence | Same input ⇒ same body (deterministic rendering); re-runs never duplicate sections, never re-quote a refined body as the original, update the single comment, and add one record entry each |
 | Not done | No Developer start (`agent:ready` stays human; a `GITHUB_TOKEN` label would not trigger it anyway), no branch, commit, push or PR, no GitHub Project, no Notion |
 
+### 2.10 Delivery identity: FlowForge GitHub App (Issue #34)
+
+**Problem.** Pushes and PRs made with `GITHUB_TOKEN` create the target's `pull_request` runs
+in an approval-required state: agent PRs had no CI evidence (Phase 5 reservation R7) and no
+required status check could be added to the ruleset.
+
+**Design (option A, decided 2026-10-11).** `claude-code-action` uses one `github_token` both
+for git and for the `gh` CLI inside the session, so the App token is never given to Claude:
+
+```text
+Developer job
+  Claude Code (GITHUB_TOKEN)   commits on agent/<n>-<slug>, writes .flowforge-pr/{title.txt,body.md}
+                               or comments on the Issue and stops (no request = no PR)
+  Verify delivery request      on the agent branch, ≥ 1 commit on top of the base commit,
+                               not the base/default branch, request files not committed,
+                               title ≤ 256 chars, body ≤ 60000 bytes
+  Create App delivery token    only now; repo-scoped; contents + pull-requests write
+  Push branch and open PR      git push HEAD:refs/heads/<agent branch>; gh pr create --draft
+  Enforce Draft PR + label     GITHUB_TOKEN, unchanged (a failed delivery = technical, no state)
+
+Iterator publish job           App token (contents write) for the verified fast-forward push only
+```
+
+- **One App for every target**, owned by the organization, installed on *selected
+  repositories*; its client id and private key are organization variable/secret with
+  *Selected repositories* visibility. Onboarding: [target-onboarding.md](target-onboarding.md).
+- **Optional.** Without `app_client_id`, `GITHUB_TOKEN` delivers (previous behaviour).
+- **Anti-loop rules.** (1) the App has no `issues` permission, so it can never apply
+  `agent:ready`; (2) `flowforge-review.yml` ignores every `[bot]` actor, so an Iterator push
+  never starts a Reviewer outside the cycle; (3) the review cycle stays `workflow_dispatch`.
+- **Tests.** `tests/developer-delivery.sh` runs the real *Verify delivery request* step on
+  throwaway repositories and checks the invariants (Claude cannot push, token minted after
+  Claude, no `issues` permission, token used by the push step only).
+- **Not yet.** Live validation on `demo-api` (Issue #34 protocol), then the target CI as a
+  required status check of the ruleset (separate step).
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
@@ -649,6 +685,7 @@ human: gh workflow run flowforge-refine.yml -f issue_number=<n>      (target rep
 | `issue_number`, `base_branch` | target → FlowForge | `workflow_call` inputs |
 | `setup_uv`, `allowed_tools` | target → FlowForge | Optional inputs: target tooling and the exact commands the agent may run |
 | `claude_code_oauth_token` | `CLAUDE_CODE_OAUTH_TOKEN` secret → FlowForge | Org secret (Selected repositories) or repo secret; passed explicitly, never `secrets: inherit` |
+| `app_client_id`, `app_private_key` | `FLOWFORGE_APP_CLIENT_ID` variable, `FLOWFORGE_APP_PRIVATE_KEY` secret → FlowForge (Developer, review cycle → Iterator) | Optional: FlowForge GitHub App delivery identity, one App for all targets (§2.10); empty = `GITHUB_TOKEN` delivery |
 | Job permissions | target caller | `contents: write`, `issues: write`, `pull-requests: write` (a called workflow can only narrow) |
 | `branch`, `pull_request` | FlowForge → target | `workflow_call` outputs |
 | `flowforge-review.yml` | target (copied from `examples/`) | Calls `agent-review.yml` |
@@ -684,10 +721,12 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | No secret in Git | `.gitignore` (tfstate, tfvars, .env, keys), `detect-private-key` hook, token only via env |
 | No secret in Terraform state | Actions secrets are provisioned outside Terraform |
 | Least privilege (Actions) | `permissions: {}` at workflow level; the Developer job gets `contents`/`issues`/`pull-requests: write` only, no `id-token` |
-| Bounded agent | `--max-turns 40` + 30-min job timeout; Bash denied except an explicit allowlist (git read/commit, push of `HEAD` to its own `agent/*` ref only, `gh pr create --draft`, target commands) |
+| Bounded agent | `--max-turns 40` + 30-min job timeout; Bash denied except an explicit allowlist (git read/commit, `gh issue view/comment` on its Issue, target commands); no push, no `gh pr create` |
+| Delivery not in the agent's hands (Developer) | Claude only commits and writes a PR request (`.flowforge-pr/`); a workflow step verifies the branch and commits, then pushes and opens the Draft PR (§2.10) |
+| Delivery identity | FlowForge GitHub App token minted after Claude ends, scoped to the calling repository, `contents` + `pull-requests` only (Iterator: `contents`), no `issues`; fallback `GITHUB_TOKEN` (§2.10) |
 | Least privilege (Terraform) | Fine-grained token limited to onboarded repositories |
 | Untrusted issue content | Read via `env` + `jq`, never `${{ }}`-interpolated into scripts; treated as data by the agent |
-| No direct push to `main` | Only `git push origin HEAD:refs/heads/<agent branch>` is allowed + agent rules + default-branch ruleset (pull request required, no force push, no deletion — §2.7) |
+| No direct push to `main` | Only the workflow pushes, to the `agent/*` branch it created, after checking it is neither the base nor the default branch + agent rules + default-branch ruleset (pull request required, no force push, no deletion — §2.7) |
 | Human merge | Agent opens **Draft** PRs only (forced back to draft by the workflow if needed); the default-branch ruleset requires ≥ 1 GitHub approval, which the agent identity cannot give; no bypass for FlowForge, no auto-merge, no automatic Draft → Ready (§2.7) |
 | Pinned actions | Third-party actions pinned by commit SHA |
 | Read-only Reviewer | Review job has no write permission; publish job has `pull-requests: write` only and never runs PR code; Edit/Write tools disallowed; `persist-credentials: false` |
@@ -707,13 +746,13 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | How Claude Code runs | `anthropics/claude-code-action` (pinned SHA), automation mode (`prompt` set): no tracking comment, no branch/PR created by the action |
 | Authentication | `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) only — no API key, no Anthropic WIF |
 | Delivery of `agents/developer.md` | Fetched at `job.workflow_sha` from `job.workflow_repository` and embedded in the prompt |
-| Branch | Created by the workflow (`git switch -c`) before Claude runs; Claude only commits and pushes it |
-| Identity used to push and open PRs | Workflow `GITHUB_TOKEN` passed as `github_token` (no Claude GitHub App, no OIDC) |
+| Branch | Created by the workflow (`git switch -c`) before Claude runs; Claude only commits on it, the workflow pushes it (§2.10) |
+| Identity used to push and open PRs | ~~Workflow `GITHUB_TOKEN` passed as `github_token`~~ Superseded by Issue #34 (2026-10-11): FlowForge GitHub App installation token, used by a workflow step, never by Claude; `GITHUB_TOKEN` stays the fallback and Claude's token (§2.10) |
 
-> ⚠️ **Warning**: with `GITHUB_TOKEN`, the target must allow *"GitHub Actions to create and
-> approve pull requests"*, and PRs it opens do **not** run `pull_request` workflows on their
-> own: the run is created but stays `action_required` until a maintainer approves it
-> (target CI must then be approved or re-run by a human, or a GitHub App identity adopted later).
+> ⚠️ **Warning**: with the `GITHUB_TOKEN` fallback, the target must allow *"GitHub Actions to
+> create and approve pull requests"*, and PRs it opens do **not** run `pull_request` workflows
+> on their own: the run stays `action_required` until a maintainer approves it. The FlowForge
+> GitHub App removes this (§2.10).
 
 ### 5.1 Reviewer decisions (Phase 3)
 

@@ -12,10 +12,9 @@
 # (docs/architecture.md §2.5). Do not run flowforge-review.yml on the same PR during a cycle.
 #
 # Human gate: FlowForge never merges, never marks a PR ready, never rebases.
-# - Developer PRs and Iterator pushes (GITHUB_TOKEN) leave flowforge-review.yml
-#   `pull_request` runs in `action_required`. Approving them is pointless: their actor is
-#   github-actions[bot], so the review job is skipped. They end as `failure` (0 jobs) when
-#   the PR closes.
+# - Developer PRs and Iterator pushes are made by a bot (the FlowForge GitHub App, or
+#   GITHUB_TOKEN without it): flowforge-review.yml skips them. With the App, the target CI
+#   runs on them; with GITHUB_TOKEN, their `pull_request` runs wait in `action_required`.
 # - Marking an `agent/*` PR ready for review re-runs flowforge-review.yml on the same head:
 #   expected, and the merge does not need to wait for it.
 # - Conflicts between agent PRs are resolved by a human merging the base branch into the
@@ -56,6 +55,9 @@ jobs:
       # setup_uv: true
       # review_allowed_tools: "Bash(uv sync --locked),Bash(uv run pytest:*),Bash(uv run ruff check .),Bash(uv run ruff format --check .)"
       # iterate_allowed_tools: "Bash(uv sync --locked),Bash(uv run pytest:*),Bash(uv run ruff check:*),Bash(uv run ruff format:*)"
+      # Optional FlowForge GitHub App for the Iterator push (see flowforge-agent.yml).
+      app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
     # Explicit, minimal secrets contract: never `secrets: inherit`.
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}

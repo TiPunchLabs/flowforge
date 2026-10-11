@@ -97,7 +97,7 @@ run() {
   env PATH="$work/bin:$PATH" FAKE_STATE="$dir" FAKE_HELPER="$helper" GH_TOKEN=x \
     GITHUB_REPOSITORY=owner/target GITHUB_OUTPUT="$dir/github_output" \
     GITHUB_STEP_SUMMARY="$dir/summary" FLOWFORGE_REPOSITORY=owner/flowforge FLOWFORGE_SHA=abc123 \
-    ISSUE_NUMBER=1 PR_NUMBER=2 READY_LABEL=agent:ready "${@:3}" \
+    ISSUE_NUMBER=1 PR_NUMBER=2 READY_LABEL=agent:ready DELIVERY_FAILED=false "${@:3}" \
     bash --noprofile --norc -eo pipefail "$script" > "$dir/log" 2>&1
   echo $? > "$dir/exit"
   set -e
@@ -147,6 +147,11 @@ for outcome in failure cancelled skipped ""; do
   expect "B  technical failure (${outcome:-not run}): warning says re-run" \
     "$(grep -c 'Technical failure.*re-add the ready label' "$c/log")" 1
 done
+
+# Issue #34: the workflow delivers. A rejected delivery (push, PR, App token) is technical.
+c="$(new_case b-delivery '["agent:running","bug"]')"
+run "$c" "$work/finalize.sh" BRANCH=agent/1-x CLAUDE_OUTCOME=success DELIVERY_FAILED=true FAKE_PR_NUMBER=
+expect "B  delivery failed, no Draft PR: no state, never blocked" "$(code "$c")/$(labels "$c")" '0/["bug"]'
 
 c="$(new_case b-fail-pr '["agent:running"]')"
 run "$c" "$work/finalize.sh" BRANCH=agent/1-x CLAUDE_OUTCOME=failure FAKE_PR_NUMBER=2

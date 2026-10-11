@@ -64,6 +64,10 @@ GitHub Issue → label agent:ready → target workflow → FlowForge reusable wo
 ```
 
 The agent never pushes to `main` and never merges. See [agents/developer.md](agents/developer.md).
+Claude only commits: the workflow verifies the commits, then pushes the branch and opens the
+Draft PR with the **FlowForge GitHub App** (one App for all targets), so the target's CI runs
+on agent PRs without manual approval. To connect a new repository, follow
+[docs/target-onboarding.md](docs/target-onboarding.md).
 
 Phase 3 adds a **Reviewer** between the Draft PR and the human review. It is defined in
 [agents/reviewer.md](agents/reviewer.md) and run by the reusable workflow
@@ -181,7 +185,7 @@ agents/iterator.md                    generic Iterator agent rules
 agents/refiner.md                     generic Refiner agent rules (Phase 5)
 examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module (labels, ruleset…)
-docs/                                 architecture, refined Issue contract, phase plans, milestones
+docs/                                 architecture, target onboarding, refined Issue contract, phase plans, milestones
 scripts/                              maintainer helpers (empty for now)
 ```
 
