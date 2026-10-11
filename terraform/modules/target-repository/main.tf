@@ -70,11 +70,28 @@ resource "github_repository_ruleset" "default_branch" {
       require_last_push_approval        = false
       required_review_thread_resolution = false
     }
+
+    # Target CI must pass before merging (FlowForge #34). Only meaningful once agent PRs are
+    # delivered by the FlowForge GitHub App: with GITHUB_TOKEN their CI waits for approval.
+    # Not strict: an agent branch need not be rebased on the latest default branch.
+    dynamic "required_status_checks" {
+      for_each = length(var.required_status_checks) > 0 ? [1] : []
+      content {
+        strict_required_status_checks_policy = false
+
+        dynamic "required_check" {
+          for_each = var.required_status_checks
+          content {
+            context        = required_check.value.context
+            integration_id = required_check.value.integration_id
+          }
+        }
+      }
+    }
   }
 }
 
 # Deliberately not implemented yet (see README.md, "Planned"):
-# - required status checks on the default branch (no stable target check yet)
 # - Actions permissions / allowed actions (github_actions_repository_permissions)
 # - deployment environments (github_repository_environment), only if needed
 # - Actions secrets: provisioned out of band, never through Terraform state
