@@ -2,7 +2,8 @@
 #
 # Called from a TARGET repository (see examples/target-repository/flowforge-lifecycle.yml) on
 # `pull_request: closed`, never triggered by events of the FlowForge repository itself. It
-# runs in the caller's context. No agent, no checkout, no secret: it only moves one label.
+# runs in the caller's context. No agent, no checkout: it only moves one label, and, when the
+# caller opts in (`project_number` > 0 + the FlowForge App), the Issue's Project card.
 #
 #   PR MERGED (by a human)  : agent:review | agent:blocked -> agent:done
 #   PR CLOSED, not merged   : agent:review | agent:blocked -> no FlowForge state label
@@ -12,6 +13,9 @@
 # merge also closes the Issue through `Closes #n`, and still carries the PR. `issues: closed`
 # would race with it and cannot tell a merge from a manual close. Reviewer APPROVE never
 # leads to agent:done: only the human merge does. See docs/architecture.md §2.6.
+#
+# Project: merged -> Done, closed unmerged -> Backlog, for the same guarded Issue only
+# (.github/scripts/flowforge-project.sh, docs/github-projects/synchronization.md).
 name: FlowForge — agent lifecycle
 
 on:
@@ -23,6 +27,22 @@ on:
           its linked Issue are resolved from it through the API, never from event text.
         type: number
         required: true
+      project_number:
+        description: >-
+          Number of the FlowForge GitHub Project to keep in sync (e.g.
+          vars.FLOWFORGE_PROJECT_NUMBER); 0 disables the sync. Needs the App (app_client_id).
+        type: number
+        required: false
+        default: 0
+      app_client_id:
+        description: Client ID of the FlowForge GitHub App, used only for the Project sync.
+        type: string
+        required: false
+        default: ""
+    secrets:
+      app_private_key:
+        description: Private key of the FlowForge GitHub App; required when app_client_id is set.
+        required: false
 
 # Nothing by default; each job requests only what it needs.
 permissions: {}
@@ -48,6 +68,7 @@ jobs:
       # agent:review or agent:blocked. An Issue back in agent:ready / agent:running belongs to
       # a newer run; an Issue without a FlowForge state was never handed to FlowForge.
       - name: Apply terminal state
+        id: terminal
         env:
           FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
           FLOWFORGE_SHA: ${{ job.workflow_sha }}
@@ -74,5 +95,38 @@ jobs:
             echo "::notice::Issue #$issue is not in agent:review or agent:blocked: no label changed."
           else
             flowforge_set_state "$issue" "$target"
+            {
+              echo "issue=$issue"
+              echo "event=$(if [[ "$state" == MERGED ]]; then echo pr-merged; else echo pr-closed; fi)"
+            } >> "$GITHUB_OUTPUT"
             echo "Pull request #$PR_NUMBER $state: Issue #$issue → \`${target:-no FlowForge state}\`" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Create Project token
+        id: project_token
+        if: inputs.project_number > 0 && inputs.app_client_id != '' && steps.terminal.outputs.issue != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      # Only the Issue whose label was just moved: same guards, same facts.
+      - name: Project status (terminal state)
+        if: inputs.project_number > 0 && steps.terminal.outputs.issue != ''
+        continue-on-error: true
+        env:
+          ISSUE_NUMBER: ${{ steps.terminal.outputs.issue }}
+          EVENT: ${{ steps.terminal.outputs.event }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" "$EVENT"

@@ -2,8 +2,9 @@
 
 > **Status**: model defined (Phase 6, Prompt 26) and **provisioned** (Prompt 27, 2026-10-11):
 > Project [`FlowForge Development` #1](https://github.com/orgs/TiPunchLabs/projects/1), see
-> [provisioning.md](provisioning.md) and §15 for what differs from this model. **No workflow
-> syncs a status yet**: Prompt 28 adds the synchronisation from the workflows (§14).
+> [provisioning.md](provisioning.md) and §15 for what differs from this model. **Synchronised**
+> from the workflows since Prompt 28: [synchronization.md](synchronization.md) (real mapping,
+> stale guard, errors).
 >
 > **Prerequisites**: [architecture.md §2.6](../architecture.md#26-issue-label-lifecycle-phase-41)
 > (state labels), §2.5 (review cycle), §2.9 (Refiner), [issue-contract.md](../issue-contract.md).
@@ -329,10 +330,12 @@ Every transition not listed in §7.1 is forbidden. Explicitly:
 | Done → anything but Backlog | Terminal; reopen first |
 | Any → Refining when the Issue carries `agent:ready`, `agent:running`, `agent:review`, `agent:blocked` or `agent:done` | Refiner precondition: an Issue handed to the Developer is never re-specified |
 
-**Enforcement.** The sync (Prompt 28) always writes the status its event implies — execution
-wins — and logs a warning when the card's previous status was not an allowed source. Humans
-are asked not to make forbidden moves; such a move is cosmetic and overwritten at the next
-event (§9).
+**Enforcement** (as implemented in Prompt 28, decision of 2026-10-12, [synchronization.md §3](synchronization.md#3--state-machine-and-stale-guard)).
+The sync writes the status its event implies when the card is in an allowed source. From an
+unexpected source it still writes — execution wins — **only if the target is ahead in the
+flow** (a missed event is caught up), with a warning; a target **behind** the card is a stale
+event and is **refused** with a warning. Humans are asked not to make forbidden moves; such a
+move is cosmetic and overwritten at the next event when that event is ahead of it (§9).
 
 ------
 

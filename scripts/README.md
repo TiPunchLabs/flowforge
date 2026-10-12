@@ -5,6 +5,7 @@ Helper scripts for FlowForge maintainers (Bash, `set -euo pipefail`).
 | Script | Does |
 |---|---|
 | `github-projects/bootstrap.sh` | Creates or converges the GitHub Project `FlowForge Development`; `--check` reports drift (see `docs/github-projects/provisioning.md`) |
+| `github-projects/sync-issue.sh` | Applies one sync event to an Issue's card with the workflows' helper (strict, `--force` bypass), `--show` prints the card, `--events` lists events (see `docs/github-projects/synchronization.md`) |
 
 Candidates, to add only when a manual procedure is repeated:
 

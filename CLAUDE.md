@@ -14,12 +14,14 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/workflows/agent-refine.yml` — reusable (`workflow_call`) Refiner workflow: refines one Issue, read-only agent;
 - `.github/scripts/flowforge-state.sh` — the single implementation of `agent:*` state label transitions;
 - `.github/scripts/flowforge-refine.sh` — Refiner preconditions, result validation, refined body rendering;
+- `.github/scripts/flowforge-project.sh` — the single implementation of the GitHub Project sync (one way, best-effort);
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`, `refiner.md`),
   independent of any target project;
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
 - `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
+- `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -31,7 +33,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | Path | Contains | Must NOT contain |
 |---|---|---|
 | `.github/workflows/` | Reusable workflows for targets + FlowForge's own CI (`ci.yml`) | Target-specific logic |
-| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`) | Target-specific logic, tokens |
+| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`, `flowforge-project.sh`) | Target-specific logic, tokens |
 | `.github/ISSUE_TEMPLATE/` | Issue forms | — |
 | `agents/` | Generic agent rules | Project-specific conventions (those live in the target's `CLAUDE.md`) |
 | `terraform/` | Root module: provider, one `module` block per target **without its own IaC** | Credentials, backend secrets, targets already onboarded in their own IaC |
@@ -39,7 +41,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | `terraform/environments/` | Reserved for per-environment tfvars | Real `.tfvars` in Git |
 | `examples/target-repository/` | Files a target copies (caller workflow) | Logic: callers stay thin |
 | `docs/` | Architecture, phase plans | — |
-| `scripts/` | Maintainer helpers (Bash), e.g. `github-projects/bootstrap.sh` | Tokens |
+| `scripts/` | Maintainer helpers (Bash), e.g. `github-projects/bootstrap.sh`, `github-projects/sync-issue.sh` | Tokens |
 | `config/` | Generated, non-secret IDs (`github-project.json`, written by `bootstrap.sh`) | Secrets, hand edits |
 | `tests/` | Tests of the workflows' step scripts (Bash, jq, yq), run by pre-commit | Network or GitHub API calls, tokens |
 
@@ -130,11 +132,17 @@ ever triggers an agent. Prompt 27 (provisioning) done on 2026-10-11 — org Proj
 (private), `scripts/github-projects/bootstrap.sh` (GitHub CLI + GraphQL, idempotent, `--check`),
 IDs in `config/github-project.json`, view grouping and built-in workflows are UI steps (all
 built-in workflows off); view *Needs a human* corrected to *Attention* (no OR across fields); see
-`docs/github-projects/provisioning.md` and model §15. Next: Prompt 28 (sync from the workflows).
+`docs/github-projects/provisioning.md` and model §15. Prompt 28 (sync) done on 2026-10-12 —
+`.github/scripts/flowforge-project.sh` called by Refiner, Developer, Iterator, review cycle and
+lifecycle (opt-in input `project_number`, org variable `FLOWFORGE_PROJECT_NUMBER`); App token
+`organization projects: write` only, start token revoked by an `always()` step before Claude;
+stale guard (unexpected source applied only if ahead in the flow); best-effort (warnings);
+one way only; tested by `tests/project-sync.sh`, maintainer CLI `scripts/github-projects/sync-issue.sh`;
+see `docs/github-projects/synchronization.md`. Next: Prompt 29 (Phase 6 E2E).
 
 ## Out of scope for now
 
-Creating/modifying GitHub repositories, `terraform apply`, Project sync from the workflows (Prompt 28), Notion, automatic
+Creating/modifying GitHub repositories, `terraform apply`, Project → workflow triggers (card moves never start agents), Notion, automatic
 Refiner triggers or Refiner → Developer chaining, real secrets, triggering Claude Code runs,
 creating `demo-api` from this repository.
 
@@ -155,8 +163,10 @@ tests/iterate-no-op.sh                             # pre-commit hook: Iterator N
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
 tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
 tests/developer-delivery.sh                        # pre-commit hook: Developer delivery gate (#34)
+tests/project-sync.sh                              # pre-commit hook: Project sync (decision, steps, token)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 scripts/github-projects/bootstrap.sh --check       # GitHub call (read-only): Project vs model, needs gh scope read:project
+scripts/github-projects/sync-issue.sh <repo> <n> --show   # GitHub call (read-only): an Issue's card
 ```
 
 ## Conventions

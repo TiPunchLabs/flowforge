@@ -1,7 +1,8 @@
 # 🛠️ FlowForge — GitHub Project provisioning
 
 > **Status**: provisioned on 2026-10-11 (Phase 6, Prompt 27). The Project exists and represents
-> the states; **nothing synchronises it yet** (Prompt 28) and **no card move starts an agent**.
+> the states; the workflows synchronise it since Prompt 28 ([synchronization.md](synchronization.md))
+> and **no card move starts an agent**.
 >
 > **Prerequisites**: [kanban-model.md](kanban-model.md) (the model), `gh` ≥ 2.40 logged in with
 > the `project` scope (`read:project` for `--check`; how to add it: §6.1), `jq`, organization
@@ -165,7 +166,7 @@ Behaviour:
 |---|---|---|---|
 | Provisioning (this script, by hand) | maintainer's `gh` login (OAuth) | scopes `project` (write) + `read:org`; `read:project` is enough for `--check` | `gh` keyring, never in the repository |
 | Workflows today | `GITHUB_TOKEN` / FlowForge App | **none on the Project** | — |
-| Sync (Prompt 28) | FlowForge GitHub App (architecture §2.10) | **Organization projects: read and write** (granted 2026-10-12, §6.2); still no `issues` | App private key as Actions secret (already the case) |
+| Sync (Prompt 28) | FlowForge GitHub App (architecture §2.10) | **Organization projects: read and write** (granted 2026-10-12, §6.2); still no `issues`. Each sync token requests `organization projects: write` only and is revoked before any agent runs ([synchronization.md §5](synchronization.md#5--authentication-and-permissions)) | App private key as Actions secret (already the case) |
 
 `GITHUB_TOKEN` cannot access an organization Project at all, so the sync needs the App (or a
 fine-grained PAT with *organization projects: read and write*, not retained: personal and
@@ -230,7 +231,7 @@ Project accepts Issues from any `TiPunchLabs` repository: no org-wide permission
 | Value | Where | Why |
 |---|---|---|
 | All IDs (Project, fields, options, views) | `config/github-project.json`, versioned, generated | One place, reviewable, diffable; `--check` fails if it drifts from GitHub |
-| Project number for the targets' callers | to decide in Prompt 28 (e.g. organization variable `FLOWFORGE_PROJECT_NUMBER`) | Per-target opt-in (model §10) |
+| Project number for the targets' callers | organization variable `FLOWFORGE_PROJECT_NUMBER` → input `project_number` (decided in Prompt 28; 0 / unset = no sync) | Per-target opt-in (model §10) |
 | Tokens | never in Git, workflows, logs | Security rules |
 
 The reusable workflows fetch `.github/scripts/*` at `job.workflow_sha`; Prompt 28 can fetch the
@@ -254,7 +255,7 @@ ID is copied into a workflow file.
 
 ## 9. ⚠️ Limits
 
-- No synchronisation from the workflows yet (Prompt 28); the board is maintained by hand.
+- Synchronisation from the workflows: see [synchronization.md](synchronization.md) (Prompt 28).
 - Card moves never trigger agents: Project item events are not Actions triggers (model §6).
 - View grouping and built-in workflows are UI-only (§4); `--check` detects them.
 - `Type` (Issue types) cannot be placed on a view through the API.

@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Phase 6 — GitHub Projects / Kanban in progress: model defined in [github-projects/kanban-model.md](github-projects/kanban-model.md) (Prompt 26), Project provisioned ([github-projects/provisioning.md](github-projects/provisioning.md), Prompt 27), no sync; Notion appears below only as a future source. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Phase 6 — GitHub Projects / Kanban in progress: model defined in [github-projects/kanban-model.md](github-projects/kanban-model.md) (Prompt 26), Project provisioned ([github-projects/provisioning.md](github-projects/provisioning.md), Prompt 27), synchronised one way from the workflows ([github-projects/synchronization.md](github-projects/synchronization.md), Prompt 28, §2.11); Notion appears below only as a future source. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -472,7 +472,7 @@ Developer job keeps its existing permissions.
    `issues: read` makes the cycle fail at startup.
 4. Retroactive clean-up of Issues closed before #19 is a manual, one-off step.
 
-**GitHub Project mapping** (Phase 6, model defined in Prompt 26, Project provisioned in Prompt 27, not synced yet): see
+**GitHub Project mapping** (Phase 6, model defined in Prompt 26, Project provisioned in Prompt 27, synced in Prompt 28, §2.11): see
 [github-projects/kanban-model.md](github-projects/kanban-model.md). Eight statuses
 (`Backlog`, `Refining`, `Ready`, `Developing`, `Review`, `Iteration`, `Human validation`,
 `Done`) plus an `Attention` field; there is no *Blocked* or *Needs clarification* column. The
@@ -671,6 +671,33 @@ Iterator publish job           App token (contents write) for the verified fast-
   (opt-in, not strict); set it on a target only once the App delivers its agent PRs.
 - **Not yet.** Iterator push through the App observed live (needs a `REQUEST_CHANGES`).
 
+### 2.11 GitHub Project sync (Phase 6, Prompt 28)
+
+Details: [github-projects/synchronization.md](github-projects/synchronization.md).
+
+```text
+workflow event ──► flowforge-state.sh   (labels: triggers + guards, unchanged)
+              └──► flowforge-project.sh (card Status + Attention, best-effort)     never back
+```
+
+- **One helper** `.github/scripts/flowforge-project.sh`, fetched at `job.workflow_sha` like the
+  state helper: event table (E1–E22 of the model), pure decision function, find-or-add of the
+  item (`addProjectV2ItemById` returns the existing item), writes only what differs.
+- **Hook points**: Refiner start / result / failure, Developer start / result, Iterator start /
+  delivered result (inside `agent-iterate.yml`, passed by the cycle only), cycle start / result
+  (two jobs of `review-cycle.yml`), PR merged / closed (`agent-lifecycle.yml`). The Reviewer
+  workflow is unchanged.
+- **Stale guard**: an event from an unexpected source is applied only if its target is ahead in
+  the flow; behind = refused with a warning. Maintainer bypass: `sync-issue.sh --force`.
+- **Identity**: the FlowForge App, token with `organization projects: write` only, minted per
+  sync; in the jobs that run Claude, an `always()` step revokes the start token before the agent
+  starts, elsewhere the action revokes it at job end. Issue reads use `GITHUB_TOKEN`. Still no
+  `issues` permission.
+- **Opt-in**: input `project_number` (0 = off) on every syncing workflow, callers read the
+  organization variable `FLOWFORGE_PROJECT_NUMBER`; IDs come from `config/github-project.json`.
+- **Best-effort**: a sync failure is a warning + job summary line, never a failed agent run.
+- **Never Project → workflow**: no workflow listens to Project events (tested).
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
@@ -734,6 +761,7 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Iterator push is not in the agent's hands | Claude runs with a read-only token and no push permission; a separate job, which runs no PR code, verifies the commit and fast-forward pushes it to the PR head branch only |
 | Bounded Iterator | `iteration_number <= max_iterations`, ceiling 3, checked before any checkout; stale review (`head_sha` ≠ PR head) refused |
 | Read-only Refiner | Agent job has read permissions only, no push credentials, edit tools disallowed, Bash read-only; a changed workspace fails the run; the `publish` job (`issues: write`) runs no agent; the original request and the record are written by the workflow, not by the model |
+| Project sync identity | FlowForge App token with `organization projects: write` only, minted per sync, revoked before Claude in agent jobs (`always()` step) and at job end elsewhere, never given to Claude; Issue reads via `GITHUB_TOKEN`; the Project never triggers a workflow (§2.11) |
 | Bounded review cycle | Static chain with exactly three Iterator jobs (no 4th pass can exist), `max_iterations` checked before any agent, one active cycle per PR (concurrency group); the cycle never merges, never marks a PR ready, never deletes a branch |
 
 ------

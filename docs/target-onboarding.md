@@ -67,14 +67,16 @@ organization.
 | Name | Kind | Used by | Required |
 |---|---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | secret | every agent (`claude setup-token`) | yes |
-| `FLOWFORGE_APP_PRIVATE_KEY` | secret | Developer and Iterator delivery (§3) | recommended |
-| `FLOWFORGE_APP_CLIENT_ID` | variable | Developer and Iterator delivery (§3) | recommended |
+| `FLOWFORGE_APP_PRIVATE_KEY` | secret | Developer and Iterator delivery (§3); GitHub Project sync | recommended |
+| `FLOWFORGE_APP_CLIENT_ID` | variable | Developer and Iterator delivery (§3); GitHub Project sync | recommended |
+| `FLOWFORGE_PROJECT_NUMBER` | variable | GitHub Project sync opt-in (`1` = `FlowForge Development`); unset = no sync ([synchronization.md](github-projects/synchronization.md) §4) | optional |
 
 ```bash
 # First target: create them (org admin). The .pem never goes into Git.
 gh secret set CLAUDE_CODE_OAUTH_TOKEN --org TiPunchLabs --visibility selected --repos demo-api
 gh secret set FLOWFORGE_APP_PRIVATE_KEY --org TiPunchLabs --visibility selected --repos demo-api < flowforge.pem
 gh variable set FLOWFORGE_APP_CLIENT_ID --org TiPunchLabs --visibility selected --repos demo-api --body "Iv23..."
+gh variable set FLOWFORGE_PROJECT_NUMBER --org TiPunchLabs --visibility selected --repos demo-api --body 1
 
 # Next targets: add the repository to the visibility list of each secret/variable
 # (Organization settings → Secrets and variables → Actions → the entry → Repository access).
@@ -154,11 +156,14 @@ into the target's `.github/workflows/`, replace `OWNER`, and set the project-spe
 
 | File | Trigger | Passes the App |
 |---|---|---|
-| `flowforge-agent.yml` | `issues: labeled` (`agent:ready`) | yes (`app_client_id`, `app_private_key`) |
-| `flowforge-review-cycle.yml` | `workflow_dispatch` | yes, for the Iterator push |
-| `flowforge-review.yml` | `workflow_dispatch` + human `pull_request` activity | no (read-only Reviewer) |
-| `flowforge-refine.yml` | `workflow_dispatch` | no (Refiner never pushes) |
-| `flowforge-lifecycle.yml` | `pull_request: closed` | no |
+| `flowforge-agent.yml` | `issues: labeled` (`agent:ready`) | yes (`app_client_id`, `app_private_key`) + `project_number` |
+| `flowforge-review-cycle.yml` | `workflow_dispatch` | yes, for the Iterator push and the Project sync + `project_number` |
+| `flowforge-review.yml` | `workflow_dispatch` + human `pull_request` activity | no (read-only Reviewer, changes no Project status) |
+| `flowforge-refine.yml` | `workflow_dispatch` | Project sync only (the Refiner never pushes; token revoked before Claude) + `project_number` |
+| `flowforge-lifecycle.yml` | `pull_request: closed` | Project sync only + `project_number` |
+
+The Project sync is opt-in and best-effort: without `FLOWFORGE_PROJECT_NUMBER` (or without the
+App) every workflow runs exactly as before, with labels only.
 
 Secrets are always passed explicitly, never with `secrets: inherit`.
 

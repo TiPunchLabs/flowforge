@@ -74,6 +74,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/agent-refine\.yml|scripts/flowforge-(refine|state)\.sh)|examples/target-repository/flowforge-refine\.yml|tests/refiner\.sh)$
+      # GitHub Project sync (Phase 6, Prompt 28): decision table, stale guard, idempotence,
+      # best-effort errors, real workflow steps, token scope and revoke before Claude.
+      - id: project-sync
+        name: project sync tests
+        entry: tests/project-sync.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/(agent-develop|agent-refine|agent-iterate|agent-review|review-cycle|agent-lifecycle)\.yml|scripts/flowforge-(project|state)\.sh)|config/github-project\.json|examples/target-repository/.*\.yml|tests/project-sync\.sh)$
       # Default-branch ruleset (human merge gate): `terraform test` with a mocked provider, no GitHub call.
       - id: target-repository-module-test
         name: target-repository module tests

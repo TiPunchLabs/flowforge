@@ -40,6 +40,11 @@ jobs:
     with:
       # fromJSON: workflow_dispatch inputs reach `inputs` as strings; the input is a number.
       issue_number: ${{ fromJSON(inputs.issue_number) }}
+      # GitHub Project sync (opt-in): organization variable, unset = 0 = off. Needs the App (Project only).
+      project_number: ${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}
+      app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
     # Explicit, minimal secrets contract: never `secrets: inherit`.
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      # Project sync only; the Refiner agent never receives an App token.
+      app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}

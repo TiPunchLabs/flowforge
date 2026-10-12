@@ -22,6 +22,11 @@
 #            branch, returns the result; the workflow validates and renders it
 #   publish  issues: write only; no checkout, no Claude; applies the rendered result
 #
+# Project (opt-in, `project_number` > 0 + the FlowForge App): refine job start -> Refining;
+# READY -> Ready; NEEDS_CLARIFICATION / BLOCKED -> Backlog + Attention; technical failure ->
+# Attention Failed (.github/scripts/flowforge-project.sh, docs/github-projects/synchronization.md).
+# The App token only carries organization projects: write; the start token is revoked before Claude runs.
+#
 # Result artifact `flowforge-refine-issue-<n>` (contract in docs/architecture.md §5.8):
 #   refinement.json  machine-readable result
 #   body.md          the refined Issue body (READY / NEEDS_CLARIFICATION)
@@ -38,6 +43,19 @@ on:
           no FlowForge state label other than agent:needs-clarification.
         type: number
         required: true
+      project_number:
+        description: >-
+          Number of the FlowForge GitHub Project to keep in sync (e.g.
+          vars.FLOWFORGE_PROJECT_NUMBER); 0 disables the sync. Needs the App (app_client_id).
+        type: number
+        required: false
+        default: 0
+      app_client_id:
+        description: >-
+          Client ID of the FlowForge GitHub App, used only for the Project sync. Empty: no sync.
+        type: string
+        required: false
+        default: ""
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -45,6 +63,9 @@ on:
       claude_code_oauth_token:
         description: Claude Code OAuth token authenticating the Refiner agent.
         required: true
+      app_private_key:
+        description: Private key of the FlowForge GitHub App; required when app_client_id is set.
+        required: false
     outputs:
       verdict:
         description: >-
@@ -134,6 +155,43 @@ jobs:
             echo "- Default branch: \`$default_branch\`"
             echo "- Already refined: $(flowforge_refine_is_refined "$CONTEXT_DIR/issue.json" && echo yes || echo no)"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Refiner started (preconditions passed). Project token: organization projects only,
+      # revoked right after the sync (step "Revoke Project token"), before Claude Code starts.
+      - name: Create Project token
+        id: project_token_start
+        if: inputs.project_number > 0 && inputs.app_client_id != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+          skip-token-revoke: true
+
+      - name: Project status (Refiner started)
+        if: inputs.project_number > 0
+        continue-on-error: true
+        env:
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token_start.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" refine-started
+
+      # Runs even if the sync failed: the Project token is dead before Claude Code starts.
+      - name: Revoke Project token
+        if: always() && steps.project_token_start.outputs.token != ''
+        continue-on-error: true
+        env:
+          PROJECT_TOKEN: ${{ steps.project_token_start.outputs.token }}
+        run: GH_TOKEN="$PROJECT_TOKEN" gh api --method DELETE installation/token --silent
 
       - name: Check out default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -403,6 +461,34 @@ jobs:
           overwrite: true
           retention-days: 30
 
+      # A refine job that fails after its start (Claude, invalid output, workspace changed) is
+      # a technical failure: the card stays in Refining, Attention = Failed.
+      - name: Create Project token (failure)
+        id: project_token_failed
+        if: failure() && inputs.project_number > 0 && inputs.app_client_id != '' && steps.context.outcome == 'success'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      - name: Project status (Refiner failed)
+        if: failure() && inputs.project_number > 0 && steps.context.outcome == 'success'
+        continue-on-error: true
+        env:
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token_failed.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" refine-failed
+
   publish:
     name: Publish refinement on Issue #${{ inputs.issue_number }}
     needs: refine
@@ -425,6 +511,7 @@ jobs:
           path: ${{ runner.temp }}/flowforge-refine
 
       - name: Apply refinement
+        id: apply
         env:
           FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
           FLOWFORGE_SHA: ${{ job.workflow_sha }}
@@ -483,3 +570,39 @@ jobs:
             echo "- Verdict: **$verdict**"
             echo "- FlowForge comment: $action"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create Project token
+        id: project_token
+        if: always() && inputs.project_number > 0 && inputs.app_client_id != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      # Published verdict -> Ready / Backlog + Attention; a publish that failed (Issue edited
+      # during the run, API error) -> Attention Failed, card left in Refining.
+      - name: Project status (Refiner result)
+        if: always() && inputs.project_number > 0
+        continue-on-error: true
+        env:
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          VERDICT: ${{ needs.refine.outputs.verdict }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          case "$APPLY_OUTCOME/$VERDICT" in
+            success/READY) event=refine-ready ;;
+            success/NEEDS_CLARIFICATION) event=refine-needs-clarification ;;
+            success/BLOCKED) event=refine-blocked ;;
+            *) event=refine-failed ;;
+          esac
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" "$event"

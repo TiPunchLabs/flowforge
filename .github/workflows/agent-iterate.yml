@@ -30,6 +30,10 @@
 #   iteration.json    machine-readable result, for humans and review-cycle.yml
 #   iteration.md      human-readable result, rendered deterministically from iteration.json
 #   iteration.bundle  the commit that was (or was to be) pushed, when there is one
+#
+# Project (opt-in, `project_number` > 0, passed by review-cycle.yml only): Iterator started ->
+# Iteration; COMPLETED / PARTIAL pushed -> Review. BLOCKED and failures are written by the
+# cycle (.github/scripts/flowforge-project.sh, docs/github-projects/synchronization.md).
 name: FlowForge — agent iterate
 
 on:
@@ -74,6 +78,13 @@ on:
         type: string
         required: false
         default: ""
+      project_number:
+        description: >-
+          Number of the FlowForge GitHub Project to keep in sync; 0 (default) disables the
+          sync. Needs the App (app_client_id). Set by review-cycle.yml.
+        type: number
+        required: false
+        default: 0
       app_client_id:
         description: >-
           Client ID of the FlowForge GitHub App used for the push (e.g.
@@ -319,6 +330,44 @@ jobs:
             echo "- Iterator: NOT EXECUTED"
             echo "- Push: NONE"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Iterator started (preconditions passed, PR open). Project token: organization projects
+      # only, revoked right after the sync, before the PR code and Claude Code run.
+      - name: Create Project token
+        id: project_token_start
+        if: inputs.project_number > 0 && inputs.app_client_id != '' && steps.preflight.outputs.state == 'OPEN'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+          skip-token-revoke: true
+
+      - name: Project status (Iterator started)
+        if: inputs.project_number > 0 && steps.preflight.outputs.state == 'OPEN'
+        continue-on-error: true
+        env:
+          ISSUE_NUMBER: ${{ steps.preflight.outputs.issue_number }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token_start.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" iterate-started
+
+      # Runs even if the sync failed: the Project token is dead before Claude Code starts.
+      - name: Revoke Project token
+        if: always() && steps.project_token_start.outputs.token != ''
+        continue-on-error: true
+        env:
+          PROJECT_TOKEN: ${{ steps.project_token_start.outputs.token }}
+        run: GH_TOKEN="$PROJECT_TOKEN" gh api --method DELETE installation/token --silent
 
       # The existing PR branch itself, never the base branch. Full history: the base branch
       # is available as origin/<base> for git diff / git log.
@@ -787,6 +836,7 @@ jobs:
     # The only write the Iterator has. This job never runs Claude nor any code of the PR.
     permissions:
       contents: write       # fast-forward push of the verified Iterator commit to the PR head branch
+      issues: read          # Project sync only: resolve the linked Issue
       pull-requests: read   # PR state right before the push
     outputs:
       result: ${{ steps.render.outputs.result }}
@@ -1026,6 +1076,35 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 30
+
+      # Only a delivered COMPLETED / PARTIAL moves the card back to Review (next Reviewer).
+      - name: Create Project token
+        id: project_token
+        if: always() && inputs.project_number > 0 && inputs.app_client_id != '' && steps.render.outputs.reliable == 'true' && contains(fromJSON('["COMPLETED", "PARTIAL"]'), steps.render.outputs.result)
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      - name: Project status (Iterator result)
+        if: always() && inputs.project_number > 0 && steps.render.outputs.reliable == 'true' && contains(fromJSON('["COMPLETED", "PARTIAL"]'), steps.render.outputs.result)
+        continue-on-error: true
+        env:
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          # Written by the workflow from the API (preconditions), not by the agent.
+          issue="$(jq -r '.issue // empty' "$RUNNER_TEMP/flowforge-iterate/iteration.json")"
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$issue" iterate-completed
 
       - name: Fail on push failure
         if: always() && steps.render.outputs.reliable == 'false'

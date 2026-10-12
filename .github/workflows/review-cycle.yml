@@ -38,6 +38,12 @@
 # MAX_ITERATIONS_REACHED move the linked Issue from agent:review to agent:blocked. APPROVED
 # keeps agent:review (the human merge is still to come), FAILED is a technical failure, not a
 # business state, and NO_OP means the PR is closed (agent-lifecycle.yml handles that).
+#
+# Project (opt-in, `project_number` > 0 + the App; .github/scripts/flowforge-project.sh,
+# docs/github-projects/synchronization.md): job project_start -> Review; Iterator #k (inside
+# agent-iterate.yml) -> Iteration, then back to Review; job project_status: APPROVED ->
+# Human validation, BLOCKED / MAX_ITERATIONS_REACHED -> Human validation + Attention,
+# FAILED -> Attention Failed in place, NO_OP -> nothing. Best-effort, never fails the cycle.
 name: FlowForge — review cycle
 
 on:
@@ -73,6 +79,13 @@ on:
         type: string
         required: false
         default: ""
+      project_number:
+        description: >-
+          Number of the FlowForge GitHub Project to keep in sync (e.g.
+          vars.FLOWFORGE_PROJECT_NUMBER); 0 disables the sync. Needs the App (app_client_id).
+        type: number
+        required: false
+        default: 0
       app_client_id:
         description: >-
           `app_client_id` of agent-iterate.yml: FlowForge GitHub App used for the Iterator
@@ -87,7 +100,9 @@ on:
         description: Claude Code OAuth token authenticating the Reviewer and Iterator agents.
         required: true
       app_private_key:
-        description: Private key of the FlowForge GitHub App, forwarded to the Iterator only.
+        description: >-
+          Private key of the FlowForge GitHub App: Iterator push and Project sync. Never given
+          to the Reviewer.
         required: false
     outputs:
       result:
@@ -135,6 +150,59 @@ jobs:
             || { echo "::error::max_iterations must be 1, 2 or 3 (FlowForge ceiling), got '$MAX_ITERATIONS'."; exit 1; }
           echo "Review cycle for PR #$PR_NUMBER, at most $MAX_ITERATIONS Iterator pass(es)." >> "$GITHUB_STEP_SUMMARY"
 
+  # Runs next to Reviewer #1: the card shows Review while the cycle runs (B1 after a
+  # re-dispatch from Human validation).
+  project_start:
+    name: Project status (cycle started)
+    needs: check
+    if: inputs.project_number > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read          # resolve the linked Issue
+      pull-requests: read   # PR state and its closing Issue reference
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+    steps:
+      - name: Create Project token
+        id: project_token
+        if: inputs.app_client_id != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      # Same guards as issue_state: PR still open (a merge or close belongs to
+      # agent-lifecycle.yml) and exactly one Issue linked by GitHub.
+      - name: Set Review
+        continue-on-error: true
+        env:
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          event=cycle-started
+          for helper in flowforge-state.sh flowforge-project.sh; do
+            code="$(gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/$helper?ref=$FLOWFORGE_SHA")"
+            # shellcheck source=/dev/null
+            source /dev/stdin <<<"$code"
+          done
+
+          read -r state issue <<<"$(flowforge_pr_issue "$PR_NUMBER")"
+          if [[ "$state" != "OPEN" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER is $state: Project left to agent-lifecycle.yml."
+          elif [[ -z "$issue" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER does not close exactly one Issue: no Project update."
+          else
+            flowforge_project_sync "$issue" "$event"
+          fi
+
   # Permissions of the Reviewer calls: read-only code, `pull-requests: write` for its comment.
   # Permissions of the Iterator calls: `contents: write` for its verified fast-forward push.
   # The called workflows narrow them further per job (see their headers).
@@ -173,6 +241,7 @@ jobs:
       setup_uv: ${{ inputs.setup_uv }}
       allowed_tools: ${{ inputs.iterate_allowed_tools }}
       app_client_id: ${{ inputs.app_client_id }}
+      project_number: ${{ inputs.project_number }}
     secrets:
       claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
       app_private_key: ${{ secrets.app_private_key }}
@@ -212,6 +281,7 @@ jobs:
       setup_uv: ${{ inputs.setup_uv }}
       allowed_tools: ${{ inputs.iterate_allowed_tools }}
       app_client_id: ${{ inputs.app_client_id }}
+      project_number: ${{ inputs.project_number }}
     secrets:
       claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
       app_private_key: ${{ secrets.app_private_key }}
@@ -251,6 +321,7 @@ jobs:
       setup_uv: ${{ inputs.setup_uv }}
       allowed_tools: ${{ inputs.iterate_allowed_tools }}
       app_client_id: ${{ inputs.app_client_id }}
+      project_number: ${{ inputs.project_number }}
     secrets:
       claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
       app_private_key: ${{ secrets.app_private_key }}
@@ -493,4 +564,62 @@ jobs:
           else
             flowforge_set_state "$issue" agent:blocked
             echo "Issue #$issue: \`agent:blocked\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # The cycle result on the card. NO_OP: the PR close event (agent-lifecycle.yml) moves it.
+  project_status:
+    name: Project status (cycle result)
+    needs: summary
+    if: always() && inputs.project_number > 0 && needs.summary.outputs.result != '' && needs.summary.outputs.result != 'NO_OP'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read          # resolve the linked Issue
+      pull-requests: read   # PR state and its closing Issue reference
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+    steps:
+      - name: Create Project token
+        id: project_token
+        if: inputs.app_client_id != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      # Same guards as issue_state: PR still open (a merge or close belongs to
+      # agent-lifecycle.yml) and exactly one Issue linked by GitHub.
+      - name: Apply cycle result
+        continue-on-error: true
+        env:
+          RESULT: ${{ needs.summary.outputs.result }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          case "$RESULT" in
+            APPROVED) event=cycle-approved ;;
+            BLOCKED) event=cycle-blocked ;;
+            MAX_ITERATIONS_REACHED) event=cycle-max-iterations ;;
+            *) event=cycle-failed ;;
+          esac
+          for helper in flowforge-state.sh flowforge-project.sh; do
+            code="$(gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/$helper?ref=$FLOWFORGE_SHA")"
+            # shellcheck source=/dev/null
+            source /dev/stdin <<<"$code"
+          done
+
+          read -r state issue <<<"$(flowforge_pr_issue "$PR_NUMBER")"
+          if [[ "$state" != "OPEN" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER is $state: Project left to agent-lifecycle.yml."
+          elif [[ -z "$issue" ]]; then
+            echo "::notice::Pull request #$PR_NUMBER does not close exactly one Issue: no Project update."
+          else
+            flowforge_project_sync "$issue" "$event"
           fi
