@@ -16,7 +16,9 @@
 >
 > **Prompt 29.3** (§18): #44 resolved, Project Sync failures keep GitHub's reason, sanitized.
 >
-> **Not the closure**: the Phase 6 tag `flowforge-phase6-github-projects-e2e` belongs to Prompt 30.
+> **Phase 6 closed** (Prompt 30, 2026-10-12): **validated with reservations** (none blocking),
+> frozen as tag `flowforge-phase6-github-projects-e2e` in FlowForge and `demo-api`. Closure audit,
+> transition matrix, classified limitations and Git references in §19.
 >
 > **Prerequisites**: [kanban-model.md](../github-projects/kanban-model.md),
 > [synchronization.md](../github-projects/synchronization.md),
@@ -657,6 +659,201 @@ All 173 checks of `tests/project-sync.sh` pass. `pre-commit run --all-files`: al
 
 ------
 
+## 19. 🏁 Phase 6 closure (Prompt 30)
+
+> **Result**: **validated with reservations**. Every Phase 6 deliverable is on `main`, every major
+> Project transition was observed live, #44 is closed, and no reservation is blocking.
+> Audit only: no new workflow, agent behaviour, status, state machine or integration.
+
+Prompt numbering: the closure request calls the Iterator validation "29.1" and the #44 fix "29.2";
+this document uses §17 = Prompt 29.2 (Iterator) and §18 = Prompt 29.3 (#44). Same work.
+
+### 19.1 🏗️ Architecture
+
+```text
+GitHub Issue ──► FlowForge agent workflow ──► Project Sync (flowforge-project.sh, App token) ──► GitHub Project
+                 (Refiner, Developer, review cycle, Iterator, lifecycle)                            (visual only)
+
+GitHub Project ──► nothing        (no projects_v2 trigger; card moves start no run, §7.1)
+```
+
+```mermaid
+flowchart LR
+    N(( )) -->|E1 issue-added, maintainer CLI| B[Backlog]
+    B -->|Refiner start| Rf[Refining / Refiner]
+    Rf -->|READY| Rd[Ready]
+    Rf -->|NEEDS_CLARIFICATION / BLOCKED + Attention| B
+    Rd -->|human agent:ready, Developer start| D[Developing / Developer]
+    D -->|Draft PR| R[Review / Reviewer]
+    R -->|REQUEST_CHANGES, iterate-started| I[Iteration / Iterator]
+    I -->|iterate-completed| R
+    R -->|APPROVE| H[Human validation]
+    R -->|BLOCKED / MAX_ITERATIONS + Attention| H
+    D -->|stopped, no PR + Blocked| B
+    R -->|PR closed unmerged| B
+    H -->|human merge, lifecycle| Done[Done]
+```
+
+The diagram is the implemented decision table (synchronization §3), not an aspiration. Technical
+failures (`*-failed`) keep the status and set `Attention = Failed`; `NO_OP` writes nothing. Only
+`Backlog → Developing` (a human-written `agent:ready` Issue, no Refiner) and `Backlog → Review`
+(a human PR sent to the review cycle) are additional live paths, both allowed by the stale guard.
+
+### 19.2 📦 Deliverables on `main` (audited at `73a71d3`, PR #45 merged 2026-10-12T23:31:29Z)
+
+| Prompt | Deliverable | Where | Audit |
+|---|---|---|---|
+| 26 | Kanban model: 8 statuses, `Attention`, transitions, source of truth | `docs/github-projects/kanban-model.md` | ✅ present |
+| 27 | Provisioning (idempotent, `--check`), IDs | `scripts/github-projects/bootstrap.sh`, `config/github-project.json`, `docs/github-projects/provisioning.md` | ✅ present |
+| 28 | One-way sync + stale guard, maintainer CLI, callers opt-in | `.github/scripts/flowforge-project.sh`, `scripts/github-projects/sync-issue.sh`, 5 reusable workflows, `docs/github-projects/synchronization.md` | ✅ present |
+| 28 | Project Sync tests | `tests/project-sync.sh` (pre-commit hook) | ✅ present, pass |
+| 29.2 | Iterator entry contract / loop bound / card loop tests | `tests/iterate-preconditions.sh` (pre-commit hook) | ✅ present, pass |
+| 29.3 | #44 fix + regression group E + synchronization §6.1 | commit `72e0f7d`, merge `73a71d3`, `Closes #44` | ✅ present, #44 closed 23:31:30Z |
+| 29–29.3 | E2E evidence | this document §1–§18 | ✅ present |
+
+The live runs of §1–§17 resolved the reusable workflows at `60bd4de`. `git diff 60bd4de..73a71d3 -- .github/workflows`
+is empty: the only code change since is the failure message of the helper (§18), which every workflow fetches
+at its own commit, so the runs exercised the same transitions as `main`.
+
+### 19.3 🗂️ Real Project (re-checked 2026-10-12, Prompt 30)
+
+| Check | Result |
+|---|---|
+| Project | `FlowForge Development`, org `TiPunchLabs`, #1, private, open — only Project of the org |
+| `bootstrap.sh --check` | *Project conforms to the model* |
+| Status options | `Backlog`, `Refining`, `Ready`, `Developing`, `Review`, `Iteration`, `Human validation`, `Done` (8) |
+| Attention options | `Needs clarification`, `Blocked`, `Max iterations`, `Failed` |
+| Items | 8, one per Issue, no duplicate: `demo-api` #39, #41, #43 `Done`; #45 `Human validation`; #30 `Backlog` + Needs clarification; #31 `Ready`; #33 `Done`; `flowforge` #34 `Backlog` |
+| Kanban view | grouping by `Status` is a UI step (provisioning §5), saved in Prompt 27; not re-checked in the UI in Prompt 30 (the API exposes no view layout) |
+
+### 19.4 🔀 Final transition matrix
+
+| Transition | Event | Validation | Evidence |
+|---|---|---|---|
+| none → Backlog | E1 `issue-added` (maintainer CLI, by design) | PASS | #39 16:42:15, #41, #43, #45 (§3, §16, §17.4) |
+| Backlog → Refining | Refiner start | PASS (live ×4) | runs 38279267264, 38279498287, 38296033728, 38296238995 |
+| Refining → Backlog + Needs clarification | `NEEDS_CLARIFICATION` | PASS (live ×2) | #39 16:43:44, #41 19:13:19 |
+| Backlog → Refining, Attention cleared | Refiner re-run | PASS | #39 16:44:40 |
+| Refining → Ready | `READY` | PASS (live ×2) | #39 16:45:44, #41 19:15:01 |
+| Ready → Developing | Developer start | PASS | run 38279707776, 16:46:25 |
+| Backlog → Developing | Developer start, human-written Issue | PASS | #43 19:49:27 |
+| Developing → Review | Draft PR delivered | PASS (live ×3) | PR #40, #42, #44 |
+| Review → Review | `cycle-started` | PASS (`unchanged`) | 16:48:11 |
+| Backlog → Review | `cycle-started`, human PR | PASS | #45 20:58:13 |
+| Review → Iteration | `iterate-started` after `REQUEST_CHANGES` | **PASS (live)** | run 38307610709, 20:59:07 |
+| Iteration → Review | `iterate-completed` after App push `c050851` | **PASS (live)** | 21:00:07 |
+| Review → Human validation | `cycle-approved` | PASS (live ×4) | #39, #41, #43, #45 |
+| Human validation → Done | lifecycle on human merge | PASS (live ×3) | runs 38285653378, 38300089233, 38300917278 |
+| Review → Human validation + Blocked / Max iterations | `cycle-blocked`, `cycle-max-iterations` | tests only (A, F) | not observed live |
+| status kept + Failed | `*-failed` | tests only | not observed live |
+| Developing → Backlog + Blocked; Review → Backlog (PR closed) | `develop-stopped`, `pr-closed` | tests only | not observed live |
+| Refining → Backlog + Blocked | Refiner `BLOCKED` | tests only | not observed live in Phase 6 |
+
+### 19.5 🔎 Evidence re-checked live (Prompt 30)
+
+| Element | Reference | Re-check | Verdict |
+|---|---|---|---|
+| Main E2E | `demo-api` #39 | closed, label `agent:done`, card `Done` | PASS |
+| Refiner clarification | runs 38279267264 (`NEEDS_CLARIFICATION`), 38279498287 (`READY`) | both `success` | PASS |
+| Developer | run 38279707776 → Draft PR #40, author `app/tipunchlabs-flowforge` | `success`, PR merged | PASS |
+| Reviewer | review cycle 38279899674 | `success` | PASS |
+| Iterator | cycle 38307610709 on PR #46: Reviewer #1, Iterator #1 (`iterate` + `publish`), Reviewer #2 all `success`, Iterators #2–#3 skipped | commit `c050851` by `claude[bot]`, *fix: make GET /tasks/due strictly before the given date*; review comment now `APPROVE` | PASS |
+| Human validation | card #45 in `Human validation`; PR #40/#42/#44 merged by `xgueret` | — | PASS |
+| Done | lifecycle 38285653378 | `success`, merge `fb0047b` | PASS |
+| #44 | `flowforge` #44 closed by PR #45 (`73a71d3`) | closed 2026-10-12T23:31:30Z | PASS |
+
+### 19.6 ✅ Tests (re-run on `main` `73a71d3`, Prompt 30)
+
+| Suite | Result |
+|---|---|
+| `tests/project-sync.sh` | 173 PASS, 0 FAIL |
+| `tests/iterate-preconditions.sh` | 86 PASS, 0 FAIL |
+| `pre-commit run --all-files` | 19 hooks passed, 0 failed, 0 skipped |
+| `shellcheck -x` on the Phase 6 scripts (`flowforge-project.sh`, `project-sync.sh`, `iterate-preconditions.sh`, `bootstrap.sh`, `sync-issue.sh`) | clean (0.11.0) |
+| `shellcheck` on all 13 tracked `*.sh` | 1 warning, pre-existing (Phase 5): SC2034 `FLOWFORGE_REFINER_MAX_BODY` in `flowforge-refine.sh`, a false positive (used by `agent-refine.yml` after sourcing); 5 info/style notes in Phase 4–5 tests. Not a pre-commit hook (actionlint runs shellcheck on `run:` blocks only) |
+
+### 19.7 🔐 Security and permissions (static audit of `main` + logs in §12, §16.4, §17.5)
+
+| Control | Result |
+|---|---|
+| No `.env`, `*.tfvars`, `*.tfstate`, key file tracked | PASS |
+| No real token in tracked files; the only token-shaped strings are synthetic fixtures of the redaction test (`tests/project-sync.sh`) | PASS |
+| No secret in job logs (§12, §16.4, §17.5) | PASS |
+| No `set -x` in scripts or workflows | PASS |
+| `permissions: {}` at workflow level in all 7 workflows; no `write-all`; no `secrets: inherit` | PASS |
+| Project tokens: `permission-organization-projects: write` only; start token revoked before Claude | PASS |
+| Reviewer (`agent-review.yml`): no App token step; review job read-only, publish job `pull-requests: write` | PASS |
+| Iterator: `iterate` job read-only + Project token revoked before Claude; `publish` job App token `contents: write` only, fast-forward push to the PR head (`git push origin "$COMMIT_SHA:refs/heads/$HEAD_BRANCH"`, no `+`) | PASS |
+| Developer: `GITHUB_TOKEN` contents/issues/pull-requests write (unchanged since Phase 4.1); delivery App token `contents` + `pull-requests: write` after Claude | PASS (documented, unchanged) |
+| Refiner: `refine` read-only, `publish` `issues: write`; Project token only | PASS |
+| No force push, no `gh pr merge` / auto-merge in any workflow | PASS |
+| No Project → agent trigger: reusable workflows are `workflow_call` only; callers use `issues`, `pull_request`, `workflow_dispatch`; no `projects_v2*` | PASS |
+
+Divergence noted, not new: the Iterator `publish` job keeps `GITHUB_TOKEN` `contents: write`, unused for
+the push (App token), §17.5.
+
+### 19.8 🏷️ Labels (implemented conventions, unchanged)
+
+Six state labels, one at a time (architecture §2.6): `agent:needs-clarification`, `agent:ready`,
+`agent:running`, `agent:review`, `agent:blocked`, `agent:done`. There is no `agent:iteration`
+label: `Iteration` exists only on the card. Final states: #39, #41, #43 closed with `agent:done` only;
+#45 has no `agent:*` label (human PR, no Developer run, §17.6). Pre-Phase 6 item `demo-api` #30
+shows `Needs clarification` on the card but no label any more: the card is not rewritten when a
+label is removed by hand (no reconciliation), not a lifecycle defect.
+
+### 19.9 ♻️ Idempotence, regression guard, iteration bound
+
+| Property | Evidence | Level |
+|---|---|---|
+| Same event replayed → `unchanged` | §9 (`cycle-approved` × 3), §17.4 (× 2), `cycle-started` from workflows; tests F | live + tests |
+| Issue already on the board → no duplicate | 1 item per Issue after every run and replay; 8 items for 8 Issues today | live |
+| Stale event refused (`Human validation ← refine-ready`, `issue-added`, `develop-started`, `iterate-*`, `develop-delivered`) | §9, §17.4; tests F | live + tests |
+| Iterator live | §17.3 | **live** |
+| `max_iterations = 3`, 4th refused, `MAX_ITERATIONS_REACHED` | `tests/iterate-preconditions.sh` groups B/E on the real step scripts | **tests only**, not observed live (non-blocking) |
+
+### 19.10 ⚠️ Remaining limitations
+
+**A. Blocking**: none.
+
+**B. Hardening, not blocking**
+
+- No reconciliation job: a run that dies before its sync step leaves a stale card (model §8).
+- E1 is manual (`sync-issue.sh`); closing / reopening an Issue does not move a card.
+- No Project Sync failure provoked inside Actions (§18.5); the CLI path runs the same helper.
+- `PARTIAL` / `BLOCKED` Iterator, Refiner `BLOCKED`, `Blocked` / `Max iterations` / `Failed` Attention: tests only.
+- Iterator rarely reached on real Developer PRs (9/10 first reviews `APPROVE`, §16.5): real usage statistics unknown.
+- Incident 2 (one-off, CLI) unexplained.
+- Repository-wide `shellcheck` is not a hook; one pre-existing false-positive warning (§19.6).
+- Housekeeping: `demo-api` PR #46 (human, Draft) and Issue #45 left open in `Human validation` by design
+  (merge needs a non-author approval); `flowforge` #34 still open.
+
+**C. Out of scope by design**
+
+- Project → agents (card moves never start a run).
+- Notion (Phase 7).
+- Self-hosted runners, advanced reporting, `Agent` / `Iteration count` / `Risk` fields (model §4).
+
+### 19.11 🔗 Git references
+
+| Element | Reference |
+|---|---|
+| FlowForge `main` audited | `73a71d3` (Merge PR #45) |
+| `demo-api` `main` | `1b0dab5` (Merge PR #44), clean, no unpushed commit |
+| Phase 6 closure commit | the commit adding this section (PR *docs: close phase 6 github projects milestone*) |
+| Tag | `flowforge-phase6-github-projects-e2e`, annotated, on the merge commit of the closure PR (FlowForge) and on `1b0dab5` (`demo-api`) |
+| Main E2E | `demo-api` #39 → PR #40 |
+| Iterator E2E | `demo-api` #45 → PR #46, run 38307610709, `c050851` |
+| #44 | closed by PR #45 |
+
+### 19.12 🗺️ Roadmap
+
+```text
+Phase 6 — GitHub Projects / Kanban ✅
+Phase 7 — Notion                   ← NEXT (not started, nothing integrated)
+```
+
+------
+
 > **Document created on**: 2026-10-12
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.3 — Phase 6, Prompts 29, 29.1, 29.2 (Iterator cycle validated) and 29.3 (#44 resolved)
+> **Version**: 2.0 — Phase 6 closed (Prompt 30); Prompts 29, 29.1, 29.2 (Iterator cycle validated) and 29.3 (#44 resolved)
