@@ -138,7 +138,10 @@ lifecycle (opt-in input `project_number`, org variable `FLOWFORGE_PROJECT_NUMBER
 `organization projects: write` only, start token revoked by an `always()` step before Claude;
 stale guard (unexpected source applied only if ahead in the flow); best-effort (warnings);
 one way only; tested by `tests/project-sync.sh`, maintainer CLI `scripts/github-projects/sync-issue.sh`;
-see `docs/github-projects/synchronization.md`. Next: Prompt 29 (Phase 6 E2E).
+see `docs/github-projects/synchronization.md`. Prompt 29 (Phase 6 E2E) done on 2026-10-12 —
+`demo-api` #39 → Refiner `NEEDS_CLARIFICATION` → answer → `READY` → Developer Draft PR #40 →
+`APPROVE` → human merge, card `Backlog` → … → `Done` (Iteration not reached), follow-up #44;
+see `docs/milestones/phase6-github-projects-e2e.md`. Prompt 29.1 (Iterator live attempt) on 2026-10-12: two legitimate needs (`demo-api` #41 → PR #42, #43 → PR #44) both `APPROVE` on first review, `Iteration` still not observed live (milestone §16). Prompt 29.2 on 2026-10-12: `tests/iterate-preconditions.sh` (Iterator entry contract, loop bound, card loop) and live `demo-api` #45 → human PR #46 with a real defect → Reviewer `REQUEST_CHANGES` → Iterator `COMPLETED` (App push) → Reviewer `APPROVE`, card `Review → Iteration → Review → Human validation` (milestone §17). Prompt 29.3 (#44) on 2026-10-12: Project Sync failure messages keep GitHub's reason with the operation, sanitized and size-limited (synchronization §6.1, milestone §18). Next: Prompt 30 (Phase 6 closure).
 
 ## Out of scope for now
 
@@ -160,6 +163,7 @@ actionlint                                         # pre-commit hook (also runs 
 tests/iterator-partial-delivery.sh                 # pre-commit hook: Iterator result rules
 tests/review-no-op.sh                              # pre-commit hook: closed/merged PR = NO_OP
 tests/iterate-no-op.sh                             # pre-commit hook: Iterator NO_OP (#22)
+tests/iterate-preconditions.sh                     # pre-commit hook: Iterator entry contract, loop bound
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
 tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
 tests/developer-delivery.sh                        # pre-commit hook: Developer delivery gate (#34)

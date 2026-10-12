@@ -246,7 +246,7 @@ run whose work is delivered (model §6.3, §8).
 
 | Situation | Effect on the run | Effect on the card | Where it is visible |
 |---|---|---|---|
-| Sync fails (API error, Issue unreadable, item not returned, option missing, IDs file unreadable) | none: helper returns 0, steps are `continue-on-error: true` | unchanged | `::warning::Project sync <repo>#<n> [<event>] failed: <reason>…` annotation + `⚠️` line in the job summary |
+| Sync fails (API error, Issue unreadable, item not returned, option missing, IDs file unreadable) | none: helper returns 0, steps are `continue-on-error: true` | unchanged, or partially updated (said so, §6.1) | `::warning::Project sync <repo>#<n> [<event>] failed: <operation> — GitHub: <reason>. …` annotation + `⚠️` line in the job summary (§6.1) |
 | No Project token (App not configured, token creation failed) | none | unchanged | warning `no Project token …` |
 | `project_number` ≠ IDs file | none | unchanged | warning `does not match the IDs file` |
 | Stale event refused / failure event skipped | none | unchanged | warning with the reason |
@@ -255,6 +255,49 @@ run whose work is delivered (model §6.3, §8).
 
 Every successful sync also writes one line in the job summary, so a run's summary shows the
 card transitions it caused.
+
+### 6.1 Failure message format (#44)
+
+Every technical failure produces **one** line, the same in the warning annotation and the job
+summary:
+
+```text
+Project sync <owner/repo>#<issue> [<event>] failed: <operation> — GitHub: <reason>. <card>; the agent run is not affected.
+```
+
+| Part | Content |
+|---|---|
+| `<operation>` | what the helper was doing, with the transition when it writes: `could not add or read the Project item`, `could not set Status Review → Iteration`, `could not set Attention (none) → Blocked`, `Issue #45 not readable in …`, `no Project token …`, `project_number '…' does not match the IDs file …` |
+| `<reason>` | what `gh` (or `jq`) printed: the `gh: ` prefix dropped; a GraphQL JSON body becomes `TYPE: message` per error; several lines joined with ` \| ` in order. Omitted (with `— GitHub:`) when `gh` printed nothing |
+| `<card>` | `The card is unchanged`, or `The card is partially updated (Status A → B)` when the Status write succeeded and the Attention write failed |
+| fallback | `failed: Unknown GitHub Project sync error.` when nothing at all was printed |
+
+Examples (observed live with the real `gh`, 2026-10-12, harmless bogus IDs):
+
+```text
+… [cycle-approved] failed: could not add or read the Project item — GitHub: Could not resolve to a node with the global id of 'PVT_kwDOinvalid000'. The card is unchanged; the agent run is not affected.
+… [cycle-blocked] failed: could not set Attention (none) → Blocked — GitHub: Could not resolve to a node with the global id of 'PVTSSF_invalidField0'. The card is unchanged; the agent run is not affected.
+```
+
+**How it works.** The helper tags its own messages on stderr (`flowforge: <operation>`,
+`flowforge-partial: <write>`); everything else on stderr is the tool's output. The wrapper
+(`_flowforge_project_failure`) separates the two instead of keeping the last stderr line (the
+cause of #44: `gh` prints GitHub's reason first, the helper's line came last and was the only one
+kept).
+
+**Size limits.** At most 5 lines from `gh`, 300 characters per line, 800 for the whole reason;
+a cut is marked with `…` (a 6th line becomes ` | …`).
+
+**Sanitization, in the helper itself** (GitHub Actions masking stays on as a second layer):
+the exact values of `PROJECT_TOKEN` and `GH_TOKEN` (8 characters or more), GitHub tokens
+(`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`), Claude tokens (`sk-ant-`), JWTs (`eyJ….….…`, e.g. an
+App JWT), `Authorization: …`, `Bearer …`, `token=` / `token:` values and private key headers are
+replaced by `[REDACTED]`, **before** the size limits apply. The helper never runs `set -x`, and
+only stderr of the failing calls is read: no request, header or environment is printed.
+
+**Unchanged by #44**: the decision table, the transitions, `update` / `unchanged` / `refused` /
+`skipped` lines (exact same text), and the policy: warning + exit 0 in workflows, exit 1 only in
+strict mode (`FLOWFORGE_PROJECT_STRICT=1`, the maintainer CLI).
 
 ------
 
@@ -302,6 +345,7 @@ moving `Review → Iteration` does not start the Iterator. The only human go sta
 |---|---|
 | A — decision table | every event from its allowed sources; failure events; replays (`unchanged`); stale refusals (12 cases); missed-event catch-up; force; unknown event; unknown status; event table ⊆ IDs file |
 | B — GraphQL layer (stub `gh`) | absent Issue added once and set; replay = one item, no second write; full flow Backlog → Done on one item; Attention set/cleared; stale refused without write; force; same number in another repository untouched; Issue read with `GITHUB_TOKEN` and Project calls with the Project token only; PR number refused; errors (no token, wrong number, API failure, unreadable Issue) = warning + summary, exit 0; strict mode; no token in logs |
+| E — error observability (#44) | regression: GitHub's reason kept next to the helper's operation (the old `tail -n 1` dropped it); multi-line kept in order; GraphQL JSON `errors[]` → `TYPE: message`; secrets redacted (exact token value, `ghs_`, `github_pat_`, `sk-ant-`, JWT, `Authorization: Bearer`, `token=`); `gh` silent → operation only; nothing at all → `Unknown GitHub Project sync error`; 5-line / 800-character limits with `…`; Status transition named; partial update reported; strict mode exit 1; `update` / `unchanged` / `refused` lines unchanged |
 | C — real workflow steps | event chosen from each workflow's outcome (Developer, Refiner, Iterator, cycle, lifecycle); cycle guards (PR merged, 0 or 2 linked Issues); helper and IDs fetched at the pinned commit; token revoke step deletes its token |
 | D — static invariants | `project_number` opt-in default 0 everywhere; Project tokens = organization projects only; only start tokens skip the action's revoke; every Project step `continue-on-error`; token → sync → revoke (`always()`) → Claude, no token minted in between; no Project trigger; no hard-coded Project ID; Reviewer untouched; callers use the variable, no `secrets: inherit` |
 
@@ -350,8 +394,13 @@ hook points in the real workflows, which are covered statically by `tests/projec
 ## 10. ⚠️ Limitations
 
 - **The Project never drives the agents** (by design for Phase 6): no Project → workflow path.
-- **Not validated on a real agent cycle yet**: the App-token path in Actions and the hook points
-  run live only in Prompt 29 (Phase 6 E2E). The integration test uses a maintainer token.
+- **Validated on a real agent cycle** (Prompt 29, 2026-10-12, [milestone](../milestones/phase6-github-projects-e2e.md)):
+  App-token path and hook points of Refiner, Developer, review cycle and lifecycle observed live.
+  The Iterator hooks (`iterate-started`, `iterate-completed`) were not reached then (first review `APPROVE`);
+  they were observed live in Prompt 29.2 (`demo-api` #45 / PR #46, milestone §17).
+- ~~**Sync warnings keep only the last stderr line**~~: fixed (#44, Prompt 29.3): GitHub's reason is
+  kept, sanitized and size-limited (§6.1). Checked live with the real `gh` on the maintainer CLI;
+  the Actions path runs the same helper but no failure was provoked in Actions.
 - **E1 / E21 / E22 are manual**: no `issues` trigger; closing or reopening an Issue does not move
   its card.
 - **Best-effort**: a run that dies before its sync step, or a sync that fails, leaves a stale

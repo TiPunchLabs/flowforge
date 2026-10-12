@@ -7,6 +7,8 @@
 #   C  workflow steps: event chosen from each workflow's real outcome, guards
 #   D  static invariants: opt-in, token scope, revoke before Claude, continue-on-error,
 #      no Project -> workflow trigger, Reviewer untouched
+#   E  error observability (#44): GitHub's reason kept with the operation, multi-line,
+#      GraphQL JSON, size limits, secrets redacted, empty fallback, exit codes
 # No network, no token: `gh` is a stub on PATH.
 #
 # Requires: bash, jq, yq (mikefarah v4). Usage: tests/project-sync.sh
@@ -143,7 +145,12 @@ out() { if [[ -n "$jqf" ]]; then jq -r "$jqf"; else cat; fi; }
 q="${v[query]:-}"
 printf '%s token=%s %s\n' "$1 ${2:-}" "${GH_TOKEN:-}" "$(sed -E 's/query=.*//' <<<"${args[*]:2}" | tr '\n' ' ')" \
   | sed -E 's/  +/ /g' >> "$s/gh.log"
-[[ -z "${FAKE_FAIL:-}" || "$*" != *"$FAKE_FAIL"* ]] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+# FAKE_FAIL_MSG: what gh prints on stderr for the failing call (printf %b, so \n makes lines);
+# EMPTY prints nothing.
+if [[ -n "${FAKE_FAIL:-}" && "$*" == *"$FAKE_FAIL"* ]]; then
+  [[ "${FAKE_FAIL_MSG:-}" == EMPTY ]] || printf '%b\n' "${FAKE_FAIL_MSG:-HTTP 502: Bad Gateway}" >&2
+  exit 1
+fi
 case "$*" in
   *"contents/.github/scripts/flowforge-project.sh?ref="*) cat "$FAKE_HELPER" ;;
   *"contents/.github/scripts/flowforge-state.sh?ref="*) cat "$FAKE_STATE_HELPER" ;;
@@ -279,6 +286,86 @@ expect "B  strict mode (maintainer CLI): error fails" "$(code "$c")" 1
 c="$(new_case b-unknown)"
 sync "$c" 1 develop-finished
 expect "B  unknown event: warning, nothing written" "$(code "$c")/$(jq length "$c/items.json")/$(grep -c "unknown event" "$c/log")" 0/0/1
+
+# --- E: error observability (#44) --------------------------------------------------------------
+warning() { grep '^::warning::' "$1/log" | tail -n 1; }
+attention_field="$(jq -r .fields.Attention.id "$config")"
+not_found="gh: Could not resolve to a node with the global id of 'PVT_bogus'"
+
+c="$(new_case e-44)"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById FAKE_FAIL_MSG="$not_found"
+expect "E  #44 regression: GitHub's reason kept, not only the helper's last line" \
+  "$(warning "$c")" \
+  "::warning::Project sync owner/target#1 [develop-started] failed: could not add or read the Project item — GitHub: Could not resolve to a node with the global id of 'PVT_bogus'. The card is unchanged; the agent run is not affected."
+expect "E  same message in the step summary" "$(grep -c "⚠️ .*— GitHub: Could not resolve to a node" "$c/summary")" 1
+expect "E  still a warning: step succeeds, card unchanged" "$(code "$c")/$(jq length "$c/items.json")" 0/0
+
+c="$(new_case e-multi)"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById \
+  FAKE_FAIL_MSG='GraphQL: Resource not accessible by integration (addProjectV2ItemById)\n\nX-Accepted-GitHub-Permissions: organization_projects=write'
+expect "E  multi-line error: every useful line kept, in order" "$(warning "$c" | grep -o 'GitHub: .*\. The card')" \
+  'GitHub: GraphQL: Resource not accessible by integration (addProjectV2ItemById) | X-Accepted-GitHub-Permissions: organization_projects=write. The card'
+
+c="$(new_case e-json)"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById \
+  FAKE_FAIL_MSG='{"data": null, "errors": [{"type": "INSUFFICIENT_SCOPES", "message": "The addProjectV2ItemById field requires one of the following scopes: [project]"}, {"message": "second error"}]}'
+expect "E  GraphQL JSON: type and message extracted" "$(warning "$c" | grep -o 'GitHub: .*\. The card')" \
+  'GitHub: INSUFFICIENT_SCOPES: The addProjectV2ItemById field requires one of the following scopes: [project] | second error. The card'
+
+c="$(new_case e-secret)"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById PROJECT_TOKEN=s3cr3t-project-value \
+  FAKE_FAIL_MSG='HTTP 401: Bad credentials\nAuthorization: Bearer ghs_AbCdEf0123456789AbCdEf0123456789\nrequest token=s3cr3t-project-value sk-ant-oat01-AbC_dEf-123 github_pat_11ABCDEFG0123456789_xyz\njwt eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiIxMjMifQ.c2lnbmF0dXJl\nraw s3cr3t-project-value'
+expect "E  secrets: no token, PAT, Claude token, JWT or raw value in log or summary" \
+  "$(cat "$c/log" "$c/summary" | grep -cE 'ghs_|github_pat_|sk-ant-|eyJ|s3cr3t|Bearer [^[]' || true)" 0
+expect "E  secrets: replaced by [REDACTED], reason still readable" \
+  "$(warning "$c" | grep -o 'GitHub: HTTP 401: Bad credentials | Authorization: \[REDACTED\] | request token=\[REDACTED\] \[REDACTED\] \[REDACTED\] | jwt \[REDACTED\] | raw \[REDACTED\]\.' | wc -l)" 1
+
+c="$(new_case e-empty)"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById FAKE_FAIL_MSG=EMPTY
+expect "E  gh prints nothing: the operation alone, no empty GitHub part" "$(warning "$c" | grep -o 'failed: [^.]*\.')" \
+  'failed: could not add or read the Project item.'
+expect "E  nothing at all on stderr: explicit fallback" \
+  "$(: > "$work/empty-err"; GITHUB_REPOSITORY=owner/target _flowforge_project_failure 1 develop-started "$work/empty-err")" \
+  'Project sync owner/target#1 [develop-started] failed: Unknown GitHub Project sync error. The card is unchanged; the agent run is not affected.'
+
+c="$(new_case e-long)"
+long="$(printf 'x%.0s' {1..400})"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById \
+  FAKE_FAIL_MSG="$(for i in 1 2 3 4 5 6 7 8; do printf 'line%s %s\\n' "$i" "$long"; done)"
+reason="$(warning "$c" | grep -o 'GitHub: .*\. The card')"
+expect "E  size limits: at most 5 lines from GitHub" "$(grep -o 'line[0-9]' <<<"$reason" | tr '\n' ' ')" "line1 line2 line3 "
+expect "E  size limits: reason at most 800 characters, cut visibly" \
+  "$(r="${reason#GitHub: }"; r="${r%. The card}"; (( ${#r} <= 800 )) && [[ "$r" == *… ]] && echo ok)" ok
+
+c="$(new_case e-status '{"I_1": {"id": "PVTI_I_1", "status": "Review", "attention": null}}')"
+sync "$c" 1 iterate-started FAKE_FAIL=updateProjectV2ItemFieldValue FAKE_FAIL_MSG="$not_found"
+expect "E  field write: the transition is named" "$(warning "$c" | grep -o 'failed: [^—]*—')" \
+  'failed: could not set Status Review → Iteration —'
+expect "E  field write: card unchanged, said so" "$(item "$c")/$(warning "$c" | grep -c 'The card is unchanged')" \
+  '{"status":"Review","attention":null}/1'
+
+c="$(new_case e-partial '{"I_1": {"id": "PVTI_I_1", "status": "Review", "attention": null}}')"
+sync "$c" 1 cycle-blocked FAKE_FAIL="field=$attention_field" FAKE_FAIL_MSG="$not_found"
+expect "E  partial update: Status written, Attention failed" "$(item "$c")" '{"status":"Human validation","attention":null}'
+expect "E  partial update: not reported as unchanged" \
+  "$(warning "$c" | grep -o 'failed: could not set Attention (none) → Blocked — GitHub: .*\. The card is partially updated (Status Review → Human validation); the agent run is not affected\.$' | wc -l)" 1
+
+c="$(new_case e-strict)"
+sync "$c" 1 develop-started FAKE_FAIL=addProjectV2ItemById FAKE_FAIL_MSG="$not_found" FLOWFORGE_PROJECT_STRICT=1
+expect "E  strict mode keeps exit 1, with the reason" "$(code "$c")/$(grep -c 'GitHub: Could not resolve' "$c/log")" 1/1
+
+# Normal outcomes are not errors and keep their exact format.
+c="$(new_case e-normal '{"I_1": {"id": "PVTI_I_1", "status": "Review", "attention": null}}')"
+sync "$c" 1 iterate-started
+expect "E  update: unchanged format" "$(cat "$c/log")" \
+  'Project sync owner/target#1 [Iterator started]: update — Status Review → Iteration, Attention (none) → (none)'
+sync "$c" 1 iterate-started
+expect "E  unchanged: unchanged format" "$(cat "$c/log")" \
+  'Project sync owner/target#1 [Iterator started]: unchanged — Status Iteration → Iteration, Attention (none) → (none)'
+sync "$c" 1 refine-ready
+expect "E  refused: unchanged format, still a warning, exit 0" "$(code "$c")|$(cat "$c/log")" \
+  '0|::warning::Project sync owner/target#1 [Refiner READY]: refused — Status Iteration → Ready, Attention (none) → (none) (stale event: card already in Iteration, ahead of Ready)'
+expect "E  no failure wording on normal outcomes" "$(grep -c 'failed' "$c/summary" || true)" 0
 
 # --- C: real workflow steps -------------------------------------------------------------------
 step() { yq -e ".jobs.$2.steps[] | select(.name == \"$3\") | .run" "$wf/$1"; }

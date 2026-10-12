@@ -52,6 +52,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/workflows/(agent-iterate|review-cycle)\.yml|tests/iterate-no-op\.sh)$
+      # Iterator entry contract and loop bound (Phase 6, Prompt 29.2): iteration ceiling,
+      # review_json contract, work list, branch guards, cycle bound, card Review <-> Iteration.
+      - id: iterate-preconditions
+        name: iterate preconditions tests
+        entry: tests/iterate-preconditions.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/workflows/(agent-iterate|review-cycle)\.yml|\.github/scripts/flowforge-project\.sh|tests/iterate-preconditions\.sh)$
       # Issue label lifecycle (Issue #19): one FlowForge state label, idempotent transitions.
       - id: label-lifecycle
         name: label lifecycle tests
