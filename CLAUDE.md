@@ -19,6 +19,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
 - `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
+- `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -38,7 +39,8 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | `terraform/environments/` | Reserved for per-environment tfvars | Real `.tfvars` in Git |
 | `examples/target-repository/` | Files a target copies (caller workflow) | Logic: callers stay thin |
 | `docs/` | Architecture, phase plans | — |
-| `scripts/` | Maintainer helpers (Bash) | Tokens |
+| `scripts/` | Maintainer helpers (Bash), e.g. `github-projects/bootstrap.sh` | Tokens |
+| `config/` | Generated, non-secret IDs (`github-project.json`, written by `bootstrap.sh`) | Secrets, hand edits |
 | `tests/` | Tests of the workflows' step scripts (Bash, jq, yq), run by pre-commit | Network or GitHub API calls, tokens |
 
 ## FlowForge vs targets
@@ -73,7 +75,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 6 (GitHub Projects / Kanban) — model defined, Project not created
+## Current phase: Phase 6 (GitHub Projects / Kanban) — Project provisioned, no sync yet
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -124,11 +126,15 @@ Phase 6 — GitHub Projects / Kanban: Prompt 26 (model) done on 2026-10-11 —
 (`Backlog` → `Refining` → `Ready` → `Developing` → `Review` ⇄ `Iteration` → `Human validation` →
 `Done`), `Attention` field (`Needs clarification` / `Blocked` / `Max iterations` / `Failed`) instead
 of extra columns, workflows = source of truth of execution, Project = visual status, no card move
-ever triggers an agent. Next: Prompt 27 (create and configure the Project), Prompt 28 (sync).
+ever triggers an agent. Prompt 27 (provisioning) done on 2026-10-11 — org Project #1
+(private), `scripts/github-projects/bootstrap.sh` (GitHub CLI + GraphQL, idempotent, `--check`),
+IDs in `config/github-project.json`, view grouping and built-in workflows are UI steps (all
+built-in workflows off); view *Needs a human* corrected to *Attention* (no OR across fields); see
+`docs/github-projects/provisioning.md` and model §15. Next: Prompt 28 (sync from the workflows).
 
 ## Out of scope for now
 
-Creating/modifying GitHub repositories, `terraform apply`, GitHub Project, Notion, automatic
+Creating/modifying GitHub repositories, `terraform apply`, Project sync from the workflows (Prompt 28), Notion, automatic
 Refiner triggers or Refiner → Developer chaining, real secrets, triggering Claude Code runs,
 creating `demo-api` from this repository.
 
@@ -150,6 +156,7 @@ tests/label-lifecycle.sh                           # pre-commit hook: agent:* la
 tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
 tests/developer-delivery.sh                        # pre-commit hook: Developer delivery gate (#34)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
+scripts/github-projects/bootstrap.sh --check       # GitHub call (read-only): Project vs model, needs gh scope read:project
 ```
 
 ## Conventions

@@ -1,9 +1,9 @@
 # 🗂️ FlowForge — GitHub Project / Kanban model
 
-> **Status**: model defined (Phase 6, Prompt 26). **Nothing is created or automated yet**: no
-> GitHub Project exists, no field is created through the API, no workflow syncs a status.
-> Prompt 27 creates and configures the Project from this document; Prompt 28 adds the
-> synchronisation from the workflows (§14).
+> **Status**: model defined (Phase 6, Prompt 26) and **provisioned** (Prompt 27, 2026-10-11):
+> Project [`FlowForge Development` #1](https://github.com/orgs/TiPunchLabs/projects/1), see
+> [provisioning.md](provisioning.md) and §15 for what differs from this model. **No workflow
+> syncs a status yet**: Prompt 28 adds the synchronisation from the workflows (§14).
 >
 > **Prerequisites**: [architecture.md §2.6](../architecture.md#26-issue-label-lifecycle-phase-41)
 > (state labels), §2.5 (review cycle), §2.9 (Refiner), [issue-contract.md](../issue-contract.md).
@@ -49,6 +49,7 @@
 12. [Future integration: Notion](#12--future-integration-notion)
 13. [Diagram](#13--diagram)
 14. [Hand-off to Prompts 27 and 28](#14--hand-off-to-prompts-27-and-28)
+15. [Provisioned configuration (Prompt 27)](#15--provisioned-configuration-prompt-27)
 
 ------
 
@@ -189,7 +190,7 @@ Kept to the minimum: two custom fields are required, the rest is built in or def
 | `Repository` | built-in | — | **Required** (nothing to create) | Distinguish targets, group by repository (§10) |
 | `Labels`, `Linked pull requests`, `Assignees` | built-in | — | **Required** (nothing to create) | Show `agent:*` labels and the Draft PR on the card |
 | `Priority` | single select (custom) | `P0`, `P1`, `P2`, `P3` | **Useful** | Order `Backlog` and `Ready`; human-owned, never read by agents |
-| `Type` | built-in (organization Issue types) | as defined by the organization (e.g. `Feature`, `Bug`, `Task`) | **Useful** | Uses GitHub's Issue types rather than a custom field; nothing to create in the Project. Organization Issue types are configured outside FlowForge |
+| `Type` | built-in (organization Issue types) | as defined by the organization (e.g. `Feature`, `Bug`, `Task`) | **Useful** | Uses GitHub's Issue types rather than a custom field; nothing to create in the Project. Organization Issue types are configured outside FlowForge. Not exposed by the Projects API: a UI-only column (§15) |
 | `Agent` | — | `Refiner` … `Human` | **Rejected** | Fully derived from `Status` (§3 *Owner* column): a second field would drift |
 | `Iteration count` | number | 0–3 | **Future** | Already in `cycle.json`; worth a field only if reporting needs it |
 | `Risk` | single select | `Low` / `Medium` / `High` | **Future** | No agent produces a risk assessment today |
@@ -498,7 +499,8 @@ failures are not arrows: they set `Attention = Failed` in place (§8).
    `Iteration`, `Human validation`, `Done` (descriptions from §3).
 3. Custom fields: `Attention` (§4), `Priority` (`P0`–`P3`).
 4. Views: *Board* (group by `Status`), *Needs a human* (`Human validation` or `Attention` not
-   empty), *By repository* (table grouped by `Repository`).
+   empty), *By repository* (table grouped by `Repository`). *Needs a human* is not expressible
+   (no OR across fields) and became *Attention* in Prompt 27 (§15).
 5. Built-in workflows: review the defaults. *Item closed → Done* is acceptable only if a *not
    planned* closure can be excluded or is archived by hand (§9) — to verify; *Pull request
    merged* is irrelevant (PRs are not items); *Auto-add* per target, optional.
@@ -511,6 +513,27 @@ and write* (§6), best-effort and idempotent writes (§8), per-target opt-in (§
 
 ------
 
+## 15. 🏗️ Provisioned configuration (Prompt 27)
+
+The model above is unchanged except where this table says so. Details, IDs and commands:
+[provisioning.md](provisioning.md); IDs: [`config/github-project.json`](../../config/github-project.json).
+
+| Model item | Provisioned | Divergence |
+|---|---|---|
+| Project `FlowForge Development`, org `TiPunchLabs`, private (§2) | #1, private | none |
+| `Status`: 8 options in order (§3) | same, descriptions from §3 | none |
+| `Attention`, `Priority` (§4) | created, values as §4 | none |
+| `Agent`, `Iteration count`, `Risk` (§4) | not created | none (rejected / future) |
+| `Type` (§4) | organization Issue types exist (`Task`, `Bug`, `Feature`) | not a Project field in the API: optional UI column only |
+| View *Board* (§14.4) | board, columns by `Status` | none |
+| View *Needs a human* (§14.4) | view **`Attention`**, filter `-no:attention` | **corrected**: Projects filters cannot OR two fields. `APPROVED` items waiting for a merge are the `Human validation` column of *Board* |
+| View *By repository* (§14.4) | table; grouping by `Repository` is a UI step | grouping not settable through the API |
+| Built-in workflows (§14.5) | all six **off** (UI steps) | *Item closed* turned off: it cannot exclude *not planned*; *Auto-close issue* turned off: a card move must stay visual (§6) |
+| Tooling (§14.7) | `scripts/github-projects/bootstrap.sh` (GitHub CLI + GraphQL), `--check` | Terraform still out: provider has no Projects v2 resource |
+| No card move starts an agent (§6) | verified: manual moves, no Actions run | none |
+
+------
+
 > **Document created on**: 2026-10-11
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.0 — Phase 6, Prompt 26 (model only)
+> **Version**: 1.1 — Phase 6, Prompt 26 (model) + Prompt 27 (provisioned configuration, §15)
