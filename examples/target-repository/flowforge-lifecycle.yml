@@ -8,7 +8,7 @@
 # merged -> agent:done, closed without merge -> no FlowForge state label. The merge itself
 # stays a human action: this workflow only runs after it.
 #
-# No secret: no agent runs.
+# No agent runs. The FlowForge App key is used only for the optional Project sync.
 name: FlowForge lifecycle
 
 on:
@@ -29,3 +29,9 @@ jobs:
       pull-requests: read
     with:
       pull_request_number: ${{ github.event.pull_request.number }}
+      # GitHub Project sync (opt-in): organization variable, unset = 0 = off. Needs the App.
+      project_number: ${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}
+      app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
+    # Explicit, minimal secrets contract: never `secrets: inherit`.
+    secrets:
+      app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}

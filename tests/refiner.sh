@@ -352,7 +352,14 @@ expect "S  no branch, push, PR or Developer start in the workflow" \
   "$(grep -cE 'git push|git switch|gh pr create|gh workflow run|agent-develop' "$wf" || true)" 0
 expect "S  agent:ready never added by the workflow" "$(grep -cE 'set_state[^#]*agent:ready|add-label[^#]*agent:ready' "$wf" || true)" 0
 expect "S  caller: workflow_dispatch only" "$(j '.on | keys' "$caller")" '["workflow_dispatch"]'
-expect "S  caller: explicit secret, no inherit" "$(yq '.jobs.refine.secrets | keys | join(",")' "$caller")" claude_code_oauth_token
+expect "S  caller: explicit secrets, no inherit" "$(yq '.jobs.refine.secrets | keys | join(",")' "$caller")" \
+  claude_code_oauth_token,app_private_key
+# Phase 6: the App key only mints Project tokens (organization projects), never reaches Claude.
+expect "S  App key only used by create-github-app-token steps" \
+  "$(yq '[.jobs[].steps[] | select((. | tostring) | test("app_private_key")) | .uses | test("^actions/create-github-app-token@")] | all' "$wf")" true
+expect "S  Project tokens: organization projects only" \
+  "$(yq '[.jobs[].steps[] | select(.uses // "" | test("create-github-app-token")) | .with | del(.["client-id"], .["private-key"], .["skip-token-revoke"]) | keys | join(",")] | unique | join(";")' "$wf")" \
+  permission-organization-projects
 expect "S  caller: no write beyond issues" "$(j '.jobs.refine.permissions' "$caller")" \
   '{"contents":"read","issues":"write","pull-requests":"read"}'
 

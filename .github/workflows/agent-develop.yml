@@ -21,6 +21,11 @@
 #                                                         failed, was cancelled or did not run)
 #          One FlowForge state label at a time (.github/scripts/flowforge-state.sh,
 #          docs/architecture.md §2.6).
+#
+# Project (opt-in, `project_number` > 0 + the App): the Issue's card follows the same facts —
+# Developer started -> Developing; Draft PR -> Review; stopped -> Backlog + Blocked; technical
+# failure -> Attention Failed (.github/scripts/flowforge-project.sh,
+# docs/github-projects/synchronization.md). Best-effort: a Project error never fails the run.
 name: FlowForge — agent develop
 
 on:
@@ -60,6 +65,13 @@ on:
         type: string
         required: false
         default: ""
+      project_number:
+        description: >-
+          Number of the FlowForge GitHub Project to keep in sync (e.g.
+          vars.FLOWFORGE_PROJECT_NUMBER); 0 disables the sync. Needs the App (app_client_id).
+        type: number
+        required: false
+        default: 0
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -162,6 +174,43 @@ jobs:
           # shellcheck source=/dev/null
           source /dev/stdin <<<"$helper"
           flowforge_set_state "$ISSUE_NUMBER" agent:running "$READY_LABEL"
+
+      # Project token: organization projects only (no contents, issues nor pull requests),
+      # revoked right after the sync (step "Revoke Project token"), before Claude Code starts.
+      - name: Create Project token
+        id: project_token_start
+        if: inputs.project_number > 0 && inputs.app_client_id != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+          skip-token-revoke: true
+
+      - name: Project status (Developer started)
+        if: inputs.project_number > 0
+        continue-on-error: true
+        env:
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token_start.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" develop-started
+
+      # Runs even if the sync failed: the Project token is dead before Claude Code starts.
+      - name: Revoke Project token
+        if: always() && steps.project_token_start.outputs.token != ''
+        continue-on-error: true
+        env:
+          PROJECT_TOKEN: ${{ steps.project_token_start.outputs.token }}
+        run: GH_TOKEN="$PROJECT_TOKEN" gh api --method DELETE installation/token --silent
 
       - name: Check out target repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -404,9 +453,48 @@ jobs:
           source /dev/stdin <<<"$helper"
           flowforge_set_state "$ISSUE_NUMBER" "$label"
 
-          echo "pull_request=$number" >> "$GITHUB_OUTPUT"
+          {
+            echo "pull_request=$number"
+            echo "state=$label"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "- Claude Code: **$CLAUDE_OUTCOME**"
             echo "- Draft PR: ${number:+#}${number:-none}"
             echo "- Label: \`${label:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Minted after Claude Code ended, like the delivery token.
+      - name: Create Project token (result)
+        id: project_token_end
+        if: always() && inputs.project_number > 0 && inputs.app_client_id != '' && steps.running.outcome == 'success'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      # Same facts as the final label: Draft PR -> Review, agent stopped -> Backlog + Blocked,
+      # anything else (technical failure, final step failed) -> Attention Failed in place.
+      - name: Project status (Developer result)
+        if: always() && inputs.project_number > 0 && steps.running.outcome == 'success'
+        continue-on-error: true
+        env:
+          FINALIZE_OUTCOME: ${{ steps.finalize.outcome }}
+          FINAL_STATE: ${{ steps.finalize.outputs.state }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token_end.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          case "$FINALIZE_OUTCOME/$FINAL_STATE" in
+            success/agent:review) event=develop-delivered ;;
+            success/agent:blocked) event=develop-stopped ;;
+            *) event=develop-failed ;;
+          esac
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-project.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_project_sync "$ISSUE_NUMBER" "$event"
