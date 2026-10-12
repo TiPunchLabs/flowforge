@@ -99,17 +99,17 @@ _flowforge_project_config() {
 _flowforge_project_sync() {
   local issue="$1" event="$2" config content item decision action
   local project_id status_field attention_field status_option attention_option
-  local item_id current attention target target_attention
+  local item_id current attention target target_attention written=""
 
-  [[ "$issue" =~ ^[1-9][0-9]*$ ]] || { echo "invalid Issue number '$issue'" >&2; return 1; }
+  [[ "$issue" =~ ^[1-9][0-9]*$ ]] || { _flowforge_project_fail "invalid Issue number '$issue'"; return 1; }
   jq -ne --arg e "$event" --argjson events "$FLOWFORGE_PROJECT_EVENTS" '$events | has($e)' >/dev/null \
-    || { echo "unknown event '$event'" >&2; return 1; }
+    || { _flowforge_project_fail "unknown event '$event'"; return 1; }
   [[ -n "${PROJECT_TOKEN:-}" ]] \
-    || { echo "no Project token (app_client_id / app_private_key not set, or the token could not be created)" >&2; return 1; }
+    || { _flowforge_project_fail "no Project token (app_client_id / app_private_key not set, or the token could not be created)"; return 1; }
 
-  config="$(_flowforge_project_config)" || { echo "IDs file config/github-project.json not readable" >&2; return 1; }
+  config="$(_flowforge_project_config)" || { _flowforge_project_fail "IDs file config/github-project.json not readable"; return 1; }
   [[ "$(jq -r '.number' <<<"$config")" == "${PROJECT_NUMBER:-}" ]] \
-    || { echo "project_number '${PROJECT_NUMBER:-}' does not match the IDs file (Project #$(jq -r '.number' <<<"$config"))" >&2; return 1; }
+    || { _flowforge_project_fail "project_number '${PROJECT_NUMBER:-}' does not match the IDs file (Project #$(jq -r '.number' <<<"$config"))"; return 1; }
   project_id="$(jq -r '.project_id' <<<"$config")"
   status_field="$(jq -r '.fields.Status.id' <<<"$config")"
   attention_field="$(jq -r '.fields.Attention.id' <<<"$config")"
@@ -117,8 +117,8 @@ _flowforge_project_sync() {
   # Identified by repository + number through the API, never by number alone; PRs refused.
   content="$(gh api "repos/$GITHUB_REPOSITORY/issues/$issue" \
     --jq 'if .pull_request then "PR" else .node_id end')" \
-    || { echo "Issue #$issue not readable in $GITHUB_REPOSITORY" >&2; return 1; }
-  [[ "$content" != PR && -n "$content" ]] || { echo "#$issue is a pull request, not an Issue" >&2; return 1; }
+    || { _flowforge_project_fail "Issue #$issue not readable in $GITHUB_REPOSITORY"; return 1; }
+  [[ "$content" != PR && -n "$content" ]] || { _flowforge_project_fail "#$issue is a pull request, not an Issue"; return 1; }
 
   # Adding an Issue already in the Project returns its existing item: find-or-add in one call.
   # shellcheck disable=SC2016  # $project, $content are GraphQL variables
@@ -132,9 +132,9 @@ _flowforge_project_sync() {
         }
       }
     }' --jq '.data.addProjectV2ItemById.item | {id, status: (.status.name // ""), attention: (.attention.name // "")}')" \
-    || { echo "could not add or read the Project item" >&2; return 1; }
+    || { _flowforge_project_fail "could not add or read the Project item"; return 1; }
   item_id="$(jq -r '.id // empty' <<<"$item")"
-  [[ -n "$item_id" ]] || { echo "no Project item returned" >&2; return 1; }
+  [[ -n "$item_id" ]] || { _flowforge_project_fail "no Project item returned"; return 1; }
   current="$(jq -r '.status' <<<"$item")"
   attention="$(jq -r '.attention' <<<"$item")"
 
@@ -146,18 +146,21 @@ _flowforge_project_sync() {
   if [[ "$action" == update ]]; then
     if [[ "$target" != "$current" ]]; then
       status_option="$(jq -r --arg s "$target" '.fields.Status.options[$s] // empty' <<<"$config")"
-      [[ -n "$status_option" ]] || { echo "Status option '$target' missing from the IDs file" >&2; return 1; }
+      [[ -n "$status_option" ]] || { _flowforge_project_fail "Status option '$target' missing from the IDs file"; return 1; }
       _flowforge_project_set "$project_id" "$item_id" "$status_field" "$status_option" \
-        || { echo "could not set Status to $target" >&2; return 1; }
+        || { _flowforge_project_fail "could not set Status ${current:-(none)} → $target"; return 1; }
+      written="Status ${current:-(none)} → $target"
     fi
     if [[ "$target_attention" != "$attention" ]]; then
       attention_option=""
       if [[ -n "$target_attention" ]]; then
         attention_option="$(jq -r --arg a "$target_attention" '.fields.Attention.options[$a] // empty' <<<"$config")"
-        [[ -n "$attention_option" ]] || { echo "Attention option '$target_attention' missing from the IDs file" >&2; return 1; }
+        [[ -n "$attention_option" ]] \
+          || { _flowforge_project_fail "Attention option '$target_attention' missing from the IDs file" "$written"; return 1; }
       fi
       _flowforge_project_set "$project_id" "$item_id" "$attention_field" "$attention_option" \
-        || { echo "could not set Attention to '${target_attention:-empty}'" >&2; return 1; }
+        || { _flowforge_project_fail "could not set Attention ${attention:-(none)} → ${target_attention:-(none)}" "$written"
+             return 1; }
     fi
   fi
 
@@ -185,6 +188,82 @@ _flowforge_project_set() {
   fi
 }
 
+# Reports a failure of the sync on stderr, tagged so that the wrapper can tell it from the
+# output of gh / jq: "flowforge: <operation>", plus "flowforge-partial: <write>" when a write
+# already succeeded in this call.
+_flowforge_project_fail() {
+  printf 'flowforge: %s\n' "$1" >&2
+  [[ -z "${2:-}" ]] || printf 'flowforge-partial: %s\n' "$2" >&2
+}
+
+# Masks credentials in stdin: the exact PROJECT_TOKEN / GH_TOKEN values, then known shapes
+# (GitHub tokens, Claude tokens, JWTs such as App JWTs, Authorization / Bearer / token= values,
+# private keys). Does not rely on GitHub Actions masking.
+_flowforge_project_redact() {
+  local text secret
+  text="$(cat)"
+  for secret in "${PROJECT_TOKEN:-}" "${GH_TOKEN:-}"; do
+    if (( ${#secret} >= 8 )); then text="${text//"$secret"/[REDACTED]}"; fi
+  done
+  sed -E \
+    -e 's/-----BEGIN [A-Z ]*PRIVATE KEY-----.*/[REDACTED]/' \
+    -e 's/([Aa]uthorization:)[[:space:]]*(([Bb]earer|[Tt]oken|[Bb]asic)[[:space:]]+)?[^[:space:]]+/\1 [REDACTED]/g' \
+    -e 's/([Bb]earer)[[:space:]]+[^[:space:][]+/\1 [REDACTED]/g' \
+    -e 's/((^|[^[:alnum:]_])[Tt]oken[=:][[:space:]]*)[^[:space:],;&[]+/\1[REDACTED]/g' \
+    -e 's/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/[REDACTED]/g' \
+    -e 's/sk-ant-[A-Za-z0-9_-]+/[REDACTED]/g' \
+    -e 's/eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/[REDACTED]/g' <<<"$text"
+}
+
+# Turns what gh / jq printed (stdin) into one line: GraphQL JSON errors as "TYPE: message",
+# the "gh: " prefix dropped, blank lines skipped, credentials masked. At most 5 lines of 300
+# characters, 800 in total; a cut is marked with "…".
+_flowforge_project_reason() {
+  local text line joined="" n=0
+  text="$(cat)"
+  if jq -e 'type == "object" and (.errors | type == "array")' <<<"$text" >/dev/null 2>&1; then
+    text="$(jq -r '.errors[] | if .type then "\(.type): \(.message)" else .message end' <<<"$text")"
+  fi
+  while IFS= read -r line; do
+    [[ -n "${line//[[:space:]]/}" ]] || continue
+    if (( n == 5 )); then joined+=" | …"; break; fi
+    line="${line#gh: }"
+    (( ${#line} <= 300 )) || line="${line:0:299}…"
+    joined+="${joined:+ | }$line"
+    n=$((n + 1))
+  done < <(_flowforge_project_redact <<<"$text")
+  (( ${#joined} <= 800 )) || joined="${joined:0:799}…"
+  printf '%s' "$joined"
+}
+
+# The failure line for Issue $1, event $2, from the stderr file $3 of _flowforge_project_sync:
+# "<operation> — GitHub: <reason>", and whether the card was left unchanged.
+_flowforge_project_failure() {
+  local operation="" partial="" reason line card="The card is unchanged"
+  local -a other=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      "flowforge: "*) operation+="${operation:+; }${line#flowforge: }" ;;
+      "flowforge-partial: "*) partial="${line#flowforge-partial: }" ;;
+      *) other+=("$line") ;;
+    esac
+  done < "$3"
+  reason="$(printf '%s\n' "${other[@]}" | _flowforge_project_reason)"
+  operation="$(_flowforge_project_redact <<<"$operation")"
+  [[ -z "$partial" ]] || card="The card is partially updated ($partial)"
+  if [[ -n "$operation" && -n "$reason" ]]; then
+    reason="$operation — GitHub: $reason"
+  elif [[ -n "$operation" ]]; then
+    reason="$operation"
+  elif [[ -n "$reason" ]]; then
+    reason="GitHub: $reason"
+  else
+    reason="Unknown GitHub Project sync error"
+  fi
+  printf 'Project sync %s#%s [%s] failed: %s. %s; the agent run is not affected.\n' \
+    "$GITHUB_REPOSITORY" "$1" "$2" "$reason" "$card"
+}
+
 # Applies event $2 to Issue $1 on the Project. Never fails the caller (unless
 # FLOWFORGE_PROJECT_STRICT=1): a failure is a warning plus a step summary line, and sets
 # FLOWFORGE_PROJECT_RESULT=failed. A refused or skipped event is a warning too.
@@ -202,7 +281,7 @@ flowforge_project_sync() {
     [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "- $line" >> "$GITHUB_STEP_SUMMARY"
     return 0
   fi
-  line="Project sync $GITHUB_REPOSITORY#$1 [$2] failed: $(tail -n 1 "$err"). The card is unchanged; the agent run is not affected."
+  line="$(_flowforge_project_failure "$1" "$2" "$err")"
   rm -f "$err"
   echo "::warning::$line"
   [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "- ⚠️ $line" >> "$GITHUB_STEP_SUMMARY"
