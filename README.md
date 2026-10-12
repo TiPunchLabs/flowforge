@@ -128,7 +128,8 @@ Phase 1 goal: make the flow above work end to end on one POC repository, `demo-a
 | Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
 | Phase 4.1 — Hardening & lifecycle | ✅ Done, validated E2E, one reservation — tag `flowforge-phase4.1-hardening-e2e` ([milestone](docs/milestones/phase41-hardening-e2e.md)) |
 | Phase 5 — Refiner agent | ✅ Done, validated E2E, with reservations — tag `flowforge-phase5-refiner-e2e` ([milestone](docs/milestones/phase5-refiner-e2e.md)) |
-| Phase 6 — GitHub Projects / Kanban | 🚧 In progress — Kanban model defined ([kanban-model.md](docs/github-projects/kanban-model.md)), Project not created |
+| Phase 6 — GitHub Projects / Kanban | ✅ Done, validated E2E, with reservations — tag `flowforge-phase6-github-projects-e2e` ([milestone](docs/milestones/phase6-github-projects-e2e.md)) |
+| Phase 7 — Notion | ⏭️ Next — not started, nothing integrated |
 
 Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
 label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
@@ -149,12 +150,22 @@ and end to end in the chain (Prompt 24, [milestone](docs/milestones/phase5-refin
 closed with reservations (Prompt 25, same milestone §13). The Refiner is optional: a hand-written
 `agent:ready` Issue still goes straight to the Developer.
 
-**Phase 6 — GitHub Projects / Kanban (in progress, not implemented)**: a backlog and a Kanban
-view of the Issues FlowForge drives, with Project statuses updated by the workflows. The model
-(8 statuses, `Attention` field, transitions, source of truth) is defined in
-[docs/github-projects/kanban-model.md](docs/github-projects/kanban-model.md); the Project is
-created in Prompt 27 and synchronised in Prompt 28. **Future (not implemented)**: Notion, QA agent, Documentation agent, self-hosted
-runners.
+**Phase 6 — GitHub Projects / Kanban (done)**: the org Project `FlowForge Development` shows
+where each need is. The workflows write its status one way, best-effort, through the FlowForge
+App token; the Project never starts an agent:
+
+```text
+Backlog → Refining → Ready → Developing → Review ⇄ Iteration → Human validation → Done
+```
+
+Model ([kanban-model.md](docs/github-projects/kanban-model.md)), provisioning
+([provisioning.md](docs/github-projects/provisioning.md)), sync
+([synchronization.md](docs/github-projects/synchronization.md)); validated live on `demo-api`
+(#39 main E2E, #45 `Review → Iteration → Review`) and closed in Prompt 30
+([milestone](docs/milestones/phase6-github-projects-e2e.md) §19).
+
+**Phase 7 — Notion (next, not started)**. **Future (not implemented)**: QA agent, Documentation
+agent, self-hosted runners, reconciliation job.
 
 ------
 
