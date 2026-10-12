@@ -4,7 +4,8 @@
 > the states; **nothing synchronises it yet** (Prompt 28) and **no card move starts an agent**.
 >
 > **Prerequisites**: [kanban-model.md](kanban-model.md) (the model), `gh` ≥ 2.40 logged in with
-> the `project` scope, `jq`, organization member of `TiPunchLabs` allowed to create Projects.
+> the `project` scope (`read:project` for `--check`; how to add it: §6.1), `jq`, organization
+> member of `TiPunchLabs` allowed to create Projects.
 
 ------
 
@@ -103,15 +104,21 @@ from the UI (optional).
 
 ## 4. 🖱️ Manual UI steps (not available through the API)
 
-Done once, after the first script run. `bootstrap.sh --check` reports each one until it is done.
+Done once, after the first script run, in the [Project](https://github.com/orgs/TiPunchLabs/projects/1).
+`bootstrap.sh --check` reports each one until it is done.
 
 | # | Step | Where | Why |
 |---|---|---|---|
-| U1 | *By repository* → view menu → **Group by: Repository** | view 3 | `groupByFields` is read-only in the API |
+| U1 | *By repository* → view menu → **Group by: Repository**, then ▾ next to the view name → **Save changes** | view 3 | `groupByFields` is read-only in the API |
 | U2 | **Disable** *Item closed* | ⋯ → Workflows | Sets `Done` on any closure, *not planned* included (model §9: not planned is archived, not `Done`). Observed: `demo-api` #33 went to `Done` by itself when added |
 | U3 | **Disable** *Pull request merged* | ⋯ → Workflows | PRs are not items (model §2) |
 | U4 | **Disable** *Auto-close issue* | ⋯ → Workflows | Closes the Issue when a card reaches `Done`: a card move would act on GitHub, against model §6 |
 | U5 | **Disable** *Auto-add sub-issues to project* | ⋯ → Workflows | Items enter by a human or the sync (model §2), never implicitly |
+
+> ⚠️ **Warning — unsaved view changes**: a grouping (or filter, sort, column) changed in the UI is
+> only a local draft, shown by a dot next to the view name, until **Save changes** is clicked.
+> Unsaved, GitHub keeps the old configuration and `--check` still reports U1 (the view's
+> `updatedAt` does not move). Built-in workflows (U2–U5) are saved as soon as they are toggled.
 
 **Native automations — decision** (the six built-in workflows the API returns for this Project).
 
@@ -158,12 +165,59 @@ Behaviour:
 |---|---|---|---|
 | Provisioning (this script, by hand) | maintainer's `gh` login (OAuth) | scopes `project` (write) + `read:org`; `read:project` is enough for `--check` | `gh` keyring, never in the repository |
 | Workflows today | `GITHUB_TOKEN` / FlowForge App | **none on the Project** | — |
-| Sync (Prompt 28) | FlowForge GitHub App (architecture §2.10) | add **Organization projects: read and write**; still no `issues` | App private key as Actions secret (already the case) |
+| Sync (Prompt 28) | FlowForge GitHub App (architecture §2.10) | **Organization projects: read and write** (granted 2026-10-12, §6.2); still no `issues` | App private key as Actions secret (already the case) |
 
 `GITHUB_TOKEN` cannot access an organization Project at all, so the sync needs the App (or a
 fine-grained PAT with *organization projects: read and write*, not retained: personal and
-long-lived). The scope `project` was added to the maintainer's `gh` login for this prompt; it
-can be removed with `gh auth refresh -h github.com -r project`.
+long-lived).
+
+### 6.1 🔑 `gh` scope for provisioning
+
+The Projects v2 API needs its own OAuth scope: `repo` and `read:org` give no access to a
+Project, not even read (`gh` fails with *missing required scopes [read:project]*).
+
+```bash
+# Add the scope before running the script (write: bootstrap; read only: --check)
+gh auth refresh -h github.com -s project
+gh auth refresh -h github.com -s read:project
+
+# Verify
+gh auth status          # "Token scopes:" lists project (or read:project)
+
+# Remove it afterwards (least privilege)
+gh auth refresh -h github.com -r project
+```
+
+The command prints a one-time code and opens a device flow on `https://github.com/login/device`.
+`-h github.com` is mandatory when no terminal is attached (e.g. `!` commands in Claude Code),
+otherwise `gh` fails with *--hostname required when not running interactively*.
+
+> 💡 **Note**: state on 2026-10-12: the scope was added for Prompt 27 and **removed** afterwards.
+> Re-add `read:project` before running `--check`.
+
+### 6.2 🤖 FlowForge App: organization projects permission
+
+Two steps, both by an organization owner. Adding a permission to an App does **not** reach its
+existing installations until the organization accepts it.
+
+1. **App** — <https://github.com/organizations/TiPunchLabs/settings/apps/tipunchlabs-flowforge/permissions>
+   → *Organization permissions* → **Projects: Read and write** → **Save changes** (confirm
+   that installations will be notified). Nothing else changes: **no `Issues` permission**, so
+   the App still can never apply `agent:ready` (architecture §2.10).
+2. **Installation** — <https://github.com/organizations/TiPunchLabs/settings/installations>
+   → *tipunchlabs-flowforge* → **Configure** → banner *requesting new permissions* →
+   **Review request** → **Accept new permissions**.
+
+```bash
+# Verify the installation (needs read:org)
+gh api orgs/TiPunchLabs/installations \
+  --jq '.installations[] | select(.app_slug == "tipunchlabs-flowforge") | .permissions'
+# expected: {"contents":"write","metadata":"read","organization_projects":"write","pull_requests":"write"}
+```
+
+Done and verified on 2026-10-12. Nothing uses the permission yet: the delivery tokens still
+request only `contents` + `pull-requests` (Developer) and `contents` (Iterator), so they never
+carry it; Prompt 28 decides how the sync requests it.
 
 **Visibility.** Organization members see the Project according to the org's base Project
 permission; items of private repositories stay visible only to people who can read them. The
@@ -212,4 +266,4 @@ ID is copied into a workflow file.
 
 > **Document created on**: 2026-10-11
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.0 — Phase 6, Prompt 27
+> **Version**: 1.1 — Phase 6, Prompt 27 (+ `gh` scope, unsaved views, App permission procedure)
