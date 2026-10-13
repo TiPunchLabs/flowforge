@@ -1,0 +1,68 @@
+{
+  "notion_version": "2026-03-11",
+  "parent_page_id": "3f86f28f-f5ca-81ad-b505-f1760753b14b",
+  "databases": {
+    "FlowForge Projects": {
+      "database_id": "7665cc44-5321-4359-b451-602aaa200fa8",
+      "data_source_id": "07163865-ee18-4c94-a9ae-17752c5733b5",
+      "url": "https://app.notion.com/p/7665cc4453214359b451602aaa200fa8",
+      "properties": {
+        "Repositories": "Dr%5Bb",
+        "GitHub Project": "WFtg",
+        "Description": "aJXW",
+        "Owners": "hFJC",
+        "Needs": "ndk%3F",
+        "Active": "owcO",
+        "Documentation": "%7DC%5BT",
+        "Name": "title"
+      }
+    },
+    "FlowForge Repositories": {
+      "database_id": "e3215970-153a-4973-83bd-6469358ec2e5",
+      "data_source_id": "f749af34-6039-42fd-bd9c-78716eb85688",
+      "url": "https://app.notion.com/p/e3215970153a497383bd6469358ec2e5",
+      "properties": {
+        "GitHub repository": "%3ATcq",
+        "Needs": "CMsq",
+        "FlowForge enabled": "fjph",
+        "Project": "~We%3C",
+        "Name": "title"
+      }
+    },
+    "FlowForge Needs": {
+      "database_id": "7d1aba29-9887-4699-aaee-d5cc743f0a01",
+      "data_source_id": "9c37ea5a-25d2-4d24-a4e4-3bde345a9a80",
+      "url": "https://app.notion.com/p/7d1aba2998874699aaeed5cc743f0a01",
+      "properties": {
+        "Business reason": "%3AxTl",
+        "Priority": "%3B%5BOv",
+        "Attention": "%3CHgK",
+        "Requested by": "DXV%3E",
+        "Completed at": "Li%7Cp",
+        "Target repository": "MAVl",
+        "Last synced": "MbrM",
+        "Context": "W_%5DQ",
+        "Need": "Z%60Bs",
+        "Need ID": "%60Oaj",
+        "FlowForge Status": "aYf_",
+        "Project": "c%5Cy%60",
+        "GitHub Issue": "f%40%3Cs",
+        "Pull request": "gdY%60",
+        "Related needs": "ihU%3D",
+        "Integration status": "jBKG",
+        "Integration message": "mK~%3D",
+        "Submit": "ts%3Fw",
+        "Created by": "%7CpiZ",
+        "Title": "title"
+      },
+      "views": {
+        "All Needs": "8185c8d0-a646-4739-9f16-9ec37accc5d1",
+        "My Needs": "3f86f28f-f5ca-8102-b8c5-000cfec9ed04",
+        "By Project": "3f86f28f-f5ca-8161-8b0f-000cd1a254e7",
+        "By Repository": "3f86f28f-f5ca-81b7-9751-000c90eb9b7a",
+        "FlowForge Board": "3f86f28f-f5ca-8181-8ea2-000c7ba6331c",
+        "Needs attention": "3f86f28f-f5ca-8118-b708-000cb5878253"
+      }
+    }
+  }
+}

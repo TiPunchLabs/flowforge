@@ -1,8 +1,13 @@
 # 🧩 FlowForge — Notion model (multi-project, multi-contributor)
 
-> **Status**: model defined (Phase 7, Prompt 31, 2026-10-12). **Nothing is provisioned or
-> integrated**: no Notion database, no integration, no token, no sync exists yet. Provisioning is
-> Prompt 32, Notion → GitHub submission Prompt 33, GitHub → Notion status Prompt 34.
+> **Status**: model defined (Phase 7, Prompt 31, 2026-10-12); Notion space **provisioned**
+> (Prompt 32, 2026-10-13: databases, properties, relations, views, test data; see
+> [provisioning.md](provisioning.md)). **Nothing is integrated**: no submission to GitHub (Prompt
+> 33), no status feedback (Prompt 34), no runtime credential, no workflow.
+>
+> **Planned vs. provisioned**: this document stays the source of truth of the model. Everything in
+> §5 marked Required or Useful is **provisioned**, except where §23 says otherwise; Future and
+> Rejected items are not.
 >
 > **Prerequisites**: [github-projects/kanban-model.md](../github-projects/kanban-model.md)
 > (statuses, `Attention`, source of truth), [issue-contract.md](../issue-contract.md) (raw need →
@@ -66,6 +71,7 @@
 20. [Target architecture](#20--target-architecture)
 21. [Limitations and open decisions](#21--limitations-and-open-decisions)
 22. [Hand-off to Prompts 32–34](#22--hand-off-to-prompts-3234)
+23. [Provisioned state (Prompt 32)](#23--provisioned-state-prompt-32)
 
 ------
 
@@ -159,7 +165,8 @@ cross-project `Needs` database, never one database per Project or per Repository
 
 > 💡 **Note**: Notion API version `2025-09-03` splits a *database* (container) from its *data
 > sources* (tables). This model uses **one data source per database**; the integration addresses
-> data sources by ID (Prompt 32 records the IDs, like `config/github-project.json`).
+> data sources by ID. **Provisioned** under the page `FlowForge` with API `2026-03-11`; IDs in
+> [`config/notion.json`](../../config/notion.json) (Prompt 32).
 
 ------
 
@@ -740,7 +747,8 @@ nothing more:
 | Identity that creates Issues, without the power to start agents | **open**, Prompt 33 (§10.4) |
 | Allowlist format and location | **open**, Prompt 33 |
 | Strongly consistent duplicate lookup | **open**, Prompt 33 (§14) |
-| Notion plan features (guests, relation filters) not verified on the target workspace | Prompt 32 |
+| Notion plan features (guests, relation filters) not verified on the target workspace | Prompt 32: not verified (single account); relation limit and sharing are manual UI steps ([provisioning.md §6](provisioning.md#6--manual-ui-steps-not-available-through-the-api)) |
+| Project ↔ Repository consistency of a Need | Prompt 32: **Notion accepts a mismatch** (tested); Prompt 33 must reject it |
 | Refiner reading Notion context | Future (§17) |
 
 ------
@@ -749,7 +757,7 @@ nothing more:
 
 | Prompt | Scope | Builds on |
 |---|---|---|
-| **32 — Provision the FlowForge Notion space** | the three databases with the properties of §5, the six views of §18, permissions of §7, the integration connection (no sync yet), IDs recorded like `config/github-project.json` | §4, §5, §7, §18 |
+| **32 — Provision the FlowForge Notion space** ✅ 2026-10-13 | the three databases with the properties of §5, the six views of §18, permissions of §7 (documented, manual), IDs in `config/notion.json`; runtime connection deferred to Prompt 33 | §4, §5, §7, §18 |
 | **33 — Notion → GitHub submission** | validation, allowlist, sanitisation, Issue creation, idempotence, `Integration status` | §10, §11, §14, §15, §19 |
 | **34 — GitHub → Notion status** | mirror of `FlowForge Status`, `Attention`, `Pull request`, `Completed at` | §12, §13, §15 |
 
@@ -758,6 +766,22 @@ bidirectional sync of all fields.
 
 ------
 
+## 23. ✅ Provisioned state (Prompt 32)
+
+Provisioned on 2026-10-13 by `scripts/notion/bootstrap.sh`, details in
+[provisioning.md](provisioning.md). Differences from the sections above, all deliberate:
+
+| Model | Provisioned | Why |
+|---|---|---|
+| §5.1 / §5.2: reverse sides of the relations unnamed | `Projects.Needs`, `Repositories.Needs` (reverse of `Needs.Project`, `Needs.Target repository`) | navigate Project → Needs and Repository → Needs |
+| §18: views sorted by `Last edited` | sorted by `Need ID` descending | a view sort must name a property; avoids an extra `Last edited time` property |
+| §18 *Needs attention*: "`Draft` with `Submit` ticked" | "`Submit` ticked and `GitHub Issue` empty" | the real pending-submission condition, also true when `FlowForge Status` is empty |
+| §5: relation limit 1 | not set by the API | manual UI step (provisioning.md §6) |
+| §7: Notion permissions | documented, not applied (single account) | applied when a second person joins |
+| §19.3: runtime `NOTION_TOKEN` | not created | Prompt 33; provisioning used a separate, local, maintainer personal access token (provisioning.md §9.1) |
+
+------
+
 > **Document created on**: 2026-10-12
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.0 — Phase 7, Prompt 31 (model only, nothing provisioned or integrated)
+> **Version**: 1.1 — Phase 7, Prompt 32 (space provisioned, §23 records the differences; nothing integrated)
