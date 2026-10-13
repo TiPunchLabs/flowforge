@@ -23,6 +23,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
 - `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
 - `docs/notion/model.md` — Notion model (Phase 7, Prompt 31): Projects / Repositories / Needs, lifecycle, submission, security.
+- `docs/notion/provisioning.md` — the provisioned Notion space (Prompt 32), `scripts/notion/bootstrap.sh`, IDs, manual UI steps.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -43,7 +44,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | `examples/target-repository/` | Files a target copies (caller workflow) | Logic: callers stay thin |
 | `docs/` | Architecture, phase plans | — |
 | `scripts/` | Maintainer helpers (Bash), e.g. `github-projects/bootstrap.sh`, `github-projects/sync-issue.sh` | Tokens |
-| `config/` | Generated, non-secret IDs (`github-project.json`, written by `bootstrap.sh`) | Secrets, hand edits |
+| `config/` | Generated, non-secret IDs (`github-project.json`, `notion.json`, written by the `bootstrap.sh` scripts) | Secrets, hand edits |
 | `tests/` | Tests of the workflows' step scripts (Bash, jq, yq), run by pre-commit | Network or GitHub API calls, tokens |
 
 ## FlowForge vs targets
@@ -78,7 +79,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 7 (Notion) — model defined, nothing provisioned or integrated
+## Current phase: Phase 7 (Notion) — model defined, space provisioned, nothing integrated
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -151,11 +152,18 @@ databases (`FlowForge Projects`, `FlowForge Repositories`, one shared `FlowForge
 Repository, one Need → one repository → one Issue (1:1, idempotent on the Notion page ID), `Draft`
 Notion-only then statuses mirrored from the GitHub Project, `Integration status` separate from
 `FlowForge Status`, Notion = untrusted input, repository allowlist in FlowForge Git, Notion never
-triggers agents. Next: Prompt 32 (provision the Notion space), 33 (submission), 34 (status feedback).
+triggers agents. Prompt 32 (provisioning) done on 2026-10-13 — `scripts/notion/bootstrap.sh` (Notion API
+`2026-03-11`, idempotent, `--check`) created `FlowForge Projects` / `Repositories` / `Needs` under the
+page `FlowForge`, two-way relations, six Needs views; IDs in `config/notion.json`; test data by
+`scripts/notion/seed-test-data.sh` (2 Projects, 3 disabled test repositories, 4 Needs incl. one
+Project/Repository mismatch that Notion accepts: Prompt 33 must reject it). Provisioning used a
+local maintainer personal access token, never the runtime credential; relation limit and sharing are
+manual UI steps; multi-account collaboration not verified live; see `docs/notion/provisioning.md`.
+Next: Prompt 33 (submission, Notion Bridge identity), 34 (status feedback).
 
 ## Out of scope for now
 
-Creating/modifying GitHub repositories, `terraform apply`, Project → workflow triggers (card moves never start agents), Notion API calls / databases / sync (Prompts 32–34 only), Notion triggering agents, automatic
+Creating/modifying GitHub repositories, `terraform apply`, Project → workflow triggers (card moves never start agents), Notion sync and Issue creation from Notion (Prompts 33–34 only), Notion triggering agents, automatic
 Refiner triggers or Refiner → Developer chaining, real secrets, triggering Claude Code runs,
 creating `demo-api` from this repository.
 
@@ -180,6 +188,7 @@ tests/developer-delivery.sh                        # pre-commit hook: Developer 
 tests/project-sync.sh                              # pre-commit hook: Project sync (decision, steps, token)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 scripts/github-projects/bootstrap.sh --check       # GitHub call (read-only): Project vs model, needs gh scope read:project
+scripts/notion/bootstrap.sh --check                # Notion call (read-only): space vs model, needs NOTION_TOKEN (local)
 scripts/github-projects/sync-issue.sh <repo> <n> --show   # GitHub call (read-only): an Issue's card
 ```
 
