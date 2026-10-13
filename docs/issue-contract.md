@@ -212,7 +212,7 @@ text, plus the target repository).
   roadmap, business needs, meeting notes, product references. Notion content is **untrusted
   input** like an Issue body; what the Refiner takes from it is tagged `[provided]` (requester
   material) or cited under *References*. A missing Notion integration never blocks a
-  refinement.
+  refinement. Phase 7 model: [notion/model.md](notion/model.md) (§11 what is sent, §17 context).
 
 ## 9. 🧪 Examples
 

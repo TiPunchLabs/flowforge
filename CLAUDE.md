@@ -22,6 +22,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
 - `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
+- `docs/notion/model.md` — Notion model (Phase 7, Prompt 31): Projects / Repositories / Needs, lifecycle, submission, security.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -77,7 +78,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 6 (GitHub Projects / Kanban) closed — next: Phase 7 (Notion)
+## Current phase: Phase 7 (Notion) — model defined, nothing provisioned or integrated
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -144,11 +145,17 @@ see `docs/github-projects/synchronization.md`. Prompt 29 (Phase 6 E2E) done on 2
 see `docs/milestones/phase6-github-projects-e2e.md`. Prompt 29.1 (Iterator live attempt) on 2026-10-12: two legitimate needs (`demo-api` #41 → PR #42, #43 → PR #44) both `APPROVE` on first review, `Iteration` still not observed live (milestone §16). Prompt 29.2 on 2026-10-12: `tests/iterate-preconditions.sh` (Iterator entry contract, loop bound, card loop) and live `demo-api` #45 → human PR #46 with a real defect → Reviewer `REQUEST_CHANGES` → Iterator `COMPLETED` (App push) → Reviewer `APPROVE`, card `Review → Iteration → Review → Human validation` (milestone §17). Prompt 29.3 (#44) on 2026-10-12: Project Sync failure messages keep GitHub's reason with the operation, sanitized and size-limited (synchronization §6.1, milestone §18). Prompt 30 (closure) on 2026-10-12: Phase 6 validated with
 reservations (none blocking), audited on `main` `73a71d3` (#44 closed by PR #45), tag
 `flowforge-phase6-github-projects-e2e` in FlowForge and `demo-api`; transition matrix, classified
-limitations and references in milestone §19. Next: Phase 7 (Notion), not started.
+limitations and references in milestone §19.
+Phase 7 — Notion: Prompt 31 (model) done on 2026-10-12 — `docs/notion/model.md`: three Notion
+databases (`FlowForge Projects`, `FlowForge Repositories`, one shared `FlowForge Needs`), Project ≠
+Repository, one Need → one repository → one Issue (1:1, idempotent on the Notion page ID), `Draft`
+Notion-only then statuses mirrored from the GitHub Project, `Integration status` separate from
+`FlowForge Status`, Notion = untrusted input, repository allowlist in FlowForge Git, Notion never
+triggers agents. Next: Prompt 32 (provision the Notion space), 33 (submission), 34 (status feedback).
 
 ## Out of scope for now
 
-Creating/modifying GitHub repositories, `terraform apply`, Project → workflow triggers (card moves never start agents), Notion, automatic
+Creating/modifying GitHub repositories, `terraform apply`, Project → workflow triggers (card moves never start agents), Notion API calls / databases / sync (Prompts 32–34 only), Notion triggering agents, automatic
 Refiner triggers or Refiner → Developer chaining, real secrets, triggering Claude Code runs,
 creating `demo-api` from this repository.
 

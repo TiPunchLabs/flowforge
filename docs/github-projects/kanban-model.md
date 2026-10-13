@@ -454,7 +454,7 @@ FlowForge       = orchestration of agents                     (doing)
 ```
 
 A future Notion source would create Issues in `Backlog` (E1), like any other source; nothing in
-this model reads from Notion.
+this model reads from Notion. Phase 7 model: [../notion/model.md](../notion/model.md).
 
 ------
 
