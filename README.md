@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phase 4 (Iterator) validated end to end, with reservations ([milestone](docs/milestones/phase4-iterator-e2e.md)); Phase 4.1 (hardening & lifecycle) validated end to end and frozen, with one reservation ([milestone](docs/milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) validated end to end and frozen, with reservations ([milestone](docs/milestones/phase5-refiner-e2e.md)). Next: Phase 6 — GitHub Projects / Kanban (not started).** Nothing here is production-ready.
+> **Status: experimental — Phases 1–6 validated end to end and frozen as tags (Refiner → Developer → Reviewer ⇄ Iterator → human merge, mirrored on a GitHub Project), with reservations listed in each [milestone](docs/milestones/). Latest: Phase 6 — GitHub Projects / Kanban ([milestone](docs/milestones/phase6-github-projects-e2e.md)). Next: Phase 7 — Notion (not started).** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -50,6 +50,7 @@ flowchart TD
     CC --> PR[Branch agent/&lt;n&gt;-&lt;slug&gt;<br/>+ Draft PR]
     PR --> RC[Reviewer ↔ Iterator<br/>review-cycle.yml, ≤ 3 passes]
     RC --> H[Human GitHub approval & merge<br/>enforced by the ruleset]
+    RF & WF & RC & H -. status, one way .-> GP[GitHub Project<br/>FlowForge Development]
 ```
 
 Details: [docs/architecture.md](docs/architecture.md).
@@ -109,9 +110,9 @@ Reviewer APPROVE → cycle APPROVED → PR still Draft and unmerged
 ```
 
 A Reviewer `APPROVE` is an agent verdict posted as a PR comment; it is **not** a GitHub
-approval and does not count for the ruleset. Agent PRs are authored by `github-actions[bot]`,
-which cannot approve its own PRs; no FlowForge workflow approves, merges or enables
-auto-merge. Details: [docs/architecture.md §2.7](docs/architecture.md#27-human-merge-gate-phase-41).
+approval and does not count for the ruleset. Agent PRs are authored by the FlowForge GitHub
+App (`GITHUB_TOKEN` fallback), which cannot approve its own PRs; no FlowForge workflow
+approves, merges or enables auto-merge. Details: [docs/architecture.md §2.7](docs/architecture.md#27-human-merge-gate-phase-41).
 
 ------
 
@@ -176,7 +177,8 @@ agent, self-hosted runners, reconciliation job.
 | GitHub configuration | Terraform + [`integrations/github`](https://registry.terraform.io/providers/integrations/github/latest) provider |
 | Orchestration | GitHub Actions reusable workflows (`workflow_call`) |
 | Agent runtime | Claude Code via [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) (automation mode) |
-| Quality | pre-commit, `terraform fmt` / `validate` |
+| Project board | GitHub Projects (org Project, GraphQL via GitHub CLI) |
+| Quality | pre-commit, `terraform fmt` / `validate` / `test`, actionlint, Bash test suites (`tests/`) |
 
 ------
 
@@ -191,6 +193,7 @@ agent, self-hosted runners, reconciliation job.
 .github/workflows/agent-refine.yml    reusable Refiner workflow (refines one Issue, read-only agent)
 .github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
 .github/scripts/flowforge-refine.sh   Refiner result validation and refined body rendering
+.github/scripts/flowforge-project.sh  GitHub Project sync (one way, best-effort, stale guard)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules
@@ -199,7 +202,10 @@ agents/refiner.md                     generic Refiner agent rules (Phase 5)
 examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module (labels, ruleset…)
 docs/                                 architecture, target onboarding, refined Issue contract, phase plans, milestones
-scripts/                              maintainer helpers (empty for now)
+docs/github-projects/                 Kanban model, Project provisioning, workflow → Project sync
+scripts/github-projects/              maintainer CLI: bootstrap.sh (provision / --check), sync-issue.sh
+config/github-project.json            generated, non-secret Project IDs (written by bootstrap.sh)
+tests/                                offline tests of the workflows' step scripts (run by pre-commit)
 ```
 
 ------
@@ -208,7 +214,8 @@ scripts/                              maintainer helpers (empty for now)
 
 ```bash
 pre-commit install            # once
-pre-commit run --all-files    # whitespace, EOF, YAML, JSON, private keys, terraform fmt/validate, actionlint
+pre-commit run --all-files    # whitespace, EOF, YAML, JSON, private keys, terraform fmt/validate/test,
+                              # actionlint, and the tests/*.sh suites (no network, no token)
 ```
 
 The same hooks run in CI (`.github/workflows/ci.yml`) on every pull
