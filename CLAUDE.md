@@ -82,7 +82,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 7 (Notion) — model defined, space provisioned, nothing integrated
+## Current phase: Phase 7 (Notion) — model defined, space provisioned, submission validated
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -162,7 +162,14 @@ page `FlowForge`, two-way relations, six Needs views; IDs in `config/notion.json
 Project/Repository mismatch that Notion accepts: Prompt 33 must reject it). Provisioning used a
 local maintainer personal access token, never the runtime credential; relation limit and sharing are
 manual UI steps; multi-account collaboration not verified live; see `docs/notion/provisioning.md`.
-Next: Prompt 33 (submission, Notion Bridge identity), 34 (status feedback).
+Prompt 33 (submission) done on 2026-10-14 — `.github/workflows/notion-submit.yml` (`workflow_dispatch`,
+input `notion_page_id`, environment `notion-bridge` limited to `main`) + `.github/scripts/flowforge-notion.sh`:
+validation (coherence first, Git allowlist), one Issue per Need (Notion link guard, Bridge-authored
+marker lookup, per-Need concurrency), dedicated `FlowForge Notion Bridge` App (`issues: write`, one
+repository), no label. Validated live from `main` `0213509`: `NEED-5` → `demo-api` #47 `CREATED` → rerun
+`ALREADY_SUBMITTED`; injection `NEED-6` → #48 in `demo-api` only; mismatch `NEED-4` `REFUSED`; no
+`demo-api` run. Recovery, concurrency and "App not installed" are tests only. See `docs/notion/submission.md`,
+`docs/milestones/phase7-notion-submission.md`. Next: Prompt 34 (status feedback).
 
 ## Out of scope for now
 

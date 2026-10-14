@@ -1,6 +1,6 @@
 # 📤 FlowForge — Notion → GitHub submission
 
-> **Status**: implemented (Phase 7, Prompt 33): workflow, helper, tests. Live validation: see §12.
+> **Status**: implemented and validated live with reservations (Phase 7, Prompt 33, 2026-10-14): see §12.
 > **Scope**: one Need → at most one GitHub Issue, run by a maintainer. No status feedback (Prompt
 > 34), no automatic submission, no webhook, nothing triggered in the target.
 >
@@ -311,8 +311,11 @@ and step scripts with stubbed `curl` and `gh`:
 
 ## 12. 📋 Live validation
 
-Recorded in [`docs/milestones/phase7-notion-submission.md`](../milestones/phase7-notion-submission.md)
-once run.
+Done on 2026-10-14 from `main` `0213509`, recorded in
+[`docs/milestones/phase7-notion-submission.md`](../milestones/phase7-notion-submission.md):
+`NEED-5` → `CREATED` demo-api #47 → rerun `ALREADY_SUBMITTED`; injection `NEED-6` → `CREATED` #48
+in demo-api only; mismatch `NEED-4` → `REFUSED`; no run started in demo-api. Recovery,
+concurrency and "App not installed" are covered by tests only (**NOT VERIFIED LIVE**).
 
 ------
 
