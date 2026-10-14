@@ -118,10 +118,21 @@ jobs:
         id: context
         env:
           READY_LABEL: ${{ inputs.ready_label }}
+          EVENT_NAME: ${{ github.event_name }}
+          SENDER_TYPE: ${{ github.event.sender.type }}
+          SENDER_LOGIN: ${{ github.event.sender.login }}
         # Issue content is untrusted input: it is only read through env/jq, never
         # interpolated with ${{ }} inside the script.
         run: |
           set -euo pipefail
+
+          # agent:ready is human-only. FlowForge's own labels use GITHUB_TOKEN, which starts no
+          # workflow, so a label event sent by a bot can only come from a GitHub App with
+          # issues: write (e.g. the Notion Bridge): refused before any state change.
+          if [[ "$EVENT_NAME" == issues && "$SENDER_TYPE" == Bot ]]; then
+            echo "::error::The '$READY_LABEL' label was applied by a bot ($SENDER_LOGIN); it must be applied by a human. Nothing was changed."
+            exit 1
+          fi
 
           issue="$(gh issue view "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
             --json number,title,state,labels)"

@@ -1,0 +1,184 @@
+# FlowForge — Notion → GitHub submission (Phase 7, Prompt 33).
+#
+# Run by a FlowForge maintainer (workflow_dispatch) for ONE Need of the Notion database
+# "FlowForge Needs" whose requester ticked Submit. It lives in the FlowForge repository only:
+# targets hold no Notion logic and no Notion credential.
+#
+# Flow:  Need (Submit ✔) -> read + validate (Notion runtime integration) -> find or create the
+#        Issue in the Need's target repository (Notion Bridge GitHub App, Issues only)
+#        -> Notion: GitHub Issue, FlowForge Status Backlog, Integration status OK.
+#
+# The Issue carries the raw need and NO label: nothing starts. The Refiner is still dispatched
+# on demand, agent:ready is still applied by a human (docs/notion/submission.md).
+#
+# Results: CREATED, LINKED, ALREADY_SUBMITTED, REFUSED (functional: the run stays green),
+# FAILED (technical: the run fails). One Need = at most one Issue: Notion link guard, marker
+# lookup before creating, one run per Need at a time (concurrency).
+#
+# Secrets and variable of the "notion-bridge" environment (deployment branch: main only):
+# NOTION_TOKEN, NOTION_BRIDGE_PRIVATE_KEY, NOTION_BRIDGE_APP_CLIENT_ID.
+name: FlowForge — Notion submit
+
+on:
+  workflow_dispatch:
+    inputs:
+      notion_page_id:
+        description: The Need to submit (Notion page ID or page URL from FlowForge Needs).
+        type: string
+        required: true
+
+# Nothing by default; each job requests only what it needs.
+permissions: {}
+
+jobs:
+  resolve:
+    name: Resolve the Need
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      page_id: ${{ steps.page.outputs.page_id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The input is untrusted text: only read through env, never interpolated with ${{ }}.
+      - name: Normalise the page ID
+        id: page
+        env:
+          INPUT_PAGE: ${{ inputs.notion_page_id }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/flowforge-notion.sh
+          if page_id="$(flowforge_notion_page_id "$INPUT_PAGE")"; then
+            echo "page_id=$page_id" >> "$GITHUB_OUTPUT"
+            echo "Notion page: $page_id"
+          else
+            echo "::notice::REFUSED: the input is not a Notion page ID or page URL."
+            {
+              echo "### FlowForge — Notion submission"
+              echo "- Result: **REFUSED**"
+              echo "- Reason: the input is not a Notion page ID or page URL."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  submit:
+    name: Submit the Need
+    needs: resolve
+    if: needs.resolve.outputs.page_id != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Secrets are only readable by runs from main (environment deployment-branch rule).
+    environment: notion-bridge
+    # One run per Need at a time, keyed on the canonical ID; different Needs never wait.
+    concurrency:
+      group: notion-submit-${{ needs.resolve.outputs.page_id }}
+      cancel-in-progress: false
+    # The Issue is created in the TARGET repository with the Bridge App token, never with
+    # this repository's GITHUB_TOKEN.
+    permissions:
+      contents: read
+    outputs:
+      result: ${{ steps.report.outputs.result }}
+      issue_url: ${{ steps.report.outputs.issue_url }}
+    env:
+      PAGE_ID: ${{ needs.resolve.outputs.page_id }}
+      FLOWFORGE_NOTION_CONFIG: config/notion.json
+      FLOWFORGE_NOTION_ALLOWLIST: config/notion-allowlist.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare work directory
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/notion-submit"
+          mkdir -m 700 "$work"
+          echo "FLOWFORGE_NOTION_WORK=$work" >> "$GITHUB_ENV"
+
+      - name: Read and validate the Need
+        id: prepare
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$NOTION_TOKEN" ]] || { echo "::error::Secret NOTION_TOKEN is not set in the notion-bridge environment."; exit 1; }
+          source .github/scripts/flowforge-notion.sh
+          flowforge_notion_prepare "$PAGE_ID"
+          result="$(cat "$FLOWFORGE_NOTION_WORK/result")"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          if [[ "$result" == PROCEED ]]; then
+            jq -r '"Project: \(.project)\nRepository: \(.repository)\nNeed: \(.need_id)"' "$FLOWFORGE_NOTION_WORK/submission.json"
+            echo "repository=$(jq -r '.repository' "$FLOWFORGE_NOTION_WORK/submission.json" | cut -d/ -f2)" >> "$GITHUB_OUTPUT"
+            echo "owner=$(jq -r '.repository' "$FLOWFORGE_NOTION_WORK/submission.json" | cut -d/ -f1)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Minted only once the target is validated and allowlisted; scoped to that one
+      # repository and to Issues. Revoked by the action's post step. It fails when the App is
+      # not installed on the target: the next step then reports FAILED with that reason.
+      - name: Create Notion Bridge token
+        id: bridge
+        if: steps.prepare.outputs.result == 'PROCEED'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.NOTION_BRIDGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.NOTION_BRIDGE_PRIVATE_KEY }}
+          owner: ${{ steps.prepare.outputs.owner }}
+          repositories: ${{ steps.prepare.outputs.repository }}
+          permission-issues: write
+
+      # No Notion credential here: GitHub calls only, with the Bridge token.
+      - name: Find or create the Issue
+        if: steps.prepare.outputs.result == 'PROCEED'
+        env:
+          GH_TOKEN: ${{ steps.bridge.outputs.token }}
+          BRIDGE_LOGIN: ${{ steps.bridge.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          source .github/scripts/flowforge-notion.sh
+          flowforge_notion_deliver
+
+      - name: Write the outcome to Notion
+        if: always() && steps.prepare.outcome != 'skipped'
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/flowforge-notion.sh
+          flowforge_notion_finish
+
+      - name: Report
+        id: report
+        if: always() && steps.prepare.outcome != 'skipped'
+        run: |
+          set -euo pipefail
+          w="$FLOWFORGE_NOTION_WORK"
+          result="$(cat "$w/result" 2>/dev/null || echo FAILED)"
+          reason="$(cat "$w/reason" 2>/dev/null || echo "The submission stopped before deciding.")"
+          issue_url="$(cat "$w/issue_url" 2>/dev/null || true)"
+          repository="$(jq -r '.repository' "$w/submission.json" 2>/dev/null || true)"
+          project="$(jq -r '.project' "$w/submission.json" 2>/dev/null || true)"
+          need_id="$(jq -r '.need_id // ""' "$w/need.json" 2>/dev/null || true)"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "issue_url=$issue_url" >> "$GITHUB_OUTPUT"
+          echo "Notion page=$PAGE_ID need=${need_id:--} project=${project:--} repository=${repository:--} result=$result issue=${issue_url:--}"
+          {
+            echo "### FlowForge — Notion submission"
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Notion page | \`$PAGE_ID\` ${need_id:+(\`$need_id\`)} |"
+            echo "| Project | ${project:--} |"
+            echo "| Repository | ${repository:--} |"
+            echo "| Result | **$result** |"
+            echo "| GitHub Issue | ${issue_url:--} |"
+            echo "| Reason | $(printf '%s' "$reason" | tr '|' '/') |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          case "$result" in
+            CREATED | LINKED | ALREADY_SUBMITTED) echo "::notice::$result: $reason" ;;
+            REFUSED) echo "::notice::REFUSED: $reason" ;;
+            *) echo "::error::$result: $reason"; exit 1 ;;
+          esac

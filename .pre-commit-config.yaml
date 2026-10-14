@@ -90,6 +90,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/(agent-develop|agent-refine|agent-iterate|agent-review|review-cycle|agent-lifecycle)\.yml|scripts/flowforge-(project|state)\.sh)|config/github-project\.json|examples/target-repository/.*\.yml|tests/project-sync\.sh)$
+      # Notion -> GitHub submission (Phase 7, Prompt 33): page ID input, guards, validation,
+      # idempotence and recovery, sanitised body, workflow invariants, Developer bot guard.
+      - id: notion-submit
+        name: notion submit tests
+        entry: tests/notion-submit.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/(notion-submit|agent-develop)\.yml|scripts/flowforge-notion\.sh)|config/notion(-allowlist)?\.json|tests/notion-submit\.sh)$
       # Default-branch ruleset (human merge gate): `terraform test` with a mocked provider, no GitHub call.
       - id: target-repository-module-test
         name: target-repository module tests
