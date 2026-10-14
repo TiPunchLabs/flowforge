@@ -660,7 +660,9 @@ Iterator publish job           App token (contents write) for the verified fast-
 - **Optional.** Without `app_client_id`, `GITHUB_TOKEN` delivers (previous behaviour).
 - **Anti-loop rules.** (1) the App has no `issues` permission, so it can never apply
   `agent:ready`; (2) `flowforge-review.yml` ignores every `[bot]` actor, so an Iterator push
-  never starts a Reviewer outside the cycle; (3) the review cycle stays `workflow_dispatch`.
+  never starts a Reviewer outside the cycle; (3) the review cycle stays `workflow_dispatch`;
+  (4) `agent-develop.yml` refuses an `agent:ready` label event sent by a bot, before any state
+  change (Phase 7: the Notion Bridge App holds `issues: write`, [notion/submission.md §9](notion/submission.md)).
 - **Tests.** `tests/developer-delivery.sh` runs the real *Verify delivery request* step on
   throwaway repositories and checks the invariants (Claude cannot push, token minted after
   Claude, no `issues` permission, token used by the push step only).

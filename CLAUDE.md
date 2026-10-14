@@ -12,9 +12,11 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/workflows/review-cycle.yml` — reusable (`workflow_call`) bounded `Reviewer ↔ Iterator` loop, called by targets;
 - `.github/workflows/agent-lifecycle.yml` — reusable (`workflow_call`) terminal Issue state on PR close (`agent:done` on merge);
 - `.github/workflows/agent-refine.yml` — reusable (`workflow_call`) Refiner workflow: refines one Issue, read-only agent;
+- `.github/workflows/notion-submit.yml` — FlowForge-only (`workflow_dispatch`) Notion Need → GitHub Issue submission (Notion Bridge App);
 - `.github/scripts/flowforge-state.sh` — the single implementation of `agent:*` state label transitions;
 - `.github/scripts/flowforge-refine.sh` — Refiner preconditions, result validation, refined body rendering;
 - `.github/scripts/flowforge-project.sh` — the single implementation of the GitHub Project sync (one way, best-effort);
+- `.github/scripts/flowforge-notion.sh` — Notion submission rules: validation, sanitising, marker lookup, write-back;
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`, `refiner.md`),
   independent of any target project;
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
@@ -24,6 +26,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
 - `docs/notion/model.md` — Notion model (Phase 7, Prompt 31): Projects / Repositories / Needs, lifecycle, submission, security.
 - `docs/notion/provisioning.md` — the provisioned Notion space (Prompt 32), `scripts/notion/bootstrap.sh`, IDs, manual UI steps.
+- `docs/notion/submission.md` — Notion → GitHub submission (Prompt 33): workflow, checks, results, idempotence, credentials setup.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -35,7 +38,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | Path | Contains | Must NOT contain |
 |---|---|---|
 | `.github/workflows/` | Reusable workflows for targets + FlowForge's own CI (`ci.yml`) | Target-specific logic |
-| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`, `flowforge-project.sh`) | Target-specific logic, tokens |
+| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`, `flowforge-project.sh`); `flowforge-notion.sh` (checked out by `notion-submit.yml`) | Target-specific logic, tokens |
 | `.github/ISSUE_TEMPLATE/` | Issue forms | — |
 | `agents/` | Generic agent rules | Project-specific conventions (those live in the target's `CLAUDE.md`) |
 | `terraform/` | Root module: provider, one `module` block per target **without its own IaC** | Credentials, backend secrets, targets already onboarded in their own IaC |
@@ -44,7 +47,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | `examples/target-repository/` | Files a target copies (caller workflow) | Logic: callers stay thin |
 | `docs/` | Architecture, phase plans | — |
 | `scripts/` | Maintainer helpers (Bash), e.g. `github-projects/bootstrap.sh`, `github-projects/sync-issue.sh` | Tokens |
-| `config/` | Generated, non-secret IDs (`github-project.json`, `notion.json`, written by the `bootstrap.sh` scripts) | Secrets, hand edits |
+| `config/` | Generated, non-secret IDs (`github-project.json`, `notion.json`, written by the `bootstrap.sh` scripts); `notion-allowlist.json`, the only hand-edited file (reviewed by PR) | Secrets, hand edits of generated files |
 | `tests/` | Tests of the workflows' step scripts (Bash, jq, yq), run by pre-commit | Network or GitHub API calls, tokens |
 
 ## FlowForge vs targets
@@ -186,6 +189,7 @@ tests/label-lifecycle.sh                           # pre-commit hook: agent:* la
 tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
 tests/developer-delivery.sh                        # pre-commit hook: Developer delivery gate (#34)
 tests/project-sync.sh                              # pre-commit hook: Project sync (decision, steps, token)
+tests/notion-submit.sh                             # pre-commit hook: Notion submission (validation, idempotence, bot guard)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 scripts/github-projects/bootstrap.sh --check       # GitHub call (read-only): Project vs model, needs gh scope read:project
 scripts/notion/bootstrap.sh --check                # Notion call (read-only): space vs model, needs NOTION_TOKEN (local)

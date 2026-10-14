@@ -2,8 +2,8 @@
 
 > **Status**: model defined (Phase 7, Prompt 31, 2026-10-12); Notion space **provisioned**
 > (Prompt 32, 2026-10-13: databases, properties, relations, views, test data; see
-> [provisioning.md](provisioning.md)). **Nothing is integrated**: no submission to GitHub (Prompt
-> 33), no status feedback (Prompt 34), no runtime credential, no workflow.
+> [provisioning.md](provisioning.md)). **Submission implemented** (Prompt 33: §10, details in
+> [submission.md](submission.md)); no status feedback yet (Prompt 34).
 >
 > **Planned vs. provisioned**: this document stays the source of truth of the model. Everything in
 > §5 marked Required or Useful is **provisioned**, except where §23 says otherwise; Future and
@@ -393,7 +393,8 @@ FlowForge Needs  (one shared database)
 
 ## 10. 📤 Submission: Draft → GitHub Issue
 
-Specified here, **implemented in Prompt 33**.
+Specified here, **implemented in Prompt 33**: [submission.md](submission.md) (workflow, exact
+checks, results, setup).
 
 ### 10.1 Flow
 
@@ -450,15 +451,18 @@ The **allowlist lives in FlowForge (Git)**, reviewed through pull requests (form
 Prompt 33, e.g. a small file under `config/`). The GitHub identity that creates Issues is,
 moreover, installed only on the target repositories: a second, independent limit.
 
-### 10.4 Identity that creates the Issue (open, Prompt 33)
+### 10.4 Identity that creates the Issue (decided in Prompt 33)
 
 Constraint, whatever the choice: **that identity must not be able to start the Developer.** A
 label applied with `GITHUB_TOKEN` starts no workflow, but a label applied by a GitHub App
 does. Today the FlowForge App has no `issues` permission precisely so it can never apply
 `agent:ready` ([architecture.md §2.10](../architecture.md#210-delivery-identity-flowforge-github-app-issue-34)).
-Options for Prompt 33: a separate intake App with `issues: write` on the allowlisted targets
-plus a guard that rejects `agent:ready` applied by a bot, or Issue creation from the target's
-own context with `GITHUB_TOKEN`. Not decided here.
+**Decision (Prompt 33)**: a separate GitHub App, **FlowForge Notion Bridge** (Issues read/write,
+Metadata read, installed on the allowlisted targets only), used by the central FlowForge
+workflow; **plus** a guard in `agent-develop.yml` that refuses an `agent:ready` label event sent
+by a bot. The FlowForge App is unchanged. Allowlist: `config/notion-allowlist.json`. Duplicate
+lookup: REST Issues listing (strongly consistent) restricted to Bridge-authored Issues
+([submission.md §7, §9](submission.md)).
 
 ------
 
@@ -476,7 +480,8 @@ own context with `GITHUB_TOKEN`. Not decided here.
 | Notion page URL + page ID | Issue body, source line + hidden marker | the traceability key (§14) |
 | `Need ID` | Issue body, source line | `NEED-12` |
 
-Shape of the body (illustrative; Prompt 33 fixes it):
+Shape of the body (illustrative; the format fixed by Prompt 33 is in
+[submission.md §5](submission.md#5--the-issue)):
 
 ```markdown
 <!-- flowforge:notion-page-id=<uuid> -->
@@ -744,11 +749,11 @@ nothing more:
 | Edits to a submitted Need's text are not propagated | accepted, by design (§13) |
 | Submission is run by a maintainer (`workflow_dispatch`), not automatic | POC choice (§10.2) |
 | Notion → GitHub status latency depends on the reconciler schedule | Prompt 34 |
-| Identity that creates Issues, without the power to start agents | **open**, Prompt 33 (§10.4) |
-| Allowlist format and location | **open**, Prompt 33 |
-| Strongly consistent duplicate lookup | **open**, Prompt 33 (§14) |
+| Identity that creates Issues, without the power to start agents | decided, Prompt 33: Notion Bridge App + bot guard (§10.4) |
+| Allowlist format and location | decided, Prompt 33: `config/notion-allowlist.json` |
+| Strongly consistent duplicate lookup | decided, Prompt 33: REST listing, Bridge-authored Issues only (§14) |
 | Notion plan features (guests, relation filters) not verified on the target workspace | Prompt 32: not verified (single account); relation limit and sharing are manual UI steps ([provisioning.md §6](provisioning.md#6--manual-ui-steps-not-available-through-the-api)) |
-| Project ↔ Repository consistency of a Need | Prompt 32: **Notion accepts a mismatch** (tested); Prompt 33 must reject it |
+| Project ↔ Repository consistency of a Need | Prompt 32: **Notion accepts a mismatch** (tested); rejected at submission (Prompt 33) |
 | Refiner reading Notion context | Future (§17) |
 
 ------
@@ -784,4 +789,4 @@ Provisioned on 2026-10-13 by `scripts/notion/bootstrap.sh`, details in
 
 > **Document created on**: 2026-10-12
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.1 — Phase 7, Prompt 32 (space provisioned, §23 records the differences; nothing integrated)
+> **Version**: 1.2 — Phase 7, Prompt 33 (open decisions of §10.4 / §21 closed; submission in submission.md)
