@@ -155,7 +155,9 @@ from the workflows' own events (kanban-model.md §11), so transient incidents ne
 ### 5.4 Completed at, Last synced
 
 - `Completed at`: set only for `Done` (merge time, else close time); cleared if the Need leaves
-  `Done` (reopened). Not set for `Closed`.
+  `Done` (reopened). Not set for `Closed`. Compared as a **UTC instant at minute precision**:
+  Notion may return the value with another offset and without seconds, so a textual comparison
+  rewrote it on every run (found live, Prompt 34; see the milestone).
 - `Last synced`: UTC (`…Z`), stamped by **every** write, and only by a write (§7).
 
 ------
@@ -187,7 +189,9 @@ FAILED: Reading the Project card / pull requests of TiPunchLabs/demo-api#47 fail
 ```
 
 The step summary has one row per Need: Need, Repository, Issue, Previous status, New status,
-Pull request, Result, Notion write-back (`OK` / `none` / `FAILED`), Message.
+Pull request, Result, Notion write-back (`OK` / `none` / `FAILED`), Message, Changed (the
+properties written, Integration fields included), Completed at (as read from Notion → as kept or
+written). The log line carries the same `changed=[…]` and `completed=<read>-><written>`.
 
 ------
 
@@ -198,7 +202,7 @@ Pull request, Result, Notion write-back (`OK` / `none` / `FAILED`), Message.
   reach Notion, because no event reaches Notion — only the state the Project sync already
   guarded (its stale guard, synchronization.md §4).
 - **No write when nothing differs**, so a rerun is `UNCHANGED` and `Last synced` keeps the time
-  of the last real change. Dates are compared normalised (Notion returns `….000+00:00`).
+  of the last real change. Dates are compared as UTC instants at minute precision (§5.4).
 - **No deletion**: a valid PR link is never removed; no Need is created; `GitHub Issue`, `Title`,
   `Need`, `Priority`, `Project`, `Target repository` are never written.
 - **One reconciler at a time** (`concurrency: notion-sync`). The submission writes only Needs
@@ -305,4 +309,4 @@ real helper and workflow, Notion and GitHub stubbed:
 
 > **Document created on**: 2026-10-14
 > **Author**: FlowForge maintainers (with Claude Code)
-> **Version**: 1.0 — Phase 7, Prompt 34
+> **Version**: 1.1 — Phase 7, Prompt 34 (Completed at compared as an instant; changes reported)

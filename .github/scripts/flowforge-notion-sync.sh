@@ -68,7 +68,8 @@ flowforge_notion_sync_parse_need() {
 
 # Prints the decision for one Need: $1 = Need record (collect), $2 = GitHub record (read, or
 # "null" when the Need was refused before any GitHub call). Output (compact JSON):
-#   {result, props, message, previous_status, status, previous_pr, pr}
+#   {result, props, message, previous_status, status, previous_pr, pr, changed,
+#    previous_completed, completed}
 # props is the Notion properties object to PATCH; {} = nothing to write.
 #
 # Rules (docs/notion/feedback.md §5): FlowForge Status mirrors the Project Status, except an
@@ -80,6 +81,17 @@ flowforge_notion_sync_decide() {
   jq -nc --argjson n "$1" --argjson g "$2" --argjson statuses "$FLOWFORGE_NOTION_SYNC_STATUSES" \
     --argjson max "$FLOWFORGE_NOTION_MESSAGE_MAX" '
     def norm: if . == null or . == "" then "" else sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") end;
+    # A date as a UTC instant at minute precision: Notion may return another offset than the
+    # one written, and stores minutes. Unparsable values stay strings (never equal: rewritten).
+    def instant: norm
+      | if . == "" then ""
+        else (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})(T(?<t>[0-9]{2}:[0-9]{2})(:[0-9]{2})?(?<z>Z|[+-][0-9]{2}:[0-9]{2})?)?$") // null) as $c
+        | if $c == null then .
+          else ("\($c.d)T\($c.t // "00:00"):00Z" | fromdateiso8601)
+               - (($c.z // "Z") | if . == "Z" then 0
+                  else (.[0:1] | if . == "-" then -1 else 1 end) * ((.[1:3] | tonumber) * 3600 + (.[4:6] | tonumber) * 60) end)
+          end
+        end;
     def sel($v): {select: (if $v == "" then null else {name: $v} end)};
     def errprops($m): if $n.integration == "Error" and $n.message == $m then {}
       else {"Integration status": {select: {name: "Error"}},
@@ -89,7 +101,8 @@ flowforge_notion_sync_decide() {
         (if $nc != "ok" then $nc else $gc end | ascii_upcase) as $r
         | ((if $nc != "ok" then $n.reason else $g.reason end) as $why | "\($r): \($why)" | .[0:$max]) as $m
         | {result: $r, props: (if $n.writable then errprops($m) else {} end), message: $m,
-           previous_status: $n.status, status: $n.status, previous_pr: $n.pr, pr: $n.pr}
+           previous_status: $n.status, status: $n.status, previous_pr: $n.pr, pr: $n.pr,
+           changed: [], previous_completed: ($n.completed // ""), completed: ($n.completed // "")}
       else
         $n.repository as $repo
         | $g.issue as $i | $g.item as $item
@@ -112,7 +125,7 @@ flowforge_notion_sync_decide() {
            + (if $status != $n.status then {"FlowForge Status": sel($status)} else {} end)
            + (if $attention != $n.attention then {"Attention": sel($attention)} else {} end)
            + (if $pr != $n.pr then {"Pull request": {url: (if $pr == "" then null else $pr end)}} else {} end)
-           + (if $completed != ($n.completed | norm)
+           + (if ($completed | instant) != ($n.completed | instant)
               then {"Completed at": {date: (if $completed == "" then null else {start: $completed} end)}}
               else {} end)) as $changes
         | ([ (if $changes | has("FlowForge Status") then
@@ -133,7 +146,9 @@ flowforge_notion_sync_decide() {
            else {} end) as $props
         | {result: (if ($props | length) > 0 then "UPDATED" else "UNCHANGED" end), props: $props,
            message: (if ($props | length) > 0 then $m else "UNCHANGED: Notion already matches GitHub." end),
-           previous_status: $n.status, status: $status, previous_pr: $n.pr, pr: $pr}
+           previous_status: $n.status, status: $status, previous_pr: $n.pr, pr: $pr,
+           changed: ($changes | keys), previous_completed: $n.completed,
+           completed: (if $changes | has("Completed at") then $completed else $n.completed end)}
       end'
 }
 
@@ -367,6 +382,7 @@ flowforge_notion_sync_apply() {
     fi
     jq -c --argjson d "$decision" --arg result "$result" --arg writeback "$writeback" --arg m "$message" '
       {need_id, id, repository, issue, previous_status: $d.previous_status, status: $d.status,
+       changed: $d.changed, previous_completed: $d.previous_completed, completed: $d.completed,
        pr: $d.pr, result: $result, writeback: $writeback, message: $m}' <<<"$line" >> "$w/results.jsonl"
   done < "$w/needs.jsonl"
 }
@@ -383,10 +399,10 @@ flowforge_notion_sync_report() {
     elif [[ ! -s "$w/results.jsonl" ]]; then
       echo "- No Need with a GitHub Issue to sync."
     else
-      echo "| Need | Repository | Issue | Previous status | New status | Pull request | Result | Notion write-back | Message |"
-      echo "|---|---|---|---|---|---|---|---|---|"
+      echo "| Need | Repository | Issue | Previous status | New status | Pull request | Result | Notion write-back | Message | Changed | Completed at (Notion → written) |"
+      echo "|---|---|---|---|---|---|---|---|---|---|---|"
       jq -r 'def c: tostring | gsub("\\|"; "/") | if . == "" then "-" else . end;
-        "| \(.need_id | c) | \(.repository | c) | \(.issue | sub(".*/issues/"; "#") | c) | \(.previous_status | c) | \(.status | c) | \(.pr | c) | **\(.result)** | \(.writeback) | \(.message | c) |"' \
+        "| \(.need_id | c) | \(.repository | c) | \(.issue | sub(".*/issues/"; "#") | c) | \(.previous_status | c) | \(.status | c) | \(.pr | c) | **\(.result)** | \(.writeback) | \(.message | c) | \(.changed // [] | join(", ") | c) | \(.previous_completed // "" | c) → \(.completed // "" | c) |"' \
         "$w/results.jsonl"
       jq -rs '"\nTotals: " + (group_by(.result) | map("\(.[0].result) \(length)") | join(", "))' "$w/results.jsonl"
     fi
@@ -398,7 +414,7 @@ flowforge_notion_sync_report() {
   [[ -s "$w/results.jsonl" ]] || { echo "No Need with a GitHub Issue to sync."; return 0; }
   while IFS= read -r line; do
     echo "$line"
-  done < <(jq -r '"Notion feedback need=\(.need_id // "-") page=\(.id) issue=\(.issue // "-") \(.previous_status // "-") -> \(.status // "-") pr=\(if (.pr // "") == "" then "-" else .pr end) result=\(.result) writeback=\(.writeback): \(.message)"' "$w/results.jsonl")
+  done < <(jq -r '"Notion feedback need=\(.need_id // "-") page=\(.id) issue=\(.issue // "-") \(.previous_status // "-") -> \(.status // "-") pr=\(if (.pr // "") == "" then "-" else .pr end) result=\(.result) writeback=\(.writeback) changed=[\(.changed // [] | join(","))] completed=\(if (.previous_completed // "") == "" then "-" else .previous_completed end)->\(if (.completed // "") == "" then "-" else .completed end): \(.message)"' "$w/results.jsonl")
   if jq -e -s 'any(.result == "FAILED")' "$w/results.jsonl" >/dev/null; then
     failed=1
     echo "::error::At least one Need FAILED to sync: see the summary."
