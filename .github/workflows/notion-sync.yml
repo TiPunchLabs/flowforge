@@ -1,0 +1,137 @@
+# FlowForge — GitHub → Notion status feedback (Phase 7, Prompt 34).
+#
+# A central, one-way reconciler. It lives in the FlowForge repository only: targets keep no
+# Notion logic, no Notion credential and need no change. It reads the CURRENT state written by
+# the FlowForge workflows (Project card Status / Attention, Issue close reason, the pull request
+# that closes the Issue) and mirrors it on the Need, writing only what differs.
+#
+# Flow:  Needs with a GitHub Issue (Notion runtime integration, read)
+#        -> correlation checks (Notion side: Issue URL, Target repository, enabled, allowlist)
+#        -> Issue + Project item + linked PRs (Notion Bridge App, read-only token)
+#        -> correlation checks (GitHub side: Bridge author, page marker)
+#        -> Notion: FlowForge Status, Attention, Pull request, Completed at, Integration *
+#
+# Results per Need: UPDATED, UNCHANGED (no write), REFUSED (Integration fields only, the run
+# stays green), FAILED (technical: the run fails). See docs/notion/feedback.md.
+#
+# Secrets and variable of the "notion-bridge" environment (deployment branch: main only):
+# NOTION_TOKEN, NOTION_BRIDGE_PRIVATE_KEY, NOTION_BRIDGE_APP_CLIENT_ID.
+name: FlowForge — Notion sync
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      notion_page_id:
+        description: Sync one Need only (Notion page ID or page URL); empty = every submitted Need.
+        type: string
+        required: false
+        default: ""
+
+# Nothing by default; the job requests only what it needs.
+permissions: {}
+
+# One reconciler at a time; a queued run reads fresher state, so the older pending one may go.
+concurrency:
+  group: notion-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Sync Needs from GitHub
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Secrets are only readable by runs from main (environment deployment-branch rule).
+    environment: notion-bridge
+    # GitHub reads use the Bridge App token, never this repository's GITHUB_TOKEN.
+    permissions:
+      contents: read
+    env:
+      FLOWFORGE_NOTION_CONFIG: config/notion.json
+      FLOWFORGE_NOTION_ALLOWLIST: config/notion-allowlist.json
+      FLOWFORGE_PROJECT_CONFIG: config/github-project.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The input is untrusted text: only read through env, never interpolated with ${{ }}.
+      - name: Prepare work directory
+        env:
+          INPUT_PAGE: ${{ inputs.notion_page_id }}
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/notion-sync"
+          mkdir -m 700 "$work"
+          echo "FLOWFORGE_NOTION_WORK=$work" >> "$GITHUB_ENV"
+          source .github/scripts/flowforge-notion.sh
+          if [[ -n "${INPUT_PAGE:-}" ]]; then
+            if page_id="$(flowforge_notion_page_id "$INPUT_PAGE")"; then
+              printf '%s\n' "$page_id" > "$work/target"
+              echo "One Need: $page_id"
+            else
+              printf 'The input is not a Notion page ID or page URL.\n' > "$work/input-refused"
+            fi
+          fi
+
+      - name: Read the Needs
+        id: collect
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "$NOTION_TOKEN" ]] || { echo "::error::Secret NOTION_TOKEN is not set in the notion-bridge environment."; exit 1; }
+          if [[ -s "$FLOWFORGE_NOTION_WORK/input-refused" ]]; then
+            echo "::notice::REFUSED: $(cat "$FLOWFORGE_NOTION_WORK/input-refused")"
+            echo "### FlowForge — Notion feedback"$'\n'"- Result: **REFUSED** — $(cat "$FLOWFORGE_NOTION_WORK/input-refused")" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          source .github/scripts/flowforge-notion-sync.sh
+          flowforge_notion_sync_collect "$(cat "$FLOWFORGE_NOTION_WORK/target" 2>/dev/null || true)"
+          if jq -e -s 'any(.check == "ok")' "$FLOWFORGE_NOTION_WORK/needs.jsonl" >/dev/null; then
+            echo "github=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+      # Read-only, scoped to the allowlisted repositories of the FlowForge owner. Revoked by the
+      # action's post step. The Bridge App gains no write permission for the feedback.
+      - name: Create Notion Bridge read token
+        id: bridge
+        if: steps.collect.outputs.github == 'true'
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.NOTION_BRIDGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.NOTION_BRIDGE_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          permission-issues: read
+          permission-pull-requests: read
+          permission-organization-projects: read
+
+      # No Notion credential here: GitHub reads only, with the Bridge read token.
+      - name: Read GitHub state
+        if: steps.collect.outputs.github == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bridge.outputs.token }}
+          BRIDGE_LOGIN: ${{ steps.bridge.outputs.app-slug }}[bot]
+        run: |
+          set -euo pipefail
+          source .github/scripts/flowforge-notion-sync.sh
+          flowforge_notion_sync_read_github
+
+      - name: Write to Notion
+        if: always() && steps.collect.outputs.run == 'true'
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/flowforge-notion-sync.sh
+          flowforge_notion_sync_apply
+
+      - name: Report
+        if: always() && steps.collect.outcome != 'skipped' && steps.collect.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source .github/scripts/flowforge-notion-sync.sh
+          flowforge_notion_sync_report

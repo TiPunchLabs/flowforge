@@ -200,7 +200,7 @@ resolve, never silently re-created.
 |---|---|---|---|
 | `NOTION_TOKEN` | read Needs / Projects / Repositories, update Need properties | secret of environment `notion-bridge` (FlowForge repo) | Notion **internal integration** `FlowForge Notion Runtime`: *Read content* + *Update content* only; connected to the 3 FlowForge databases only |
 | `NOTION_BRIDGE_APP_CLIENT_ID` | identify the Bridge App | variable of `notion-bridge` | not secret |
-| `NOTION_BRIDGE_PRIVATE_KEY` | mint the Bridge installation token | secret of `notion-bridge` | App `FlowForge Notion Bridge`: **Issues: read & write**, Metadata: read; installed on **selected** repositories = the allowlisted targets |
+| `NOTION_BRIDGE_PRIVATE_KEY` | mint the Bridge installation token | secret of `notion-bridge` | App `FlowForge Notion Bridge`: **Issues: read & write**, Metadata: read; since Prompt 34 also **Pull requests: read** and **Organization Projects: read** for the status feedback ([feedback.md §8](feedback.md#8--permissions-and-credentials)), the submission token still asks for `issues: write` only; installed on **selected** repositories = the allowlisted targets |
 | FlowForge App | agent delivery, Project sync | unchanged | **unchanged**: no `issues` permission (anti-loop) |
 | Provisioning token (Prompt 32) | — | revoked | never reused |
 
@@ -222,9 +222,10 @@ resolve, never silently re-created.
 
 1. Organization **TiPunchLabs → Settings → Developer settings → GitHub Apps → New GitHub App**:
    name `FlowForge Notion Bridge`, homepage the FlowForge repository, **Webhook: inactive**.
-2. **Repository permissions**: *Issues*: **Read and write**; *Metadata*: Read (mandatory). Nothing
-   else: no Contents, Pull requests, Actions, Workflows, Administration. No organization or account
-   permission. No event subscription.
+2. **Repository permissions**: *Issues*: **Read and write**; *Metadata*: Read (mandatory);
+   *Pull requests*: **Read-only** (added in Prompt 34). **Organization permissions**: *Projects*:
+   **Read-only** (added in Prompt 34, the FlowForge Project is private). Nothing else: no Contents,
+   Actions, Workflows, Administration, no write on Pull requests or Projects. No event subscription.
 3. *Where can this App be installed*: **Only on this account**.
 4. Generate a **private key**; note the **Client ID**.
 5. **Install App → TiPunchLabs → Only select repositories →** the allowlisted targets (today

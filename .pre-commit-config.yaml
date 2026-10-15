@@ -98,6 +98,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/(notion-submit|agent-develop)\.yml|scripts/flowforge-notion\.sh)|config/notion(-allowlist)?\.json|tests/notion-submit\.sh)$
+      # GitHub -> Notion feedback (Phase 7, Prompt 34): mapping, PR, correlation, injection,
+      # idempotence, failures, workflow invariants (credential separation, read-only token).
+      - id: notion-sync
+        name: notion sync tests
+        entry: tests/notion-sync.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/notion-sync\.yml|scripts/flowforge-notion(-sync)?\.sh)|config/(notion(-allowlist)?|github-project)\.json|examples/target-repository/.*\.yml|tests/notion-sync\.sh)$
       # Default-branch ruleset (human merge gate): `terraform test` with a mocked provider, no GitHub call.
       - id: target-repository-module-test
         name: target-repository module tests

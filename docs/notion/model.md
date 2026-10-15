@@ -3,7 +3,8 @@
 > **Status**: model defined (Phase 7, Prompt 31, 2026-10-12); Notion space **provisioned**
 > (Prompt 32, 2026-10-13: databases, properties, relations, views, test data; see
 > [provisioning.md](provisioning.md)). **Submission implemented** (Prompt 33: §10, details in
-> [submission.md](submission.md)); no status feedback yet (Prompt 34).
+> [submission.md](submission.md)). **Status feedback implemented** (Prompt 34: §12, details in
+> [feedback.md](feedback.md)).
 >
 > **Planned vs. provisioned**: this document stays the source of truth of the model. Everything in
 > §5 marked Required or Useful is **provisioned**, except where §23 says otherwise; Future and
@@ -511,7 +512,10 @@ Page body, attachments (`Context`), `Business reason`, Notion comments and discu
 
 ## 12. 📥 Status feedback: GitHub → Notion
 
-Specified here, **implemented in Prompt 34**. One way, best-effort, like the Project sync.
+Specified here, **implemented in Prompt 34** ([feedback.md](feedback.md)): a central reconciler,
+`.github/workflows/notion-sync.yml` (schedule + `workflow_dispatch`), one way. `Closed` also covers
+an Issue closed as *duplicate*; `Completed at` is cleared if a `Done` Issue is reopened; a valid
+`Pull request` link is never cleared.
 
 | Notion property | Source in GitHub |
 |---|---|
@@ -529,7 +533,7 @@ Rules:
 
 - **Never blocks delivery.** A failed Notion write is a warning, never a failed agent run.
 - **Never read back** by FlowForge to decide anything.
-- **Recommended shape (Prompt 34 decides)**: a **central** reconciler in the FlowForge
+- **Shape (decided in Prompt 34, feedback.md §2)**: a **central** reconciler in the FlowForge
   repository that reads Needs with a `GitHub Issue`, reads their Issue / Project item / PR, and
   rewrites only what differs. It keeps the Notion token in **one** place; pushing from every
   agent run would spread the token to every target's workflows.
@@ -748,7 +752,7 @@ nothing more:
 | One Need = one repository | accepted for the POC |
 | Edits to a submitted Need's text are not propagated | accepted, by design (§13) |
 | Submission is run by a maintainer (`workflow_dispatch`), not automatic | POC choice (§10.2) |
-| Notion → GitHub status latency depends on the reconciler schedule | Prompt 34 |
+| GitHub → Notion status latency depends on the reconciler schedule | decided, Prompt 34: every 10 min + on demand; short states may be skipped (feedback.md §12) |
 | Identity that creates Issues, without the power to start agents | decided, Prompt 33: Notion Bridge App + bot guard (§10.4) |
 | Allowlist format and location | decided, Prompt 33: `config/notion-allowlist.json` |
 | Strongly consistent duplicate lookup | decided, Prompt 33: REST listing, Bridge-authored Issues only (§14) |
@@ -764,7 +768,7 @@ nothing more:
 |---|---|---|
 | **32 — Provision the FlowForge Notion space** ✅ 2026-10-13 | the three databases with the properties of §5, the six views of §18, permissions of §7 (documented, manual), IDs in `config/notion.json`; runtime connection deferred to Prompt 33 | §4, §5, §7, §18 |
 | **33 — Notion → GitHub submission** | validation, allowlist, sanitisation, Issue creation, idempotence, `Integration status` | §10, §11, §14, §15, §19 |
-| **34 — GitHub → Notion status** | mirror of `FlowForge Status`, `Attention`, `Pull request`, `Completed at` | §12, §13, §15 |
+| **34 — GitHub → Notion status** ✅ 2026-10-14 ([feedback.md](feedback.md)) | mirror of `FlowForge Status`, `Attention`, `Pull request`, `Completed at` | §12, §13, §15 |
 
 Out of scope for all three: Notion triggering agents, Notion applying labels, Notion merging,
 bidirectional sync of all fields.
@@ -789,4 +793,4 @@ Provisioned on 2026-10-13 by `scripts/notion/bootstrap.sh`, details in
 
 > **Document created on**: 2026-10-12
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.2 — Phase 7, Prompt 33 (open decisions of §10.4 / §21 closed; submission in submission.md)
+> **Version**: 1.3 — Phase 7, Prompt 34 (status feedback implemented in feedback.md; §12 / §21 updated)
