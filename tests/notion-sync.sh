@@ -147,6 +147,16 @@ done_need="$(nrec status=Done pr="$PR_URL" completed=2026-10-14T10:04:59.000+00:
 done_gh="$(grec state=closed reason=completed closed=2026-10-14T10:05:00Z item="$(card Done)" prs="[$(pr 52 MERGED 2026-10-14T10:04:59Z)]")"
 d="$(decide "$done_need" "$done_gh")"
 expect "idempotence: Done synced twice → UNCHANGED, no write (Notion date format)" "$(field '[.result, (.props | length)] | join("/")' "$d")" "UNCHANGED/0"
+# Completed at as Notion may return it (live, Prompt 34: a rerun on Done kept rewriting it):
+# another offset, seconds dropped, both. Same instant at minute precision = no write.
+for back in "2026-10-14T06:04:00.000-04:00" "2026-10-14T10:04:00.000+00:00" "2026-10-14T12:04:59+02:00" "2026-10-14T10:04Z"; do
+  d="$(decide "$(nrec status=Done pr="$PR_URL" completed="$back" message="SYNCED: Need completed.")" "$done_gh")"
+  expect "idempotence: Completed at returned as $back → UNCHANGED" "$(field '[.result, (.changed | length)] | join("/")' "$d")" "UNCHANGED/0"
+done
+d="$(decide "$(nrec status=Done pr="$PR_URL" completed=2026-10-14T10:05:00.000+00:00 message="SYNCED: Need completed.")" "$done_gh")"
+expect "idempotence: Completed at one minute off → rewritten, change reported" "$(field '[.result, (.changed | join(","))] | join("/")' "$d")" "UPDATED/Completed at"
+d="$(decide "$(nrec status=Done pr="$PR_URL" completed=garbage message="SYNCED: Need completed.")" "$done_gh")"
+expect "idempotence: unparsable Completed at → rewritten" "$(field '.props["Completed at"].date.start' "$d")" 2026-10-14T10:04:59Z
 d="$(decide "$(nrec status=Review pr="$PR_URL" integration=Error message="FAILED: x")" "$(grec item="$(card Review)" prs="[$(pr 52 OPEN)]")")"
 expect "idempotence: a recovered Error is reset to OK" "$(field '[.result, .props["Integration status"].select.name, .message] | join("/")' "$d")" "UPDATED/OK/SYNCED: Notion matches GitHub."
 
@@ -346,6 +356,7 @@ graphql "$c" 47 Done "" "[$(pr 52 MERGED 2026-10-14T10:04:59Z)]"; sync "$c"
 expect "flow: Done + Completed at + PR kept" "$(prop "$c" "FlowForge Status")/$(prop "$c" "Completed at")/$(prop "$c" "Pull request")" "Done/2026-10-14T10:04:59.000+00:00/$PR_URL"
 sync "$c"
 expect "flow: Done rerun → UNCHANGED (Notion date format compared)" "$(res "$c")/$(patches "$c")" "UNCHANGED/0"
+expect "flow: log reports the changed properties and dates" "$(grep -c 'result=UNCHANGED writeback=none changed=\[\] completed=2026-10-14T10:04:59.000+00:00->2026-10-14T10:04:59.000+00:00' "$c/log")" 1
 expect "flow: report green" "$(cat "$c/exit")" 0
 expect "flow: summary lists the Need" "$(grep -c '| NEED-9 | TiPunchLabs/demo-api | #47 | Done | Done |' "$c/summary")" 1
 expect "flow: tokens never printed" "$(cat "$c/log" "$c/summary" "$c/w"/* 2>/dev/null | grep -cE "$TOKEN|$GH_TOKEN_VALUE" || true)" 0
