@@ -180,8 +180,8 @@ closing PR with a read-only Bridge App token, mirrors `FlowForge Status`, `Atten
 author + page marker); results `UPDATED` / `UNCHANGED` / `REFUSED` / `FAILED`; targets unchanged. See
 `docs/notion/feedback.md`. Validated live on 2026-10-15 (FlowForge `dcad7e0`, fix PR #53 `4eac3df`):
 `NEED-7` → `demo-api` #49 → Refiner (×3) → Draft PR #50 → `APPROVE` → human merge, Notion Backlog → … → Human
-validation → Done with PR #50 and Completed at; rerun `UNCHANGED`; mismatch `NEED-8` `REFUSED`; schedule,
-all-Needs mode, `Iteration`, `Closed` NOT VERIFIED LIVE. See `docs/milestones/phase7-notion-feedback.md`.
+validation → Done with PR #50 and Completed at; rerun `UNCHANGED`; mismatch `NEED-8` `REFUSED`; all-Needs run
+`NEED-5` / `NEED-6` → `Closed`; schedule and `Iteration` NOT VERIFIED LIVE. See `docs/milestones/phase7-notion-feedback.md`.
 
 ## Out of scope for now
 

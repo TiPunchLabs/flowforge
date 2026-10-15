@@ -7,8 +7,9 @@
 > through [`notion-sync.yml`](../../.github/workflows/notion-sync.yml), never by a manual edit. One
 > live defect (rerun on `Done` not idempotent) was found, fixed by PR #53 and re-verified
 > (`UNCHANGED`, `changed=[]`). A controlled Repository mismatch was `REFUSED` with Integration fields
-> only. Reservations (§9): the **schedule**, the all-Needs mode, `Iteration`, `Closed` and the
-> technical failure paths are **NOT VERIFIED LIVE**.
+> only. One all-Needs run then mirrored `Closed` on the two Prompt 33 Needs and left the others
+> untouched (§7.1). Reservations (§9): the **schedule**, `Iteration` and the technical failure paths
+> are **NOT VERIFIED LIVE**.
 >
 > **Prerequisites**: [feedback.md](../notion/feedback.md), [model.md](../notion/model.md) §12,
 > [submission.md](../notion/submission.md), [phase7-notion-submission.md](phase7-notion-submission.md).
@@ -36,6 +37,8 @@
                                                                    rerun UNCHANGED  38794178314, 38794226674
  NEED-8 → #47 but target mismatch-test-repo                       REFUSED          38794291809 (written)
                                                                    REFUSED          38794339980 (no write)
+ all Needs (no input)                                              NEED-5, NEED-6 → Closed; NEED-7 UNCHANGED;
+                                                                   NEED-8 REFUSED, no write   38801660365
 ```
 
 ------
@@ -158,6 +161,26 @@ Pull request / Completed at empty, Integration status `Pending`.
   still 2026-10-14T16:55:31Z).
 - The run stays green with a notice (REFUSED is functional, not technical).
 
+### 7.1 All-Needs run — `Closed` and the data source query
+
+`workflow_dispatch` **without** `notion_page_id`, run `38801660365` (`4eac3df`, success,
+2026-10-15 20:24:18 UTC): the data source query returned the **4** Needs whose `GitHub Issue` is set,
+and nothing else.
+
+| Need | Issue | GitHub | Notion | Result | Written |
+|---|---|---|---|---|---|
+| `NEED-5` | `demo-api` #47 | closed *not planned* 2026-10-14 16:55:31, no card | `Backlog → Closed`, "SYNCED: Need closed (Issue closed as not_planned)." | **UPDATED** | `FlowForge Status` + Integration fields |
+| `NEED-6` | `demo-api` #48 | closed *not planned* 2026-10-14 16:55:34, no card | `Backlog → Closed`, same message | **UPDATED** | `FlowForge Status` + Integration fields |
+| `NEED-7` | `demo-api` #49 | Done, PR #50 merged | `Done → Done`, PR #50, `Completed at` 18:48 | **UNCHANGED** | nothing |
+| `NEED-8` | claims #47, target `mismatch-test-repo` | — | `Draft → Draft`, refusal already recorded | **REFUSED** | nothing |
+
+- `Closed`, not `Done`, for Issues closed *as not planned*; no `Completed at` set for them.
+- No unexpected write: `changed=[FlowForge Status]` on NEED-5 / NEED-6 only (their Integration
+  message moved from the Prompt 33 `CREATED: …` to `SYNCED: …`, as designed); `changed=[]` and
+  `writeback=none` for NEED-7 and NEED-8. The run stayed green with the REFUSED notice.
+- The Prompt 33 evidence of NEED-5 / NEED-6 stays in [phase7-notion-submission.md](phase7-notion-submission.md);
+  their Notion status now mirrors the closed Issues.
+
 ------
 
 ## 8. 🔐 Security and secrets
@@ -177,10 +200,10 @@ Pull request / Completed at empty, Integration status `Pending`.
 
 | Item | Status | Covered by |
 |---|---|---|
-| **Schedule** (`*/10`): no `schedule` run fired between the merge (17:41 UTC) and closing (all 17 runs `workflow_dispatch`, workflow `active`) | **NOT VERIFIED LIVE** | trigger declared, workflow invariants tests |
-| **All-Needs mode** (no `notion_page_id`: data source query, pagination) | **NOT VERIFIED LIVE** | tests |
+| **Schedule** (`*/10`): no `schedule` run fired between the merge (17:41 UTC) and closing (all 18 runs `workflow_dispatch`, workflow `active`) | **NOT VERIFIED LIVE** | trigger declared, workflow invariants tests |
+| All-Needs mode | ✅ verified live (§7.1); **pagination** (> 100 Needs) NOT VERIFIED LIVE | tests |
 | **`Iteration`** in Notion (Reviewer approved on the first review) | **NOT VERIFIED LIVE** | tests; Project-side Iteration observed in Phase 6 §17 |
-| **`Closed`** (Issue closed as not planned / duplicate) | **NOT VERIFIED LIVE** | tests — see §10 |
+| `Closed` | ✅ verified live for *not planned* (§7.1); *duplicate* NOT VERIFIED LIVE | tests |
 | `Attention = Blocked / Max iterations / Failed` | **NOT VERIFIED LIVE** | tests |
 | `FAILED` paths (Notion / GitHub down, write-back error, missing Bridge permission) | **NOT VERIFIED LIVE** | tests |
 | Other refusals (author / marker mismatch, deleted Issue, disabled repository alone, not allowlisted) | **NOT VERIFIED LIVE** | tests (Repository mismatch refused live, §7) |
@@ -191,11 +214,8 @@ Pull request / Completed at empty, Integration status `Pending`.
 
 ## 10. 📌 Follow-ups
 
-- **The first all-Needs run will move two Prompt 33 Needs.** `demo-api` #47 (`NEED-5`) and #48
-  (`NEED-6`) are closed *as not planned* (2026-10-14 16:55 UTC) with no Project card: the first
-  scheduled or all-Needs run will set both Needs to `Closed` (correct mirror, feedback.md §5.1;
-  their Prompt 33 evidence stays in that milestone). It is also the natural live check of `Closed`
-  and of the all-Needs mode. `NEED-8` will be `REFUSED` again without a write.
+- Every scheduled run will now read the 4 linked Needs; all are stable (`UNCHANGED` / `REFUSED`
+  without write), so a correct schedule produces no Notion write until a Need moves.
 - Watch the schedule; if it still does not fire, look at the repository's Actions schedule
   (GitHub may delay or skip `schedule` runs) before relying on it.
 
@@ -219,11 +239,11 @@ Pull request / Completed at empty, Integration status `Pending`.
 | 12 | Free text cannot change the destination | §4 (rewritten body), §8, tests |
 | 13 | No secret leak | §8 |
 | 14 | Automated tests pass | `tests/notion-sync.sh` 101 checks, pre-commit, CI on PR #52 / #53 |
-| 15–19 | Live path, PR, Human validation, Done, idempotent rerun | §4–§6 |
+| 15–19 | Live path, PR, Human validation, Done, idempotent rerun | §4–§6; `Closed` and all-Needs mode §7.1 |
 | 20 | Documentation | [feedback.md](../notion/feedback.md), [model.md](../notion/model.md) §12, this milestone |
 
 ------
 
 > **Document created on**: 2026-10-15
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.0 — Phase 7, Prompt 34
+> **Version**: 1.1 — Phase 7, Prompt 34 (all-Needs run, Closed verified live)
