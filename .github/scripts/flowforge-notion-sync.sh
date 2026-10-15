@@ -107,13 +107,14 @@ flowforge_notion_sync_decide() {
            else "" end) as $pr
         | (if $status == "Done" then (($merged.mergedAt // $i.closed_at // $n.completed) | norm)
            else "" end) as $completed
-        | {}
-          + (if $status != $n.status then {"FlowForge Status": sel($status)} else {} end)
-          + (if $attention != $n.attention then {"Attention": sel($attention)} else {} end)
-          + (if $pr != $n.pr then {"Pull request": {url: (if $pr == "" then null else $pr end)}} else {} end)
-          + (if $completed != ($n.completed | norm)
-             then {"Completed at": {date: (if $completed == "" then null else {start: $completed} end)}}
-             else {} end) as $changes
+        # Parenthesised: jq 1.7 binds `as` to the last term of a sum only.
+        | ({}
+           + (if $status != $n.status then {"FlowForge Status": sel($status)} else {} end)
+           + (if $attention != $n.attention then {"Attention": sel($attention)} else {} end)
+           + (if $pr != $n.pr then {"Pull request": {url: (if $pr == "" then null else $pr end)}} else {} end)
+           + (if $completed != ($n.completed | norm)
+              then {"Completed at": {date: (if $completed == "" then null else {start: $completed} end)}}
+              else {} end)) as $changes
         | ([ (if $changes | has("FlowForge Status") then
                 (if $status == "Done" then "Need completed."
                  elif $status == "Human validation" then "Need reached Human validation."
