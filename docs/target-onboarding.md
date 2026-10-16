@@ -82,9 +82,15 @@ gh variable set FLOWFORGE_PROJECT_NUMBER --org TiPunchLabs --visibility selected
 # (Organization settings → Secrets and variables → Actions → the entry → Repository access).
 ```
 
-> 💡 **Note**: `demo-api` currently holds `FLOWFORGE_APP_PRIVATE_KEY` and
-> `FLOWFORGE_APP_CLIENT_ID` as **repository** secret/variable. It works the same way; move
-> them to the organization when a second target is onboarded.
+> 💡 **Note**: since the second target `demo-api-2` was onboarded (2026-10-15), all four are
+> organization-level with *Selected repositories* = `demo-api`, `demo-api-2`; the former
+> `demo-api` repository copies of `FLOWFORGE_APP_*` were deleted. A repository-level value
+> would override the organization one: never recreate them per repository.
+>
+> 💡 **Note**: a target whose repository does not exist yet (created in the same Terraform
+> state as its module block) needs a first `terraform apply -target=<repository resource>`,
+> then the push of `main`, then the full apply: the module reads the repository through a data
+> source, and its ruleset forbids the initial direct push.
 
 ------
 
