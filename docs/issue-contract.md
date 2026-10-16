@@ -202,8 +202,10 @@ request* are kept. The Refiner never edits comments, other Issues or Pull Reques
 
 ## 8. 🔌 Future sources: GitHub Projects and Notion
 
-Not implemented, and **no dependency**: the Refiner works with GitHub alone (an Issue or a
-text, plus the target repository).
+The Refiner **reading** these sources is not implemented, and there is **no dependency**: it
+works with GitHub alone (an Issue or a text, plus the target repository). Since Phase 6 the
+workflows write the Project status, and since Phase 7 a Notion Need can create the raw Issue
+([notion/submission.md](notion/submission.md)); the Refiner still sees only that Issue.
 
 - **GitHub Projects**: the Project status follows the states of §6 as defined in
   [github-projects/kanban-model.md](github-projects/kanban-model.md); it is finer than the

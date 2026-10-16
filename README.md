@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phases 1–6 validated end to end and frozen as tags (Refiner → Developer → Reviewer ⇄ Iterator → human merge, mirrored on a GitHub Project), with reservations listed in each [milestone](docs/milestones/). Latest: Phase 6 — GitHub Projects / Kanban ([milestone](docs/milestones/phase6-github-projects-e2e.md)). Current: Phase 7 — Notion: [model](docs/notion/model.md) defined, Notion space [provisioned](docs/notion/provisioning.md), nothing integrated.** Nothing here is production-ready.
+> **Status: experimental — Phases 1–7 validated end to end, with reservations listed in each [milestone](docs/milestones/) (Notion Need → Issue → Refiner → Developer → Reviewer ⇄ Iterator → human merge, mirrored on a GitHub Project and back to Notion). Latest: Phase 7 — Notion ([closure](docs/milestones/phase7-notion-complete.md)). Next: Phase 8, not defined yet.** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the
@@ -130,7 +130,7 @@ Phase 1 goal: make the flow above work end to end on one POC repository, `demo-a
 | Phase 4.1 — Hardening & lifecycle | ✅ Done, validated E2E, one reservation — tag `flowforge-phase4.1-hardening-e2e` ([milestone](docs/milestones/phase41-hardening-e2e.md)) |
 | Phase 5 — Refiner agent | ✅ Done, validated E2E, with reservations — tag `flowforge-phase5-refiner-e2e` ([milestone](docs/milestones/phase5-refiner-e2e.md)) |
 | Phase 6 — GitHub Projects / Kanban | ✅ Done, validated E2E, with reservations — tag `flowforge-phase6-github-projects-e2e` ([milestone](docs/milestones/phase6-github-projects-e2e.md)) |
-| Phase 7 — Notion | 🚧 **Current** — model defined ([model](docs/notion/model.md)), space provisioned ([provisioning](docs/notion/provisioning.md)); nothing integrated |
+| Phase 7 — Notion | ✅ Done, validated E2E, with reservations ([closure](docs/milestones/phase7-notion-complete.md)); tag `flowforge-phase7-notion-e2e` after the closure merge |
 
 Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
 label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
@@ -165,16 +165,20 @@ Model ([kanban-model.md](docs/github-projects/kanban-model.md)), provisioning
 (#39 main E2E, #45 `Review → Iteration → Review`) and closed in Prompt 30
 ([milestone](docs/milestones/phase6-github-projects-e2e.md) §19).
 
-**Phase 7 — Notion (current, provisioned, not integrated)**: a shared Notion `Needs` database where people
-without GitHub can write a need in plain words for a Project and one of its repositories. A
-submitted Need becomes **one** raw GitHub Issue in `Backlog`; its status flows back to Notion,
-one way. Notion never starts an agent, applies a label or merges; the Refiner still structures
-the need. Model: [docs/notion/model.md](docs/notion/model.md) (Prompt 31); the three databases,
-relations and views exist ([provisioning.md](docs/notion/provisioning.md), Prompt 32). **Not
-implemented yet**: submission (Prompt 33), status feedback (Prompt 34).
+**Phase 7 — Notion (done)**: a shared Notion `Needs` database where people without GitHub can
+write a need in plain words for a Project and one of its repositories. A maintainer submits it
+(`notion-submit.yml`): it becomes **one** raw GitHub Issue in `Backlog`, created by the dedicated
+Notion Bridge App. A central reconciler (`notion-sync.yml`, scheduled + on demand) mirrors its
+status, PR and completion back to Notion, one way. Notion never starts an agent, applies a label
+or merges; the Refiner still structures the need and a human still applies `agent:ready` and
+merges. Model ([model.md](docs/notion/model.md)), provisioning
+([provisioning.md](docs/notion/provisioning.md)), submission ([submission.md](docs/notion/submission.md)),
+feedback ([feedback.md](docs/notion/feedback.md)); validated live on `demo-api` and `demo-api-2`
+with two contributors and two Projects, closed in Prompt 36
+([milestone](docs/milestones/phase7-notion-complete.md)).
 
 **Future (not implemented)**: QA agent, Documentation
-agent, self-hosted runners, reconciliation job.
+agent, self-hosted runners, GitHub Project reconciliation job (the Notion reconciler exists).
 
 ------
 
@@ -202,6 +206,10 @@ agent, self-hosted runners, reconciliation job.
 .github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
 .github/scripts/flowforge-refine.sh   Refiner result validation and refined body rendering
 .github/scripts/flowforge-project.sh  GitHub Project sync (one way, best-effort, stale guard)
+.github/workflows/notion-submit.yml   FlowForge-only Notion Need → GitHub Issue submission (Notion Bridge App)
+.github/workflows/notion-sync.yml     FlowForge-only GitHub → Notion status feedback (central reconciler)
+.github/scripts/flowforge-notion.sh   Notion submission rules (validation, sanitising, marker lookup)
+.github/scripts/flowforge-notion-sync.sh  Notion feedback (correlation, mapping, idempotent write-back)
 .github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
 agents/developer.md                   generic Developer agent rules
 agents/reviewer.md                    generic Reviewer agent rules
@@ -211,11 +219,12 @@ examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module (labels, ruleset…)
 docs/                                 architecture, target onboarding, refined Issue contract, phase plans, milestones
 docs/github-projects/                 Kanban model, Project provisioning, workflow → Project sync
-docs/notion/                          Notion model and space provisioning (Phase 7)
+docs/notion/                          Notion model, provisioning, submission, feedback (Phase 7)
 scripts/github-projects/              maintainer CLI: bootstrap.sh (provision / --check), sync-issue.sh
 scripts/notion/                       maintainer CLI: bootstrap.sh (provision / --check), seed-test-data.sh
 config/github-project.json            generated, non-secret Project IDs (written by bootstrap.sh)
 config/notion.json                    generated, non-secret Notion IDs (written by scripts/notion/bootstrap.sh)
+config/notion-allowlist.json          repositories Notion submissions may target (hand-edited, reviewed by PR)
 tests/                                offline tests of the workflows' step scripts (run by pre-commit)
 ```
 

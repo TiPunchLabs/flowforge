@@ -30,6 +30,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/notion/provisioning.md` — the provisioned Notion space (Prompt 32), `scripts/notion/bootstrap.sh`, IDs, manual UI steps.
 - `docs/notion/submission.md` — Notion → GitHub submission (Prompt 33): workflow, checks, results, idempotence, credentials setup.
 - `docs/notion/feedback.md` — GitHub → Notion status feedback (Prompt 34): transport, mapping, anti-corruption, results, permissions.
+- `docs/milestones/phase7-notion-complete.md` — Phase 7 closure (Prompt 36): final architecture, sources of truth, reservations, exit criteria.
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -85,7 +86,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 7 (Notion) — submission, feedback and multi-project validated
+## Current phase: Phase 7 (Notion) done — PHASE 7 VALIDATED WITH RESERVATIONS; next: Phase 8 (not defined yet)
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -188,6 +189,11 @@ guest), cross-project `NEED-11` `REFUSED`; `NEED-14` → `demo-api` #51 → PR #
 both `APPROVE` → human merge → `Done` (written by a scheduled run, first live schedule evidence); `NEED-12` stopped at
 `Ready`; reruns and all-Needs `UNCHANGED`, no cross-repository write. `Refining` in Notion, one `Developing` and
 `Iteration` NOT VERIFIED LIVE. See `docs/milestones/phase7-notion-multiproject-e2e.md`.
+Prompt 36 (closure) done on 2026-10-16, audited on `main` `af22a70`: **PHASE 7 VALIDATED WITH RESERVATIONS**, no blocking
+reservation; documentation aligned (README, `docs/architecture.md` §2.12 / §5.9, model, provisioning, onboarding §7);
+sources of truth, identities re-audit, anti-corruption, idempotence, reservations and exit criteria in
+`docs/milestones/phase7-notion-complete.md`; tag `flowforge-phase7-notion-e2e` on the closure merge commit (maintainer).
+**Next: Phase 8**, not defined yet.
 
 ## Out of scope for now
 
