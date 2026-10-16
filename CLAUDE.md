@@ -85,7 +85,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 7 (Notion) — model defined, space provisioned, submission validated
+## Current phase: Phase 7 (Notion) — submission, feedback and multi-project validated
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -182,6 +182,12 @@ author + page marker); results `UPDATED` / `UNCHANGED` / `REFUSED` / `FAILED`; t
 `NEED-7` → `demo-api` #49 → Refiner (×3) → Draft PR #50 → `APPROVE` → human merge, Notion Backlog → … → Human
 validation → Done with PR #50 and Completed at; rerun `UNCHANGED`; mismatch `NEED-8` `REFUSED`; all-Needs run
 `NEED-5` / `NEED-6` → `Closed`; schedule and `Iteration` NOT VERIFIED LIVE. See `docs/milestones/phase7-notion-feedback.md`.
+Prompt 35 (multi-contributor / multi-project E2E) done on 2026-10-16 (FlowForge `53f62c0`, PR #55 allowlists the
+second target `TiPunchLabs/demo-api-2`, own IaC, org-level credentials): 2 Notion Projects, 2 contributors (member +
+guest), cross-project `NEED-11` `REFUSED`; `NEED-14` → `demo-api` #51 → PR #53 and `NEED-13` → `demo-api-2` #1 → PR #2,
+both `APPROVE` → human merge → `Done` (written by a scheduled run, first live schedule evidence); `NEED-12` stopped at
+`Ready`; reruns and all-Needs `UNCHANGED`, no cross-repository write. `Refining` in Notion, one `Developing` and
+`Iteration` NOT VERIFIED LIVE. See `docs/milestones/phase7-notion-multiproject-e2e.md`.
 
 ## Out of scope for now
 
