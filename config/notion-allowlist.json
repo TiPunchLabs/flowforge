@@ -1,6 +1,7 @@
 {
   "description": "Repositories the Notion submission (notion-submit.yml) may create Issues in. Routing truth: a Need's Target repository must be listed here. Hand-edited, reviewed by pull request. See docs/notion/submission.md.",
   "repositories": [
-    "TiPunchLabs/demo-api"
+    "TiPunchLabs/demo-api",
+    "TiPunchLabs/demo-api-2"
   ]
 }
