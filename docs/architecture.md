@@ -1,6 +1,6 @@
 # 🏗️ FlowForge — Architecture
 
-> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Phase 6 — GitHub Projects / Kanban done: validated end to end with reservations and frozen as tag `flowforge-phase6-github-projects-e2e` ([milestone](milestones/phase6-github-projects-e2e.md) §19); model defined in [github-projects/kanban-model.md](github-projects/kanban-model.md) (Prompt 26), Project provisioned ([github-projects/provisioning.md](github-projects/provisioning.md), Prompt 27), synchronised one way from the workflows ([github-projects/synchronization.md](github-projects/synchronization.md), Prompt 28, §2.11); Phase 7 (Notion) is next and not started; Notion appears below only as a future source. Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
+> **Status**: Phases 1–4 done (Foundation, Developer E2E, Reviewer E2E, Iterator E2E — with reservations, see [milestone](milestones/phase4-iterator-e2e.md)). Phase 4.1 (hardening & lifecycle) done: validated E2E with one reservation and frozen as tag `flowforge-phase4.1-hardening-e2e` (§2.8, [milestone](milestones/phase41-hardening-e2e.md)). Phase 5 (Refiner) done: validated end to end with reservations and frozen as tag `flowforge-phase5-refiner-e2e` (§2.9, [milestone](milestones/phase5-refiner-e2e.md)). Phase 6 — GitHub Projects / Kanban done: validated end to end with reservations and frozen as tag `flowforge-phase6-github-projects-e2e` ([milestone](milestones/phase6-github-projects-e2e.md) §19); model defined in [github-projects/kanban-model.md](github-projects/kanban-model.md) (Prompt 26), Project provisioned ([github-projects/provisioning.md](github-projects/provisioning.md), Prompt 27), synchronised one way from the workflows ([github-projects/synchronization.md](github-projects/synchronization.md), Prompt 28, §2.11); Phase 7 — Notion done: validated end to end with reservations ([milestone](milestones/phase7-notion-complete.md)); Notion Need → Issue submission and GitHub → Notion feedback, both central in FlowForge (§2.12, §5.9). Describes the target design; see [phase-1.md](phase-1.md) for what exists today.
 
 ------
 
@@ -49,6 +49,10 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Refined Issue contract | `docs/issue-contract.md` | Format of an executable Issue, `Ready` definition, `agent:needs-clarification` (Phase 5) |
 | Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`, `flowforge-lifecycle.yml`, `flowforge-refine.yml`) |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
+| FlowForge-only workflow | `.github/workflows/notion-submit.yml` | Notion Need → one GitHub Issue, through the Notion Bridge App; runs in FlowForge only, environment `notion-bridge` (§2.12) |
+| FlowForge-only workflow | `.github/workflows/notion-sync.yml` | Central reconciler: GitHub Project / Issue / PR → Need status in Notion, one way (§2.12) |
+| Notion helpers | `.github/scripts/flowforge-notion.sh`, `flowforge-notion-sync.sh` | Submission validation and idempotence; feedback correlation, mapping and write-back |
+| Notion allowlist | `config/notion-allowlist.json` | The repositories a Notion submission may target; hand-edited, reviewed by PR |
 
 ------
 
@@ -582,11 +586,8 @@ user / external source
     Developer ─► Draft PR ─► Reviewer ⇄ Iterator (≤ 3) ─► human approval + merge ─► agent:done
 ```
 
-Target, later (Phase 6 and beyond, **not implemented**):
-
-```text
-Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► FlowForge orchestration
-```
+Since Phase 7 a raw Issue can also come from a Notion Need (§2.12); the Refiner still reads the
+Issue only, never Notion, and is still started on demand.
 
 | Decision | Choice | Why |
 |---|---|---|
@@ -596,7 +597,7 @@ Notion / GitHub Project / user ─► Refiner ─► executable Issue ─► Flo
 | Verdicts | `READY` / `NEEDS_CLARIFICATION` / `BLOCKED` | Same style as the other agents; refinement verdict, not a pipeline result |
 | Non-invention | Every added statement is tagged `[provided]` / `[observed]` / `[assumption]` / `[recommended]` / `[missing]` | An assumption never reads as a requirement |
 | Code access | Read-only; no branch, commit, push or PR | The Refiner prepares work, it does not do it |
-| External sources | GitHub only; Notion and GitHub Projects are future, optional sources | No dependency on an integration that does not exist |
+| External sources | GitHub only: a Notion Need reaches the Refiner only as the Issue the submission created (Phase 7) | The agent never holds a Notion credential; Notion text stays untrusted Issue content |
 
 #### 2.9.1 Execution (Prompt 22)
 
@@ -700,6 +701,30 @@ workflow event ──► flowforge-state.sh   (labels: triggers + guards, unchan
 - **Best-effort**: a sync failure is a warning + job summary line, never a failed agent run.
 - **Never Project → workflow**: no workflow listens to Project events (tested).
 
+### 2.12 Notion intake and feedback (Phase 7)
+
+Details: [notion/model.md](notion/model.md), [notion/submission.md](notion/submission.md),
+[notion/feedback.md](notion/feedback.md); validation: [milestones/phase7-notion-complete.md](milestones/phase7-notion-complete.md).
+
+```text
+Notion Need (Submit ✔) ──► notion-submit.yml (FlowForge, maintainer dispatch) ──► 1 Issue in the target
+                              checks → allowlist → Bridge App token (1 repository, issues: write)
+target workflows (unchanged) ──► labels + GitHub Project card
+GitHub Project / Issue / PR ──► notion-sync.yml (FlowForge, schedule + dispatch) ──► Need status in Notion
+                              read-only Bridge token, two-sided correlation, writes only what differs
+```
+
+- **Central**: both workflows run in FlowForge only; a target receives no Notion logic and no Notion
+  secret. `NOTION_TOKEN` and the Bridge App key live in the FlowForge environment `notion-bridge`
+  (deployments from `main` only).
+- **One way each**: Notion → GitHub is the initial Issue creation only; GitHub → Notion is status
+  feedback only. Edits made later on either side are not propagated the other way.
+- **Identity**: a dedicated **FlowForge Notion Bridge** App (`issues: write`, `pull_requests: read`,
+  `organization_projects: read`), separate from the FlowForge App, which keeps no `issues`
+  permission. Issues are created without any label: Notion never starts an agent.
+- **Correlation**: one Need ↔ one Issue, keyed by the Notion page ID (Bridge-authored marker in the
+  Issue body + `GitHub Issue` URL on the Need, both checked on every sync).
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
@@ -764,6 +789,8 @@ FlowForge will publish tags and targets will pin a tag or commit SHA.
 | Bounded Iterator | `iteration_number <= max_iterations`, ceiling 3, checked before any checkout; stale review (`head_sha` ≠ PR head) refused |
 | Read-only Refiner | Agent job has read permissions only, no push credentials, edit tools disallowed, Bash read-only; a changed workspace fails the run; the `publish` job (`issues: write`) runs no agent; the original request and the record are written by the workflow, not by the model |
 | Project sync identity | FlowForge App token with `organization projects: write` only, minted per sync, revoked before Claude in agent jobs (`always()` step) and at job end elsewhere, never given to Claude; Issue reads via `GITHUB_TOKEN`; the Project never triggers a workflow (§2.11) |
+| Notion credential | `NOTION_TOKEN` only in the FlowForge environment `notion-bridge` (deployment branch `main`), never in a target, never in a job that runs Claude; Notion text is untrusted input, sanitised and capped (§2.12) |
+| Notion Bridge identity | Dedicated App, token minted per run for the single target repository and revoked at job end; issues created without labels, so Notion cannot start an agent; destination from Notion relations checked against the Git allowlist (§2.12) |
 | Bounded review cycle | Static chain with exactly three Iterator jobs (no 4th pass can exist), `max_iterations` checked before any agent, one active cycle per PR (concurrency group); the cycle never merges, never marks a PR ready, never deletes a branch |
 
 ------
@@ -1016,6 +1043,19 @@ rejected agent output is kept as `rejected-output.json`.
   failed run without artifact result.
 - Fields after `verdict` are the agent's structured output; the ones before are added by the
   workflow.
+
+### 5.9 Notion decisions (Phase 7, Prompts 31–36)
+
+| Topic | Decision |
+|---|---|
+| Role of Notion | Business intake and high-level tracking only; GitHub (Issue, Project, Actions, PR) stays the technical source of truth |
+| Granularity | One Need → one target repository → one Issue (1:1, idempotent on the Notion page ID) |
+| Submission trigger | `workflow_dispatch` by a maintainer (`notion-submit.yml`); no automatic trigger in the POC |
+| Issue-creation identity | Separate FlowForge Notion Bridge App; the FlowForge App never gets `issues` (anti-loop) |
+| Routing truth | `config/notion-allowlist.json` in Git + coherence Project ↔ Repository checked before any GitHub credential |
+| Feedback shape | Central reconciler in FlowForge (`notion-sync.yml`, `schedule` + dispatch), not per-target hooks |
+| Contributors | `Requested by` / `Created by` are business data, never mapped to a GitHub identity |
+| Statuses | `Draft` and `Closed` exist only in Notion; `Backlog` … `Done` are mirrored from the GitHub Project; `Integration status` is separate from `FlowForge Status` |
 
 ## 6. 🚧 Open design decisions
 

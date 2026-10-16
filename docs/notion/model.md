@@ -4,7 +4,9 @@
 > (Prompt 32, 2026-10-13: databases, properties, relations, views, test data; see
 > [provisioning.md](provisioning.md)). **Submission implemented** (Prompt 33: §10, details in
 > [submission.md](submission.md)). **Status feedback implemented** (Prompt 34: §12, details in
-> [feedback.md](feedback.md)).
+> [feedback.md](feedback.md)). **Multi-contributor / multi-project validated live** (Prompt 35,
+> [milestone](../milestones/phase7-notion-multiproject-e2e.md)); Phase 7 closed in Prompt 36
+> ([milestone](../milestones/phase7-notion-complete.md)).
 >
 > **Planned vs. provisioned**: this document stays the source of truth of the model. Everything in
 > §5 marked Required or Useful is **provisioned**, except where §23 says otherwise; Future and
@@ -217,7 +219,7 @@ Verdicts: **Required** (Phase 7 POC), **Useful** (cheap, recommended), **Future*
 | `GitHub Issue` | URL | integration | **Required** | Set once at submission; the 1:1 link and idempotence guard (§14) |
 | `Pull request` | URL | integration | **Required** | The Draft PR that closes the Issue, when one exists |
 | `Integration status` | select: *empty*, `Pending`, `OK`, `Error` | integration | **Required** | Technical health of the last integration operation, separate from `FlowForge Status` (§15) |
-| `Integration message` | text | integration | Useful | Sanitised, size-limited reason of the last `Error` |
+| `Integration message` | text | integration | Useful | Sanitised, size-limited `RESULT: reason` of the last integration write (`CREATED`, `SYNCED`, `REFUSED`, …; [submission.md §6](submission.md), [feedback.md §6](feedback.md)) |
 | `Attention` | select: `Needs clarification`, `Blocked`, `Max iterations`, `Failed` | integration | Useful | Mirror of the Project `Attention` (§16) |
 | `Completed at` | date | integration | Useful | Merge date of the PR, or close date of the Issue |
 | `Need ID` | unique ID, prefix `NEED` | Notion | Useful | Human-readable reference (`NEED-12`) for conversations |
@@ -700,8 +702,8 @@ nothing more:
 
 | Credential | Purpose | Storage | Permissions |
 |---|---|---|---|
-| `NOTION_TOKEN` (future) | read Needs, Projects, Repositories; update Need properties | GitHub Actions secret of the **FlowForge** repository (ideally a dedicated environment), set by hand | Notion *internal integration* (a bot, not tied to a person) with **read content** + **update content** only; no *insert content*, no comments, no user information; connected **only** to the three FlowForge databases |
-| GitHub identity for Issue creation (future) | create Issues in allowlisted targets | per §10.4 | `issues: write` on targets only; never able to start the Developer |
+| `NOTION_TOKEN` (since Prompt 33) | read Needs, Projects, Repositories; update Need properties | secret of the FlowForge environment `notion-bridge` (deployment branch `main`), set by hand | Notion *internal integration* (a bot, not tied to a person) with **read content** + **update content** only; no *insert content*, no comments, no user information; connected **only** to the three FlowForge databases |
+| FlowForge Notion Bridge App (since Prompt 33) | create Issues in allowlisted targets; read Issues, PRs and the Project for the feedback | key in the same environment; App installed on the targets only (§10.4) | `issues: write`, `pull_requests: read`, `organization_projects: read`; never able to start the Developer |
 
 - Never committed, never in `.tf`/`.tfvars`/state: Actions secrets stay outside Terraform, as for
   every FlowForge secret.
@@ -756,21 +758,23 @@ nothing more:
 | Identity that creates Issues, without the power to start agents | decided, Prompt 33: Notion Bridge App + bot guard (§10.4) |
 | Allowlist format and location | decided, Prompt 33: `config/notion-allowlist.json` |
 | Strongly consistent duplicate lookup | decided, Prompt 33: REST listing, Bridge-authored Issues only (§14) |
-| Notion plan features (guests, relation filters) not verified on the target workspace | Prompt 32: not verified (single account); relation limit and sharing are manual UI steps ([provisioning.md §6](provisioning.md#6--manual-ui-steps-not-available-through-the-api)) |
+| Notion plan features (guests, relation filters) on the target workspace | Prompt 35: a Notion **guest** created and edited Needs, selected both Projects and both repositories, and appeared in `Requested by`; relation limit and sharing stay manual UI steps ([provisioning.md §6](provisioning.md#6--manual-ui-steps-not-available-through-the-api)) |
 | Project ↔ Repository consistency of a Need | Prompt 32: **Notion accepts a mismatch** (tested); rejected at submission (Prompt 33) |
 | Refiner reading Notion context | Future (§17) |
 
 ------
 
-## 22. 🚀 Hand-off to Prompts 32–34
+## 22. 🚀 Hand-off to Prompts 32–36
 
 | Prompt | Scope | Builds on |
 |---|---|---|
 | **32 — Provision the FlowForge Notion space** ✅ 2026-10-13 | the three databases with the properties of §5, the six views of §18, permissions of §7 (documented, manual), IDs in `config/notion.json`; runtime connection deferred to Prompt 33 | §4, §5, §7, §18 |
-| **33 — Notion → GitHub submission** | validation, allowlist, sanitisation, Issue creation, idempotence, `Integration status` | §10, §11, §14, §15, §19 |
-| **34 — GitHub → Notion status** ✅ 2026-10-14 ([feedback.md](feedback.md)) | mirror of `FlowForge Status`, `Attention`, `Pull request`, `Completed at` | §12, §13, §15 |
+| **33 — Notion → GitHub submission** ✅ 2026-10-14 ([submission.md](submission.md)) | validation, allowlist, sanitisation, Issue creation, idempotence, `Integration status` | §10, §11, §14, §15, §19 |
+| **34 — GitHub → Notion status** ✅ 2026-10-15 ([feedback.md](feedback.md)) | mirror of `FlowForge Status`, `Attention`, `Pull request`, `Completed at` | §12, §13, §15 |
+| **35 — Multi-contributor / multi-project E2E** ✅ 2026-10-16 ([milestone](../milestones/phase7-notion-multiproject-e2e.md)) | two contributors, two Projects, two repositories, cross-project refusal | §6–§8 |
+| **36 — Phase 7 closure** ✅ 2026-10-16 ([milestone](../milestones/phase7-notion-complete.md)) | final audit, reservations, exit criteria | all |
 
-Out of scope for all three: Notion triggering agents, Notion applying labels, Notion merging,
+Out of scope for all of them: Notion triggering agents, Notion applying labels, Notion merging,
 bidirectional sync of all fields.
 
 ------
@@ -786,11 +790,11 @@ Provisioned on 2026-10-13 by `scripts/notion/bootstrap.sh`, details in
 | §18: views sorted by `Last edited` | sorted by `Need ID` descending | a view sort must name a property; avoids an extra `Last edited time` property |
 | §18 *Needs attention*: "`Draft` with `Submit` ticked" | "`Submit` ticked and `GitHub Issue` empty" | the real pending-submission condition, also true when `FlowForge Status` is empty |
 | §5: relation limit 1 | not set by the API | manual UI step (provisioning.md §6) |
-| §7: Notion permissions | documented, not applied (single account) | applied when a second person joins |
-| §19.3: runtime `NOTION_TOKEN` | not created | Prompt 33; provisioning used a separate, local, maintainer personal access token (provisioning.md §9.1) |
+| §7: Notion permissions | documented, not applied in Prompt 32 (single account) | a guest contributor joined in Prompt 35 (§21) |
+| §19.3: runtime `NOTION_TOKEN` | not created in Prompt 32 | created in Prompt 33 (environment `notion-bridge`); provisioning used a separate, local, maintainer personal access token (provisioning.md §9.1) |
 
 ------
 
 > **Document created on**: 2026-10-12
 > **Author**: FlowForge maintainers, with Claude Code
-> **Version**: 1.3 — Phase 7, Prompt 34 (status feedback implemented in feedback.md; §12 / §21 updated)
+> **Version**: 1.4 — Phase 7, Prompt 36 (closure: credentials, guest contributor, hand-off and Integration message aligned)

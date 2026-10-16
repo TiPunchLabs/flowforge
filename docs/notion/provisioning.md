@@ -5,6 +5,11 @@
 > integrated**: no submission to GitHub (Prompt 33), no status feedback (Prompt 34), no runtime
 > Notion credential, no workflow. Ticking `Submit` does nothing yet.
 >
+> 💡 **Since then** (this document stays a Prompt 32 snapshot): submission and feedback are
+> implemented ([submission.md](submission.md), [feedback.md](feedback.md)), the runtime
+> `NOTION_TOKEN` and the Notion Bridge App exist, and multi-account collaboration (a Notion guest)
+> was verified live in Prompt 35 ([milestone](../milestones/phase7-notion-multiproject-e2e.md)).
+>
 > **Prerequisites**: [model.md](model.md) (the model: source of truth for databases, properties,
 > roles, rules), `curl`, `jq`, a Notion personal access token of a FlowForge maintainer (§5).
 
@@ -247,8 +252,8 @@ GitHub Issue, no workflow, no agent, no label. Nothing in FlowForge reads Notion
 
 Only the maintainer's account exists (decision for Prompt 32). Person fields of the test data use
 it. The schema (`Requested by`, `Created by`, `Owners`), the *My Needs* view and the permission
-model (§6) support several contributors; **real multi-account collaboration is NOT VERIFIED
-LIVE**. Rows created through the API show the token's bot (`FlowForge Provisioning`) as
+model (§6) support several contributors; **real multi-account collaboration was NOT VERIFIED
+LIVE here** (verified later, Prompt 35: a guest contributor). Rows created through the API show the token's bot (`FlowForge Provisioning`) as
 `Created by`; *My Needs* still finds them through `Requested by`.
 
 ------

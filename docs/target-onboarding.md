@@ -38,6 +38,7 @@ lists** (App installation, secret/variable visibility) and receives its own thin
 4. Caller workflows
 5. Project rules: CLAUDE.md
 6. Validation
+7. Notion intake (optional)
 
 ------
 
@@ -199,6 +200,20 @@ agents read it first; FlowForge's own rules (`agents/`) stay generic.
 
 ------
 
+## 📥 7. Notion intake (optional)
+
+Only if the target should receive Needs from Notion (Phase 7). The target itself gets **nothing**:
+no Notion secret, no Notion workflow, no extra caller. Three central steps, all required
+([notion/submission.md §8.4](notion/submission.md)):
+
+1. add `owner/name` to `config/notion-allowlist.json` in FlowForge (pull request);
+2. add the repository to the **FlowForge Notion Bridge** App installation;
+3. add its row in Notion `FlowForge Repositories` (`FlowForge enabled` ✔, exactly one `Project`).
+
+Validated with `demo-api-2` (Prompt 35, [milestone](milestones/phase7-notion-multiproject-e2e.md)).
+
+------
+
 > **Document created on**: 2026-10-11
 > **Author**: FlowForge maintainers (Issue #34)
-> **Version**: 1.0
+> **Version**: 1.1 — §7 Notion intake (Phase 7)
