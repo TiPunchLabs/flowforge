@@ -32,26 +32,7 @@ Using a coding agent on one repository is easy. Using it on **many** repositorie
 
 ## 🏗️ Architecture
 
-```mermaid
-flowchart TD
-    FF[FlowForge] --> TF[Terraform<br/>target-repository module]
-    FF --> WF[Reusable GitHub Actions<br/>agent-refine.yml, agent-develop.yml, review-cycle.yml]
-    FF --> AG[Agents<br/>refiner.md, developer.md, reviewer.md, iterator.md]
-
-    TF -- labels, variables, default-branch ruleset --> T[Target repository]
-    T --> N[Raw need, Issue]
-    N -- workflow_dispatch --> RF[Refiner<br/>agent-refine.yml]
-    RF -- READY --> HR[Human applies agent:ready]
-    HR --> I[Issue + agent:ready]
-    I --> C[flowforge-agent.yml]
-    C -- workflow_call --> WF
-    WF --> CC[Claude Code]
-    AG -.rules.-> CC
-    CC --> PR[Branch agent/&lt;n&gt;-&lt;slug&gt;<br/>+ Draft PR]
-    PR --> RC[Reviewer ↔ Iterator<br/>review-cycle.yml, ≤ 3 passes]
-    RC --> H[Human GitHub approval & merge<br/>enforced by the ruleset]
-    RF & WF & RC & H -. status, one way .-> GP[GitHub Project<br/>FlowForge Development]
-```
+![FlowForge architecture: Notion intake, GitHub Projects, agent orchestration with GitHub Actions, pull request and human validation, target repositories](docs/ArchitectureFLOWFORGE.png)
 
 Details: [docs/architecture.md](docs/architecture.md).
 
