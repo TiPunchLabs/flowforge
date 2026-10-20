@@ -208,7 +208,9 @@ Prompt 38 (8.2, requests vs specification): the Refiner reads the target's `SPEC
 (`COMPLIANT` / `EXTENDS` / `NEW_FEATURE` / `MODIFIES` / `CONTRADICTS` / `NEEDS_DECISION` / `NO_SPEC`), cited
 `F/R/S` items, contract changes and a Definition of Done (`agents/refiner.md` §5.4, `refinement.json` v2);
 `flowforge_refine_validate` refuses a `READY` with `CONTRADICTS` / `NEEDS_DECISION` (contract R9); Developer §4.1,
-Reviewer §4.8, Iterator §6.1 read `SPEC.md`; see `docs/spec-contract.md` §7.
+Reviewer §4.8, Iterator §6.1 read `SPEC.md`; see `docs/spec-contract.md` §7. Validated live on 2026-10-20 from the
+feature branch (`demo-api` #57 `COMPLIANT`, #58 `NEW_FEATURE`, #59 `CONTRADICTS` → decision → `MODIFIES`), no Developer
+run; gate and Developer / Reviewer rules NOT VERIFIED LIVE; see `docs/milestones/phase8-spec-refinement.md`.
 
 ## Out of scope for now
 
