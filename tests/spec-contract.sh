@@ -106,7 +106,8 @@ failed() {
 c="$(new_case valid)"; valid_spec | put_spec "$c" owner/target-a
 run "$c" owner/target-a
 expect "T1 valid SPEC.md: PASS, step succeeds" "$(result "$c")" "0/PASS"
-expect "T1 valid SPEC.md: summary line" "$(grep -c 'SPEC contract: \*\*PASS\*\*' "$c/summary")" 1
+expect "T1 valid SPEC.md: summary block (result, repository, ref)" \
+  "$(grep -c '^### SPEC contract: PASS$' "$c/summary")/$(grep -c '^- Repository: `owner/target-a`$' "$c/summary")/$(grep -c '^- Ref: `main` (branch)$' "$c/summary")/$(grep -c '^- Result: \*\*PASS\*\*$' "$c/summary")" 1/1/1/1
 expect "T1 SPEC.md read on the base branch of the calling repository" \
   "$(grep -c '^api -H Accept: application/vnd.github.raw+json repos/owner/target-a/contents/SPEC.md?ref=main$' "$c/gh.log")" 1
 
@@ -138,7 +139,10 @@ run "$c" owner/target-a
 failed "T2 SPEC.md absent: FAILED" "$c" "Missing SPEC.md at repository root"
 expect "T2 diagnostic names the repository and the action" \
   "$(logged "$c" "Repository: owner/target-a")/$(logged "$c" "Create and validate SPEC.md on 'main' before starting an autonomous development task.")" "1/1"
-expect "T2 diagnostic in the job summary" "$(grep -c '^SPEC CONTRACT FAILED$' "$c/summary")" 1
+expect "T2 summary block: FAILED, repository, ref, reason, action" \
+  "$(grep -c '^### SPEC contract: FAILED$' "$c/summary")/$(grep -c '^- Repository: `owner/target-a`$' "$c/summary")/$(grep -c '^- Ref: `main` (branch)$' "$c/summary")/$(grep -c '^- Missing SPEC.md at repository root' "$c/summary")/$(grep -c "^- Create and validate SPEC.md on 'main'" "$c/summary")" 1/1/1/1/1
+expect "T2 summary holds one result block, no copy of the log diagnostic" \
+  "$(grep -c '^### SPEC contract:' "$c/summary")/$(grep -c 'SPEC CONTRACT FAILED' "$c/summary" || true)" 1/0
 
 c="$(new_case empty)"; printf '' | put_spec "$c" owner/target-a
 run "$c" owner/target-a
@@ -221,6 +225,8 @@ expect "T8 repository not readable (404 everywhere): ERROR, not FAILED" \
   "$(result "$c")/$(logged "$c" "::error title=SPEC contract error::")/$(logged "$c" "Missing SPEC.md")" "2/ERROR/1/0"
 expect "T8 diagnostic explains the technical cause" \
   "$(logged "$c" "repository 'owner/hidden' or branch 'main' is not readable")/$(logged "$c" "SPEC.md was not found absent")" "2/1"
+expect "T8 summary block: ERROR, repository, ref and technical reason" \
+  "$(grep -c '^### SPEC contract: ERROR$' "$c/summary")/$(grep -c '^- Repository: `owner/hidden`$' "$c/summary")/$(grep -c '^- Ref: `main` (branch)$' "$c/summary")/$(grep -c "^Reason (technical, no conformity verdict): repository 'owner/hidden' or branch 'main' is not readable" "$c/summary")" 1/1/1/1
 
 c="$(new_case no-branch)"; add_repo "$c" owner/target-a
 run "$c" owner/target-a missing-branch
@@ -232,6 +238,28 @@ for code in 502 403; do
   expect "T8 GitHub API HTTP $code: ERROR with the API reason" \
     "$(result "$c")/$(logged "$c" "GitHub API error while reading SPEC.md: gh: Server Error (HTTP $code)")" "2/ERROR/2"
 done
+
+# --- T12: no GitHub Actions environment (local run of the gate) -----------------------------
+c="$(new_case no-actions-env)"; add_repo "$c" owner/target-a
+run "$c" owner/target-a main GITHUB_STEP_SUMMARY= GITHUB_OUTPUT=
+expect "T12 gate without GITHUB_STEP_SUMMARY / GITHUB_OUTPUT: same exit code, diagnostic on the log" \
+  "$(cat "$c/exit")/$(logged "$c" "SPEC CONTRACT FAILED")/$(wc -c < "$c/summary")" "1/1/0"
+
+# --- T13: local check (bash flowforge-spec.sh [file]): no gh, no Actions -------------------
+local_check() { # dir, file -> "<exit>/<last line>"
+  local out rc=0
+  out="$(cd "$1" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT PATH=/usr/bin:/bin bash "$helper" "$2" 2>&1)" || rc=$?
+  printf '%s/%s' "$rc" "$(tail -n 1 <<<"$out")"
+}
+c="$(new_case local)"; mkdir -p "$c/ws/dir"
+valid_spec > "$c/ws/SPEC.md"; valid_spec | sed '/^## 4\./q' > "$c/ws/no-scenario.md"
+expect "T13 local check, valid SPEC.md (default file): PASS, exit 0" "$(local_check "$c/ws" "")" "0/SPEC contract: PASS"
+expect "T13 local check, no scenario: FAILED, exit 1" "$(local_check "$c/ws" no-scenario.md)" "1/SPEC contract: FAILED"
+expect "T13 local check, file absent: FAILED, exit 1" "$(local_check "$c/ws" absent.md)" "1/SPEC contract: FAILED"
+expect "T13 local check, not a readable file: ERROR, exit 2" "$(local_check "$c/ws" dir)" "2/SPEC contract: ERROR"
+expect "T13 local check reports the reason" \
+  "$(cd "$c/ws" && bash "$helper" no-scenario.md | grep -c 'holds no validation scenario')" 1
+expect "T13 sourcing the helper runs nothing" "$(bash -c "source '$helper'; echo sourced")" sourced
 
 # --- No secret in any diagnostic -------------------------------------------------------------
 expect "token never printed (log or summary)" \
@@ -262,7 +290,9 @@ expect "T9 failing gate makes only read calls (no label, comment nor Issue write
 
 # --- T11: preparing SPEC.md and other agents are not gated ---------------------------------
 expect "T11 only the Developer workflow runs the gate (Refiner, Reviewer, Iterator, cycle, lifecycle, Notion: none)" \
-  "$(grep -lE 'flowforge-spec\.sh|flowforge_spec_' "$wf"/*.yml | xargs -n1 basename | paste -sd, -)" "agent-develop.yml"
+  "$(grep -lE 'flowforge_spec_' "$wf"/*.yml | xargs -n1 basename | paste -sd, -)" "agent-develop.yml"
+expect "T11 the helper is used only by the gate and the Reviewer's local check" \
+  "$(grep -l 'flowforge-spec\.sh' "$wf"/*.yml | xargs -n1 basename | paste -sd, -)" "agent-develop.yml,agent-review.yml"
 expect "T11 gate and helper hold no target-specific name" \
   "$(cat "$helper" "$work/spec.sh" | grep -ciE 'demo-api|tipunchlabs' || true)" 0
 

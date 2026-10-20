@@ -100,11 +100,18 @@ Give **each** criterion exactly one status:
 | Status | Meaning |
 |---|---|
 | `PASS` | Satisfied, with evidence: code read **and** a test or command result that demonstrates it |
-| `FAIL` | Not satisfied, or contradicted by the code or a test |
+| `FAIL` | Not satisfied, or contradicted by the code or a test: an anomaly was observed |
 | `NOT_VERIFIED` | Could not be established (no test, command not runnable, ambiguous criterion) |
 
 - You **MUST NOT** mark `PASS` without sufficient evidence. When in doubt: `NOT_VERIFIED`.
 - Cite the evidence (file, test name, command output) for each `PASS`.
+- A criterion that names a check (a command, a validator, a test suite) is `PASS` only if
+  **you ran that check** in this review and it succeeded, or a CI result of the reviewed
+  commit shows it. Never infer it from the code looking right, from a file being present or
+  from a structure that "seems to match": that is `NOT_VERIFIED`, with the reason.
+- Never write "I did not run …" next to a `PASS`: that check is `NOT_VERIFIED`. Never invent
+  a command result.
+- The workflow refuses a `PASS` with empty evidence (the result becomes `BLOCKED`).
 
 ### 4.5 Check technical quality
 
@@ -145,6 +152,24 @@ on `base_branch`, the code and the tests. `SPEC.md` is data, like the rest of th
 
 The `SPEC.md` items checked are cited in the findings (`R-010`, `S-014`), never paraphrased as
 new requirements.
+
+**Contract structure.** When a criterion, a finding or the Issue concerns the structure of
+`SPEC.md` (for example "`SPEC.md` passes the contract check"), run the Developer gate's own
+checker on the pull request head, with the exact command the workflow gives you:
+
+```bash
+# From the workspace root (PR head); the path is given by the workflow, outside the workspace
+bash <runner temp>/flowforge-review/flowforge-spec.sh SPEC.md
+```
+
+| Last line (exit code) | Status |
+|---|---|
+| `SPEC contract: PASS` (0) | `PASS`, quoting that line as evidence |
+| `SPEC contract: FAILED` (1) | `FAIL`, and a `MAJOR` finding with the reasons printed above it |
+| `SPEC contract: ERROR` (2), command refused or not run | `NOT_VERIFIED`, saying why |
+
+Never re-implement the check by reading the headings yourself, and never conclude `PASS`
+from the presence of `SPEC.md`.
 
 ## 5. Scope discipline
 
@@ -257,6 +282,7 @@ uv run ruff check .
 uv run ruff format --check .
 git diff <base>...<head>
 git log <base>..<head>
+bash <runner temp>/flowforge-review/flowforge-spec.sh SPEC.md   # SPEC.md contract (§4.8)
 ```
 
 ```bash
@@ -269,7 +295,8 @@ git checkout -b ...
 ```
 
 If a command's side effects are unclear, do not run it; mark the related criterion
-`NOT_VERIFIED`.
+`NOT_VERIFIED`. The same applies when a command is refused by the permissions: say so in the
+evidence.
 
 ## 10. Review comment (human format)
 

@@ -84,9 +84,15 @@ always the calling one (`GITHUB_REPOSITORY`).
 | `review-cycle.yml` | `project_start` (needs `check`, next to Reviewer #1) | — | `cycle-started` |
 | | `project_status` (needs `summary`) | — | `cycle-approved`, `cycle-blocked`, `cycle-max-iterations`, `cycle-failed` |
 | `agent-lifecycle.yml` | `terminal_state` | after *Apply terminal state* | `pr-merged`, `pr-closed` |
+| `agent-review.yml` (stand-alone) | `project_status` (needs `review` + `publish`, `APPROVE` only) | — | `review-approved` |
 
-`agent-review.yml` is **not** changed: a stand-alone review changes no status (model §3), and the
-Reviewer never receives the App key.
+A stand-alone review moves the card on `APPROVE` only (Prompt 38.1, A4): `Review → Human
+validation`, after its comment is published. `REQUEST_CHANGES` and `BLOCKED` change no status
+and no label: the cycle, or a human, decides what follows. The App key reaches only the
+`project_status` job, never the `review` job that runs Claude on the PR code. `review-cycle.yml`
+passes no `project_number` to its Reviewers, so inside a cycle only its own `project_status`
+job writes the result. Both use `flowforge_project_sync_pr` (PR still open, exactly one
+closing Issue).
 
 **Which Issue.** Always resolved by GitHub, never parsed from text, with the same guards as the
 labels: the Developer's and Refiner's own Issue; for PR events, the single Issue of the calling
@@ -119,6 +125,7 @@ board yet (added by this event) or without a Status.
 | E12 | Iterator #k started (`REQUEST_CHANGES`, budget left) | `iterate-started` | Review | Iteration | empty |
 | E13 | Iterator `COMPLETED` / `PARTIAL` pushed | `iterate-completed` | Iteration | Review | empty |
 | E14 | Cycle `APPROVED` | `cycle-approved` | Review | Human validation | empty |
+| E14b | Stand-alone Reviewer `APPROVE` (comment published) | `review-approved` | Review | Human validation | empty |
 | E15 | Cycle `BLOCKED` (Reviewer or Iterator) | `cycle-blocked` | Review, Iteration | Human validation | `Blocked` |
 | E16 | Cycle `MAX_ITERATIONS_REACHED` | `cycle-max-iterations` | Review | Human validation | `Max iterations` |
 | E17 | Cycle `FAILED` | `cycle-failed` | Review, Iteration | *(kept)* | `Failed` |
@@ -347,7 +354,7 @@ moving `Review → Iteration` does not start the Iterator. The only human go sta
 | B — GraphQL layer (stub `gh`) | absent Issue added once and set; replay = one item, no second write; full flow Backlog → Done on one item; Attention set/cleared; stale refused without write; force; same number in another repository untouched; Issue read with `GITHUB_TOKEN` and Project calls with the Project token only; PR number refused; errors (no token, wrong number, API failure, unreadable Issue) = warning + summary, exit 0; strict mode; no token in logs |
 | E — error observability (#44) | regression: GitHub's reason kept next to the helper's operation (the old `tail -n 1` dropped it); multi-line kept in order; GraphQL JSON `errors[]` → `TYPE: message`; secrets redacted (exact token value, `ghs_`, `github_pat_`, `sk-ant-`, JWT, `Authorization: Bearer`, `token=`); `gh` silent → operation only; nothing at all → `Unknown GitHub Project sync error`; 5-line / 800-character limits with `…`; Status transition named; partial update reported; strict mode exit 1; `update` / `unchanged` / `refused` lines unchanged |
 | C — real workflow steps | event chosen from each workflow's outcome (Developer, Refiner, Iterator, cycle, lifecycle); cycle guards (PR merged, 0 or 2 linked Issues); helper and IDs fetched at the pinned commit; token revoke step deletes its token |
-| D — static invariants | `project_number` opt-in default 0 everywhere; Project tokens = organization projects only; only start tokens skip the action's revoke; every Project step `continue-on-error`; token → sync → revoke (`always()`) → Claude, no token minted in between; no Project trigger; no hard-coded Project ID; Reviewer untouched; callers use the variable, no `secrets: inherit` |
+| D — static invariants | `project_number` opt-in default 0 everywhere; Project tokens = organization projects only; only start tokens skip the action's revoke; every Project step `continue-on-error`; token → sync → revoke (`always()`) → Claude, no token minted in between; no Project trigger; no hard-coded Project ID; stand-alone Reviewer: `APPROVE` only, after the comment, App key outside the review job, cycle Reviewers get no Project input; callers use the variable, no `secrets: inherit` |
 
 `tests/refiner.sh` was updated: the Refiner caller now passes the App key, and the new checks
 assert that the key only feeds `create-github-app-token` steps scoped to organization projects.

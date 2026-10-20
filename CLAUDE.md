@@ -211,6 +211,11 @@ Prompt 38 (8.2, requests vs specification): the Refiner reads the target's `SPEC
 Reviewer §4.8, Iterator §6.1 read `SPEC.md`; see `docs/spec-contract.md` §7. Validated live on 2026-10-20 from the
 feature branch (`demo-api` #57 `COMPLIANT`, #58 `NEW_FEATURE`, #59 `CONTRADICTS` → decision → `MODIFIES`), no Developer
 run; gate and Developer / Reviewer rules NOT VERIFIED LIVE; see `docs/milestones/phase8-spec-refinement.md`.
+Prompt 38.1 (fixes from `demo-api` #58 / PR #60): the Reviewer never marks `PASS` a check it did not run (empty-evidence
+`PASS` refused) and runs the gate's checker `bash <runner temp>/flowforge-review/flowforge-spec.sh SPEC.md` (exact allowed
+command); the gate writes one `SPEC contract: PASS|FAILED|ERROR` summary block (repository, ref, reason); a stand-alone
+Reviewer `APPROVE` moves the card `Review → Human validation` (opt-in job `project_status`, event `review-approved`,
+`flowforge_project_sync_pr` shared with the cycle); tested by `tests/review-evidence.sh`; NOT VERIFIED LIVE (milestone §9).
 
 ## Out of scope for now
 
@@ -239,7 +244,8 @@ tests/developer-delivery.sh                        # pre-commit hook: Developer 
 tests/project-sync.sh                              # pre-commit hook: Project sync (decision, steps, token)
 tests/notion-submit.sh                             # pre-commit hook: Notion submission (validation, idempotence, bot guard)
 tests/notion-sync.sh                               # pre-commit hook: Notion feedback (mapping, correlation, idempotence)
-tests/spec-contract.sh                             # pre-commit hook: SPEC.md contract gate (structure, errors, isolation, placement)
+tests/spec-contract.sh                             # pre-commit hook: SPEC.md contract gate (structure, errors, isolation, placement, summary, local check)
+tests/review-evidence.sh                           # pre-commit hook: Reviewer evidence (no PASS without proof, SPEC.md checker)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 scripts/github-projects/bootstrap.sh --check       # GitHub call (read-only): Project vs model, needs gh scope read:project
 scripts/notion/bootstrap.sh --check                # Notion call (read-only): space vs model, needs NOTION_TOKEN (local)

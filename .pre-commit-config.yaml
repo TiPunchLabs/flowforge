@@ -44,6 +44,13 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/workflows/(agent-review|review-cycle)\.yml|tests/review-no-op\.sh)$
+      # Reviewer evidence rules (Prompt 38.1, A2): no PASS without evidence, SPEC.md checker.
+      - id: review-evidence
+        name: review evidence tests
+        entry: tests/review-evidence.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/agent-review\.yml|scripts/flowforge-spec\.sh)|agents/reviewer\.md|tests/review-evidence\.sh)$
       # Closed / merged pull request = NO_OP for the Iterator (Issue #22): preconditions,
       # last read before the push, cycle result.
       - id: iterate-no-op

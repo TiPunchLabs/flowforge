@@ -56,6 +56,7 @@ cycle-started|Iteration|Review/
 iterate-started|Review|Iteration/
 iterate-completed|Iteration|Review/
 cycle-approved|Review|Human validation/
+review-approved|Review|Human validation/
 cycle-blocked|Review|Human validation/Blocked
 cycle-blocked|Iteration|Human validation/Blocked
 cycle-max-iterations|Review|Human validation/Max iterations
@@ -79,7 +80,8 @@ expect "A  failure on a card elsewhere: skipped" "$(decide develop-failed Review
 
 # Idempotence: replaying an event on a card that shows it already writes nothing.
 for c in "refine-ready|Ready|" "develop-started|Developing|" "cycle-blocked|Human validation|Blocked" \
-         "pr-merged|Done|" "develop-failed|Developing|Failed" "iterate-completed|Review|"; do
+         "pr-merged|Done|" "develop-failed|Developing|Failed" "iterate-completed|Review|" \
+         "review-approved|Human validation|"; do
   IFS='|' read -r e s a <<<"$c"
   expect "A  replay $e: unchanged" "$(decide "$e" "$s" "$a")" "unchanged $s/$a"
 done
@@ -88,7 +90,7 @@ done
 for c in "refine-ready|Review" "refine-ready|Developing" "refine-needs-clarification|Ready" \
          "develop-started|Review" "develop-started|Human validation" "develop-delivered|Human validation" \
          "refine-started|Done" "iterate-started|Human validation" "cycle-started|Done" "pr-closed|Done" \
-         "iterate-completed|Done" "issue-added|Ready"; do
+         "iterate-completed|Done" "issue-added|Ready" "review-approved|Done"; do
   IFS='|' read -r e s <<<"$c"
   expect "A  stale $e on $s: refused" "$(flowforge_project_decide "$e" "$s" "" | jq -r .action)" refused
 done
@@ -378,6 +380,7 @@ step agent-iterate.yml iterate "Project status (Iterator started)" > "$work/it-s
 step agent-iterate.yml publish "Project status (Iterator result)" > "$work/it-result.sh"
 step review-cycle.yml project_start "Set Review" > "$work/cycle-start.sh"
 step review-cycle.yml project_status "Apply cycle result" > "$work/cycle-result.sh"
+step agent-review.yml project_status "Project status (Reviewer result)" > "$work/review-result.sh"
 step agent-lifecycle.yml terminal_state "Project status (terminal state)" > "$work/life.sh"
 
 # run <dir> <script> [env...]: like Actions (bash -e -o pipefail), helpers fetched via the stub.
@@ -466,6 +469,36 @@ for g in "MERGED|[1]|is MERGED" "OPEN|[]|does not close exactly one Issue" "OPEN
     "$(code "$c")/$(writes "$c")/$(grep -c "$msg" "$c/log")" 0/0/1
 done
 
+# Stand-alone Reviewer (Prompt 38.1, A4): APPROVE -> Human validation, through the same guards.
+c="$(new_case c-review-approve "$(at Review)")"
+pr_fixture "$c" OPEN '[1]'
+run "$c" "$work/review-result.sh"
+expect "C  stand-alone Reviewer APPROVE: Review → Human validation" "$(code "$c")/$(item "$c")" '0/{"status":"Human validation","attention":null}'
+expect "C  stand-alone Reviewer: reason logged" "$(grep -c '\[Reviewer APPROVE\]: update — Status Review → Human validation' "$c/summary")" 1
+run "$c" "$work/review-result.sh"
+expect "C  stand-alone Reviewer APPROVE replayed: unchanged, no write" \
+  "$(code "$c")/$(item "$c")/$(grep -c '\[Reviewer APPROVE\]: unchanged' "$c/log")/$(grep -c 'option=' "$c/gh.log" || true)" \
+  '0/{"status":"Human validation","attention":null}/1/1'
+for g in "MERGED|[1]|is MERGED" "OPEN|[]|does not close exactly one Issue"; do
+  IFS='|' read -r st linked msg <<<"$g"
+  c="$(new_case "c-review-guard-$st-$(jq length <<<"$linked")" "$(at Review)")"
+  pr_fixture "$c" "$st" "$linked"
+  run "$c" "$work/review-result.sh"
+  expect "C  stand-alone Reviewer guard ($st, $(jq length <<<"$linked") Issue(s)): no Project write" \
+    "$(code "$c")/$(writes "$c")/$(grep -c "$msg" "$c/log")" 0/0/1
+done
+c="$(new_case c-review-error "$(at Review)")"
+pr_fixture "$c" OPEN '[1]'
+run "$c" "$work/review-result.sh" FAKE_FAIL=addProjectV2ItemById
+expect "C  stand-alone Reviewer, Project API error: warning, step still succeeds, card unchanged" \
+  "$(code "$c")/$(item "$c")/$(grep -c '^::warning::Project sync owner/target#1 \[review-approved\] failed: could not add or read the Project item' "$c/log")" \
+  '0/{"status":"Review","attention":null}/1'
+c="$(new_case c-review-no-token "$(at Review)")"
+pr_fixture "$c" OPEN '[1]'
+run "$c" "$work/review-result.sh" PROJECT_TOKEN=
+expect "C  stand-alone Reviewer, no Project token: warning, no write" \
+  "$(code "$c")/$(writes "$c")/$(grep -c 'failed: no Project token' "$c/log")" 0/0/1
+
 c="$(new_case c-life-merged "$(at "Human validation")")"
 run "$c" "$work/life.sh" EVENT=pr-merged
 expect "C  PR merged: Human validation → Done" "$(item "$c")" '{"status":"Done","attention":null}'
@@ -480,7 +513,7 @@ expect "C  terminal step: outputs issue + event" \
 expect "C  Developer final step: outputs its state label" "$(grep -c 'echo "state=$label"' <(step agent-develop.yml develop "Enforce Draft PR and set final label"))" 1
 
 # --- D: static invariants ---------------------------------------------------------------------
-project_workflows=(agent-develop.yml agent-refine.yml agent-iterate.yml review-cycle.yml agent-lifecycle.yml)
+project_workflows=(agent-develop.yml agent-refine.yml agent-iterate.yml review-cycle.yml agent-lifecycle.yml agent-review.yml)
 for f in "${project_workflows[@]}"; do
   expect "D  $f: project_number input, default 0 (opt-in)" \
     "$(yq '.on.workflow_call.inputs.project_number | "\(.type) \(.default) \(.required)"' "$wf/$f")" "number 0 false"
@@ -502,8 +535,17 @@ expect "D  review-cycle: NO_OP writes nothing to the Project" \
   "$(yq '.jobs.project_status.if | test("result != .NO_OP.")' "$wf/review-cycle.yml")" true
 expect "D  review-cycle: project_number forwarded to the three Iterators" \
   "$(yq '[.jobs.iterate_1, .jobs.iterate_2, .jobs.iterate_3] | map(.with.project_number == "${{ inputs.project_number }}") | all' "$wf/review-cycle.yml")" true
-expect "D  Reviewer workflow untouched (stand-alone review changes no status)" \
-  "$(grep -c 'project' "$wf/agent-review.yml" || true)/$(yq '[.jobs.review_1, .jobs.review_2, .jobs.review_3, .jobs.review_4] | map(.secrets | has("app_private_key")) | any' "$wf/review-cycle.yml")" 0/false
+expect "D  stand-alone Reviewer: card moves on APPROVE only, after the comment, opt-in" \
+  "$(yq '.jobs.project_status | (.needs | join("+")) + " " + .if' "$wf/agent-review.yml")" \
+  "review+publish inputs.project_number > 0 && needs.review.outputs.verdict == 'APPROVE'"
+expect "D  stand-alone Reviewer: the only Project event is review-approved" \
+  "$(grep -oE 'flowforge_project_sync(_pr)? [^ ]+ [a-z-]+' "$wf/agent-review.yml" | awk '{print $NF}' | sort -u | paste -sd, -)" review-approved
+expect "D  stand-alone Reviewer: App key and Project token never in the jobs running Claude or holding the PR" \
+  "$(yq '[.jobs.review, .jobs.publish] | map(tostring | test("app_private_key|app_client_id|PROJECT_TOKEN|create-github-app-token")) | any' "$wf/agent-review.yml")" false
+expect "D  review-cycle Reviewers get no Project input nor App key (the cycle owns its result)" \
+  "$(yq '[.jobs.review_1, .jobs.review_2, .jobs.review_3, .jobs.review_4] | map((.secrets | has("app_private_key")) or (.with | has("project_number")) or (.with | has("app_client_id"))) | any' "$wf/review-cycle.yml")" false
+expect "D  one guard + sync implementation for PR events (no inline copy)" \
+  "$(grep -l 'does not close exactly one Issue: no Project update' "$wf"/*.yml "$root/.github/scripts"/*.sh | xargs -n1 basename | paste -sd, -)" flowforge-project.sh
 
 # Token dead before Claude: in each job running Claude, start token -> start sync -> revoke step
 # (always) -> Claude, and no Project token is minted between the revoke and Claude.
@@ -525,7 +567,7 @@ expect "D  no Project event ever triggers a workflow (one-way sync)" \
 expect "D  no Project ID hard-coded outside the IDs file" \
   "$(grep -rlE 'PVT_|PVTSSF_|PVTF_' "$wf" "$root/.github/scripts" "$root/examples" | wc -l)" 0
 expect "D  callers: project_number from the organization variable, default 0" \
-  "$(grep -l "project_number: \${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}" "$root"/examples/target-repository/*.yml | wc -l)" 4
+  "$(grep -l "project_number: \${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}" "$root"/examples/target-repository/*.yml | wc -l)" 5
 expect "D  callers: no secrets: inherit" "$(cat "$root"/examples/target-repository/*.yml | grep -cE '^[[:space:]]+secrets: inherit' || true)" 0
 
 echo

@@ -1,8 +1,13 @@
 # shellcheck shell=bash
-# FlowForge — SPEC.md contract (Phase 8.1). Sourced by agent-develop.yml, never run on its own.
+# FlowForge — SPEC.md contract (Phase 8.1). Sourced by agent-develop.yml (the gate).
 #
 # The workflow fetches this file from FlowForge at the commit it was called at
 # (job.workflow_sha), like the state helper, so the contract always matches the workflow.
+#
+# Run as a script, it checks a LOCAL file with the same rules, without GitHub Actions nor gh:
+#   bash flowforge-spec.sh [SPEC.md]     -> last line "SPEC contract: PASS|FAILED|ERROR"
+# Exit codes: 0 PASS, 1 FAILED, 2 ERROR (file not readable). Used by the Reviewer
+# (agent-review.yml) and before submitting a SPEC.md (docs/spec-contract.md §6).
 #
 # A target repository must hold SPEC.md at its root, on the branch the Developer starts from,
 # with four level-2 sections (French or English title; case, accents, emoji, numbering and
@@ -116,9 +121,33 @@ _flowforge_spec_fetch() {
   return 2
 }
 
+# Appends the gate result to the job summary, when GITHUB_STEP_SUMMARY is set: result $1,
+# repository $2, ref $3, then "reason|action" lines $4 (FAILED) or a reason $4 (ERROR).
+_flowforge_spec_summary() {
+  local result="$1" repo="$2" ref="$3" details="${4:-}" line
+  [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
+  {
+    printf '### SPEC contract: %s\n\n' "$result"
+    printf -- '- Repository: `%s`\n- Ref: `%s` (branch)\n- File: `%s`\n- Result: **%s**\n' \
+      "$repo" "$ref" "$FLOWFORGE_SPEC_FILE" "$result"
+    case "$result" in
+      FAILED)
+        printf '\nReason:\n'
+        while IFS= read -r line; do printf -- '- %s\n' "${line%%|*}"; done <<<"$details"
+        printf '\nAction:\n'
+        while IFS= read -r line; do printf -- '- %s\n' "${line#*|}"; done <<<"$details"
+        printf '\nThe Developer did not start; the Issue keeps its label. Contract: %s.\n' "$FLOWFORGE_SPEC_DOC" ;;
+      ERROR)
+        printf '\nReason (technical, no conformity verdict): %s\n' "$details"
+        printf '\n%s was not found absent; the Developer did not start; the Issue keeps its label.\n' "$FLOWFORGE_SPEC_FILE" ;;
+    esac
+  } >> "$GITHUB_STEP_SUMMARY"
+}
+
 # Gate run before the Developer starts: checks SPEC.md of repository $1 at branch $2.
 # Returns 0 (PASS), 1 (FAILED, conformity) or 2 (ERROR, technical); prints an explicit
-# diagnostic, writes result=<PASS|FAILED|ERROR> to GITHUB_OUTPUT and a job summary line.
+# diagnostic to the log, writes result=<PASS|FAILED|ERROR> to GITHUB_OUTPUT and one
+# "SPEC contract: <result>" block to the job summary (repository, ref, reason).
 flowforge_spec_gate() {
   local repo="$1" ref="$2" spec rc=0 result failures="" line
   spec="$(mktemp)"
@@ -135,7 +164,7 @@ flowforge_spec_gate() {
   case "$result" in
     PASS)
       echo "SPEC CONTRACT PASSED — $repo, branch '$ref'."
-      [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "- SPEC contract: **PASS**" >> "$GITHUB_STEP_SUMMARY"
+      _flowforge_spec_summary PASS "$repo" "$ref"
       return 0 ;;
     FAILED)
       {
@@ -144,7 +173,8 @@ flowforge_spec_gate() {
         printf '\nAction:\n'
         while IFS= read -r line; do printf -- '- %s\n' "${line#*|}"; done <<<"$failures"
         printf '\nContract: %s. The Developer did not start; the Issue keeps its label.\n' "$FLOWFORGE_SPEC_DOC"
-      } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+      }
+      _flowforge_spec_summary FAILED "$repo" "$ref" "$failures"
       while IFS= read -r line; do
         echo "::error title=SPEC contract failed::$repo: ${line%%|*}"
       done <<<"$failures"
@@ -154,8 +184,37 @@ flowforge_spec_gate() {
         printf 'SPEC CONTRACT ERROR (technical: no conformity verdict)\n\nRepository: %s\nBranch: %s\n\n' "$repo" "$ref"
         printf 'Reason:\n%s\n\nAction:\nCheck the GitHub status, the workflow token and the base branch, then re-run.\n' "$_FLOWFORGE_SPEC_ERROR"
         printf '%s was not found absent; the Developer did not start; the Issue keeps its label.\n' "$FLOWFORGE_SPEC_FILE"
-      } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+      }
+      _flowforge_spec_summary ERROR "$repo" "$ref" "$_FLOWFORGE_SPEC_ERROR"
       echo "::error title=SPEC contract error::$repo: $_FLOWFORGE_SPEC_ERROR"
       return 2 ;;
   esac
 }
+
+# Local check of the file $1 (see the header): same rules as the gate, no network. A missing
+# file is FAILED, as in the gate; an unreadable one is ERROR.
+flowforge_spec_local() {
+  local file="${1:-$FLOWFORGE_SPEC_FILE}" failures line
+  if [[ ! -e "$file" ]]; then
+    echo "- $file not found."
+    echo "SPEC contract: FAILED"
+    return 1
+  fi
+  if [[ ! -f "$file" || ! -r "$file" ]]; then
+    echo "- $file is not a readable file."
+    echo "SPEC contract: ERROR"
+    return 2
+  fi
+  if failures="$(flowforge_spec_check "$file")"; then
+    echo "SPEC contract: PASS"
+    return 0
+  fi
+  while IFS= read -r line; do printf -- '- %s %s\n' "${line%%|*}" "${line#*|}"; done <<<"$failures"
+  echo "SPEC contract: FAILED"
+  return 1
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  flowforge_spec_local "${1:-}"
+  exit
+fi

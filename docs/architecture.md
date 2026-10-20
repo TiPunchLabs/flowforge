@@ -426,7 +426,8 @@ Developer's `agent:running` transition removes it like any other stale state.
 - `NO_OP` (PR closed or merged during the cycle) changes nothing: the PR close itself is
   handled by `agent-lifecycle.yml`.
 - The stand-alone `agent-review.yml` (`flowforge-review.yml`) never changes labels: only the
-  cycle, which owns the decision, does.
+  cycle, which owns the decision, does. Its `APPROVE` only moves the Project card to
+  `Human validation` (opt-in; [synchronization](github-projects/synchronization.md)).
 - **Developer: business stop vs technical failure.** `agent:blocked` only when the agent
   itself stopped (Claude Code `success`, no Draft PR): a human must clarify the Issue. When
   Claude Code failed, was cancelled or never ran (`failure`, `cancelled`, `skipped`) and no
