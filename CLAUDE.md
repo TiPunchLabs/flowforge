@@ -221,6 +221,10 @@ future `GETTING_STARTED.md`): levels A organization / B repository / C functiona
 existing objects adopted with `import` blocks, caller table incl. the A4 Reviewer Project inputs, read-only readiness
 checks R1–R18 (`PASS` / `FAIL` / `NOT_VERIFIED`, existing scripts and `gh api` only); `demo-api` audited read-only on
 2026-10-20: all `PASS`, org-level lists `NOT_VERIFIED` without `admin:org`, differences intentional and documented (§8).
+Prompt 39.1 (versioning): first version `v0.1.0` (experimental POC) = `main` `afa60c5` (PR #62 merge), tag NOT published
+yet (maintainer's go-ahead). Module consumed by Git source `?ref=v0.1.0`, callers pinned to the full SHA (same in all
+five), scripts follow `job.workflow_sha`; update / rollback in `docs/target-onboarding.md` §10. `demo-api` PR #62 pins
+its callers (merge after the tag); its IaC (`02-infrastructure/demo-api`, not under Git) gets the source change after the tag.
 
 ## Out of scope for now
 

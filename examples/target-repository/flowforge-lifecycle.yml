@@ -2,7 +2,8 @@
 #   .github/workflows/flowforge-lifecycle.yml
 #
 # It holds no logic: everything lives in the FlowForge reusable workflow agent-lifecycle.yml.
-# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+# Replace OWNER and `@main` with the full commit SHA of a FlowForge version, the same
+# in all five callers: `@<40-char SHA> # vX.Y.Z` (docs/target-onboarding.md §10).
 #
 # When an `agent/*` pull request is closed, moves its linked Issue to its terminal state:
 # merged -> agent:done, closed without merge -> no FlowForge state label. The merge itself

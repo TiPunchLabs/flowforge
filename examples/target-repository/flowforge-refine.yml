@@ -2,7 +2,8 @@
 #   .github/workflows/flowforge-refine.yml
 #
 # It holds no logic: everything lives in the FlowForge reusable workflow agent-refine.yml.
-# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+# Replace OWNER and `@main` with the full commit SHA of a FlowForge version, the same
+# in all five callers: `@<40-char SHA> # vX.Y.Z` (docs/target-onboarding.md §10).
 #
 # Trigger: workflow_dispatch only, started by a human for one Issue:
 #   gh workflow run flowforge-refine.yml -f issue_number=<n>

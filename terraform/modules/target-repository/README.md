@@ -52,6 +52,17 @@ with `repository = github_repository.<x>.name`) or the FlowForge `terraform/` ro
 that already exist on the repository (labels, ruleset) are adopted with `import` blocks, never
 recreated: [docs/target-onboarding.md §2.1](../../../docs/target-onboarding.md).
 
+From a target's own IaC, consume a FlowForge version by tag, never a local path
+([§10](../../../docs/target-onboarding.md)):
+
+```hcl
+module "flowforge" {
+  source = "git::https://github.com/TiPunchLabs/flowforge.git//terraform/modules/target-repository?ref=v0.1.0"
+
+  repository = github_repository.this.name
+}
+```
+
 ```hcl
 # FlowForge root (central mode), for a target without IaC of its own.
 module "my_target" {

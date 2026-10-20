@@ -53,6 +53,7 @@ Three levels, configured by different people, at different times. Never mix them
 7. Common errors
 8. Reference installation: `demo-api`
 9. Notion intake (optional)
+10. Versions and updates
 
 ------
 
@@ -231,7 +232,7 @@ explicitly, never with `secrets: inherit`.
 The callers' `permissions:` blocks are the union of what the called jobs request: keep them as
 in the examples (a caller can only narrow, never widen). The Project sync is opt-in and
 best-effort: without `FLOWFORGE_PROJECT_NUMBER` (or without the App) every workflow runs with
-labels only. Callers reference `@main` until FlowForge publishes tags.
+labels only. Callers pin a FlowForge version by full commit SHA, the same in all five (§10).
 
 ### 2.3 🔑 Join the organization lists (organization owner)
 
@@ -394,11 +395,11 @@ modified.
 
 | Item | `demo-api` | Theory / examples | Status |
 |---|---|---|---|
-| Module source | local path to the FlowForge working tree | Git source pinned `?ref=vX.Y.Z` once FlowForge publishes tags | documented: a local path follows whatever branch is checked out; pin before a second maintainer |
+| Module source | local path to the FlowForge working tree | Git source `?ref=v0.1.0` (§10) | change prepared (Prompt 39.1), applied by the maintainer after the tag: the IaC folder is not under Git |
 | Provider token | `token = var.github_token` (`TF_VAR_github_token` from `pass` via direnv) | FlowForge root: `GITHUB_TOKEN` env only | target's own IaC, never in a file: acceptable |
 | `flowforge-review.yml` | `pull_request.branches: [main]` | no branch filter | stricter filter, compatible |
 | `setup_uv`, `allowed_tools`, `review_/iterate_allowed_tools` | set (uv / pytest / ruff / pre-commit) | commented placeholders | project-specific by design |
-| Callers' `@main` | `@main` | `@main` until tags exist | aligned |
+| Callers' ref | `@main` on `main` | full SHA of v0.1.0 (§10) | pinned by `demo-api` PR #62 (Prompt 39.1), to merge after the tag |
 | Organization Project linked to the repository | not linked (`projectsV2` empty) | not required: cards are added by the sync | aligned |
 
 ------
@@ -417,6 +418,86 @@ Validated with `demo-api-2` (Prompt 35, [milestone](milestones/phase7-notion-mul
 
 ------
 
+## 🏷️ 10. Versions and updates
+
+> ⚠️ **Warning**: `v0.1.0` is an **experimental POC version**. It has no production stability
+> guarantee, and a later `0.x` version may change inputs, labels or behaviour. Read the changes
+> before every update.
+
+### 10.1 🧠 One version, two references, one commit
+
+A FlowForge version is an annotated Git tag `vX.Y.Z` on a `main` commit whose PR is merged and
+whose CI is green. There is no release automation and no GitHub Release is required.
+
+| Consumer | Reference | Why |
+|---|---|---|
+| Terraform module (target IaC) | `git::https://github.com/TiPunchLabs/flowforge.git//terraform/modules/target-repository?ref=v0.1.0` | Terraform resolves Git tags natively, the version is readable in the IaC, and `terraform init` fetches exactly that tree. A local path would follow whatever branch the maintainer's FlowForge checkout is on |
+| Caller workflows (target `.github/workflows/`) | `uses: TiPunchLabs/flowforge/.github/workflows/<file>.yml@<40-char SHA> # v0.1.0` | For Actions, branches and tags can be moved; a full commit SHA cannot. This is the rule FlowForge applies to third-party actions. The reusable workflows fetch their scripts at `job.workflow_sha`, so the SHA also pins the scripts |
+
+Rules:
+
+- The five callers use **the same SHA**, and it is the commit of the module tag. Short SHAs,
+  branches or mixed versions are not allowed.
+- A published tag is **never moved or deleted**. A fix ships as a new version (`v0.1.1`).
+- The code that consumes the module stays in the target's IaC (one target = one state, §2.1).
+  Never edit `.terraform/` by hand.
+
+### 10.2 🔍 Identify the version in use
+
+```bash
+# Callers: one line per caller, all with the same SHA
+grep -h "uses: TiPunchLabs/flowforge/" .github/workflows/flowforge-*.yml
+# Commit behind a tag (annotated tag: ^{} dereferences to the commit)
+git ls-remote https://github.com/TiPunchLabs/flowforge.git 'refs/tags/v0.1.0^{}'
+# Module: declared source, then what init actually installed
+grep -n 'target-repository' <iac>/*.tf
+jq -r '.Modules[] | select(.Key != "") | .Source' <iac>/.terraform/modules/modules.json
+```
+
+### 10.3 📦 Publish a version (FlowForge maintainer)
+
+```bash
+# After the PR is merged and CI is green on main; only with the maintainer's explicit go-ahead.
+git fetch origin && git rev-parse origin/main               # the candidate commit
+git tag -a v0.1.0 <full-sha> -m "FlowForge v0.1.0 (experimental POC)"
+git push origin v0.1.0
+git ls-remote origin 'refs/tags/v0.1.0^{}'                  # must print <full-sha>
+```
+
+### 10.4 🔄 Update a target
+
+1. **Read the changes**:
+   `git log --oneline vOLD..vNEW` and
+   `git diff vOLD vNEW -- .github/workflows/ examples/ terraform/modules/`.
+   Changes to `workflow_call` inputs or secrets, or to the job `permissions:`, require the same
+   change in the callers.
+2. **Callers** (PR in the target): replace the SHA and the `# vX.Y.Z` comment in all five files.
+   Adapt inputs only if the interface changed.
+3. **Terraform** (the owning IaC): set `?ref=vNEW`, then `terraform init`. It re-installs the
+   module when its source changes; `-upgrade` is not needed and would also upgrade providers.
+   Then `terraform validate` and `terraform plan`.
+4. **Verify before merging and applying**:
+   - the plan shows no destroy, no replace and no unexpected update;
+   - the callers pass `actionlint` and their SHA exists:
+     `gh api "repos/TiPunchLabs/flowforge/contents/.github/workflows/<file>.yml?ref=<sha>"`;
+   - after the merge, readiness checks R7–R13 (§4) still `PASS`, and the next real run starts
+     normally.
+   No agent is started only to validate an update.
+
+### 10.5 ⏪ Roll back
+
+Versions are immutable, so the previous one is always available. Revert the callers PR (the
+SHA goes back), set `?ref=vOLD` in the IaC, then `terraform init` and `terraform plan`, and
+apply only after review. Never roll back by moving a tag.
+
+> 💡 **Note**: to try an **unmerged** FlowForge branch on a target, use a temporary caller
+> branch with `@<branch>`, started by `gh workflow run --ref` (dispatch callers only), and
+> delete it afterwards, as done for Phase 8.2
+> ([milestone](milestones/phase8-spec-refinement.md) §2). Pinned callers on the default branch
+> are never changed for a test.
+
+------
+
 > **Document created on**: 2026-10-11
-> **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompt 39)
-> **Version**: 2.0 — onboarding consolidated: levels A/B/C, existing-repository adoption, readiness checks R1–R18, `demo-api` reference (Prompt 39)
+> **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompts 39, 39.1)
+> **Version**: 2.1 — §10 versions and updates: module by tag, callers by full SHA, update and rollback (Prompt 39.1)

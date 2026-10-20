@@ -2,7 +2,8 @@
 #   .github/workflows/flowforge-agent.yml
 #
 # It holds no logic: everything lives in the FlowForge reusable workflow.
-# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+# Replace OWNER and `@main` with the full commit SHA of a FlowForge version, the same
+# in all five callers: `@<40-char SHA> # vX.Y.Z` (docs/target-onboarding.md §10).
 #
 # Prerequisites, visible to this repository (typically organization-level, with
 # "Selected repositories" access):

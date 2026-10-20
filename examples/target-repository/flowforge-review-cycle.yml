@@ -2,8 +2,9 @@
 #   .github/workflows/flowforge-review-cycle.yml
 #
 # It holds no logic: the bounded Reviewer <-> Iterator loop lives in the FlowForge reusable
-# workflow review-cycle.yml. Replace OWNER and pin `@main` to a tag or commit SHA once
-# FlowForge publishes releases.
+# workflow review-cycle.yml. Replace OWNER and `@main` with the full commit SHA of a
+# FlowForge version, the same in all five callers: `@<40-char SHA> # vX.Y.Z`
+# (docs/target-onboarding.md §10).
 #
 # Trigger: workflow_dispatch only, started by a human for one Draft PR:
 #   gh workflow run flowforge-review-cycle.yml -f pull_request_number=<n>

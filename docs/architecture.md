@@ -87,8 +87,9 @@ A target is onboarded in **exactly one** Terraform state, in one of two modes:
 > into the owning state with standard `import` blocks, never recreated nor managed by a second
 > state ([target-onboarding.md §2.1](target-onboarding.md)).
 >
-> 💡 **Note**: in embedded mode the module is consumed by path or Git source
-> (`git::…//terraform/modules/target-repository?ref=vX.Y.Z`); the repository creation and
+> 💡 **Note**: in embedded mode the module is consumed by a Git source pinned to a tag
+> (`git::https://github.com/TiPunchLabs/flowforge.git//terraform/modules/target-repository?ref=vX.Y.Z`,
+> §3.1); a local path is for FlowForge development only. The repository creation and
 > its onboarding then share one dependency graph, one token and one `apply`.
 
 ### 2.2 Development flow (Phase 1 target)
@@ -796,8 +797,11 @@ Details: [spec-contract.md](spec-contract.md).
 
 ### 3.1 Versioning
 
-Targets reference `agent-develop.yml@main` during Phase 1. Once the workflow is stable,
-FlowForge will publish tags and targets will pin a tag or commit SHA.
+From `v0.1.0` (Prompt 39.1, experimental POC version), a FlowForge version is an annotated
+tag `vX.Y.Z` on `main`. Targets consume the module with a Git source `?ref=vX.Y.Z` and pin
+their callers to that tag's **full commit SHA**, the same in all five. The reusable workflows
+fetch their scripts at `job.workflow_sha`, so the caller SHA pins everything. Tags are never
+moved. Update and rollback: [target-onboarding.md §10](target-onboarding.md).
 
 ------
 
