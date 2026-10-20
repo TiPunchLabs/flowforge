@@ -2,7 +2,8 @@
 #   .github/workflows/flowforge-review.yml
 #
 # It holds no logic: everything lives in the FlowForge reusable workflow.
-# Replace OWNER and pin `@main` to a tag or commit SHA once FlowForge publishes releases.
+# Replace OWNER and `@main` with the full commit SHA of a FlowForge version, the same
+# in all five callers: `@<40-char SHA> # vX.Y.Z` (docs/target-onboarding.md §10).
 #
 # Triggers (validated by the first Reviewer E2E, see docs/architecture.md §5.1):
 # - workflow_dispatch: agent PRs are reviewed on demand (or by the review cycle):
