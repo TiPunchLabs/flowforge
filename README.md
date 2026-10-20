@@ -185,6 +185,7 @@ agent, self-hosted runners, GitHub Project reconciliation job (the Notion reconc
 .github/workflows/agent-lifecycle.yml reusable lifecycle workflow (Issue terminal state on PR close)
 .github/workflows/agent-refine.yml    reusable Refiner workflow (refines one Issue, read-only agent)
 .github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
+.github/scripts/flowforge-spec.sh     SPEC.md contract check run before the Developer starts (Phase 8.1)
 .github/scripts/flowforge-refine.sh   Refiner result validation and refined body rendering
 .github/scripts/flowforge-project.sh  GitHub Project sync (one way, best-effort, stale guard)
 .github/workflows/notion-submit.yml   FlowForge-only Notion Need → GitHub Issue submission (Notion Bridge App)
@@ -198,7 +199,7 @@ agents/iterator.md                    generic Iterator agent rules
 agents/refiner.md                     generic Refiner agent rules (Phase 5)
 examples/target-repository/           caller workflows to copy into a target
 terraform/                            root config + target-repository module (labels, ruleset…)
-docs/                                 architecture, target onboarding, refined Issue contract, phase plans, milestones
+docs/                                 architecture, target onboarding, refined Issue and SPEC.md contracts, phase plans, milestones
 docs/github-projects/                 Kanban model, Project provisioning, workflow → Project sync
 docs/notion/                          Notion model, provisioning, submission, feedback (Phase 7)
 scripts/github-projects/              maintainer CLI: bootstrap.sh (provision / --check), sync-issue.sh

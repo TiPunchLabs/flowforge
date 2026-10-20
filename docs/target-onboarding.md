@@ -36,7 +36,7 @@ lists** (App installation, secret/variable visibility) and receives its own thin
 2. Secrets and variables
 3. FlowForge GitHub App (delivery identity)
 4. Caller workflows
-5. Project rules: CLAUDE.md
+5. Project rules: CLAUDE.md and SPEC.md
 6. Validation
 7. Notion intake (optional)
 
@@ -176,10 +176,19 @@ Secrets are always passed explicitly, never with `secrets: inherit`.
 
 ------
 
-## 📖 5. Project rules: CLAUDE.md
+## 📖 5. Project rules: CLAUDE.md and SPEC.md
 
 Add a `CLAUDE.md` at the target's root: stack, test/lint/format commands, conventions. The
 agents read it first; FlowForge's own rules (`agents/`) stay generic.
+
+Add a `SPEC.md` at the target's root, on the default branch: the functional reference of the
+project. **Required**: without it, or without its four sections, one behaviour and one
+scenario, the Developer refuses to start (`SPEC CONTRACT FAILED`). Structure and fixes:
+[spec-contract.md](spec-contract.md). Its content is validated by a human when the project is
+prepared; FlowForge only checks its shape. For an existing project, run the target preparation
+mission ([preparation-projet-existant-pour-flowforge.md](preparation-projet-existant-pour-flowforge.md),
+contract §6) in the target: it writes `SPEC.md` with the contract's exact titles, in the target's
+language, and a review document for the owner.
 
 ------
 
@@ -187,7 +196,7 @@ agents read it first; FlowForge's own rules (`agents/`) stay generic.
 
 | Check | Expected |
 |---|---|
-| `agent:ready` on a refined Issue | one Developer run; Draft PR authored by `<app-slug>[bot]` |
+| `agent:ready` on a refined Issue | one Developer run, *SPEC contract: PASS* in its summary; Draft PR authored by `<app-slug>[bot]` |
 | Target CI on that PR | starts without the "Approve workflows to run" banner |
 | `flowforge-review.yml` on that PR | skipped (bot actor) until a human acts or dispatches it |
 | Review cycle with `REQUEST_CHANGES` | Iterator push starts CI, no extra `FlowForge review` run |

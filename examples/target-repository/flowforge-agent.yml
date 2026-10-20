@@ -12,6 +12,8 @@
 #   agent branch and opens the Draft PR, so this repository's CI runs without manual
 #   approval. Without them, GITHUB_TOKEN delivers and every PR run waits for approval.
 #   See docs/target-onboarding.md.
+# - SPEC.md at the root of the default branch (docs/spec-contract.md): without it, or with
+#   an incomplete one, the Developer refuses to start and the Issue keeps agent:ready.
 name: FlowForge agent
 
 on:

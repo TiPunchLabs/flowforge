@@ -19,6 +19,8 @@
 #                                       -> agent:blocked (agent stopped: no PR, Claude Code succeeded)
 #                                       -> no state      (technical failure: no PR, Claude Code
 #                                                         failed, was cancelled or did not run)
+#          A precondition failure (Issue context, SPEC.md contract) changes no label: the
+#          Issue keeps agent:ready and nothing starts.
 #          One FlowForge state label at a time (.github/scripts/flowforge-state.sh,
 #          docs/architecture.md §2.6).
 #
@@ -169,6 +171,24 @@ jobs:
             echo "- Repository: \`$GITHUB_REPOSITORY\`"
             echo "- Branch: \`$branch\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # SPEC.md contract (Phase 8.1, docs/spec-contract.md): the target's SPEC.md, read on the
+      # base branch the agent starts from, must exist and hold the minimal structure. Checked
+      # before any state change: on failure nothing runs and the Issue keeps the ready label
+      # (re-apply it once SPEC.md is fixed). A read error is a technical error, never "absent".
+      - name: Check SPEC contract
+        id: spec
+        env:
+          BASE_BRANCH: ${{ inputs.base_branch }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          helper="$(gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-spec.sh?ref=$FLOWFORGE_SHA")"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$helper"
+          flowforge_spec_gate "$GITHUB_REPOSITORY" "$BASE_BRANCH"
 
       # Every other FlowForge state label (a stale one from an earlier run included) and
       # ready_label are removed: the Issue keeps exactly one state.

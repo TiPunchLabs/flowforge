@@ -44,8 +44,10 @@ it holds only its code, its `CLAUDE.md` and a thin caller workflow.
 | Reusable workflow | `.github/workflows/agent-lifecycle.yml` | Terminal Issue state when an agent PR is closed: `agent:done` on merge, no state otherwise; no agent |
 | Reusable workflow | `.github/workflows/agent-refine.yml` | Run Claude Code read-only on one Issue and the default branch, validate the refinement, rewrite the Issue, map the verdict to a state label, one comment (§2.9.1) |
 | Refiner helper | `.github/scripts/flowforge-refine.sh` | Preconditions, result validation, deterministic rendering of the refined body (Original request, Refinement record) and of the comment |
+| SPEC helper | `.github/scripts/flowforge-spec.sh` | `SPEC.md` contract check run by the Developer before any state change: `PASS` / `FAILED` / `ERROR` (§2.13) |
 | State helper | `.github/scripts/flowforge-state.sh` | The one implementation of Issue state label transitions (§2.6), fetched by the workflows at their own commit |
 | Agent rules | `agents/*.md` | Generic, project-independent behavior of each agent: `developer.md`, `reviewer.md`, `iterator.md`, `refiner.md` |
+| SPEC.md contract | `docs/spec-contract.md` | Minimal structure of the target's `SPEC.md`, what the gate checks and does not (Phase 8.1) |
 | Refined Issue contract | `docs/issue-contract.md` | Format of an executable Issue, `Ready` definition, `agent:needs-clarification` (Phase 5) |
 | Caller templates | `examples/target-repository/` | What a target repository copies (`flowforge-agent.yml`, `flowforge-review.yml`, `flowforge-review-cycle.yml`, `flowforge-lifecycle.yml`, `flowforge-refine.yml`) |
 | Target `CLAUDE.md` | in each target | Project-specific conventions (stack, commands, layout) |
@@ -98,7 +100,7 @@ Minimal local workflow   (.github/workflows/flowforge-agent.yml)
         │  uses: OWNER/flowforge/.github/workflows/agent-develop.yml@<ref>
         ▼
 FlowForge reusable workflow   (runs in the TARGET repo context)
-        │  validate issue, compute branch, checkout base branch
+        │  validate issue, check SPEC.md contract (§2.13), compute branch, checkout base branch
         ▼
 Claude Code   ◄── agents/developer.md + target CLAUDE.md + issue
         │
@@ -725,6 +727,24 @@ GitHub Project / Issue / PR ──► notion-sync.yml (FlowForge, schedule + dis
 - **Correlation**: one Need ↔ one Issue, keyed by the Notion page ID (Bridge-authored marker in the
   Issue body + `GitHub Issue` URL on the Need, both checked on every sync).
 
+### 2.13 SPEC.md contract (Phase 8.1)
+
+Details: [spec-contract.md](spec-contract.md).
+
+- **What**: every target holds `SPEC.md` at its root, with four level-2 sections (*Objectif et
+  périmètre*, *Fonctionnalités*, *Règles et contraintes*, *Scénarios de validation*, or their
+  English titles), at least one behaviour and one validation scenario. Structure only, never
+  meaning.
+- **Where**: step *Check SPEC contract* of `agent-develop.yml`, right after *Resolve issue
+  context* and before *Mark issue as running*; it reads `SPEC.md` of `github.repository` on
+  `base_branch` through the API (`.github/scripts/flowforge-spec.sh`, fetched at
+  `job.workflow_sha`).
+- **On failure**: the run fails like any other precondition, no label, Project card, branch or
+  agent is touched; the Issue keeps `agent:ready`. `FAILED` (conformity) and `ERROR` (technical,
+  never reported as "absent") are distinct diagnostics.
+- **Not gated**: Refiner, Reviewer, Iterator, review cycle, lifecycle and Notion workflows. Every
+  development, whatever the origin of the Issue, starts through `agent-develop.yml`.
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
@@ -757,6 +777,7 @@ GitHub Project / Issue / PR ──► notion-sync.yml (FlowForge, schedule + dis
 | Refiner job permissions | target caller | `contents: read`, `pull-requests: read`, `issues: write` (the `publish` job only; the agent job has `issues: read`) |
 | `verdict`, `result_artifact`, `refinement_json` | FlowForge → target (Refiner) | `refinement_json`: `refinement.json` compact (§5.8); empty on technical failure |
 | `agent:needs-clarification` | FlowForge (Terraform) | Sixth state label; until a target applies the module, the Refiner skips it with a warning |
+| `SPEC.md` | target | **Required** by the Developer: root of the base branch, minimal structure of [spec-contract.md](spec-contract.md) (§2.13) |
 | `CLAUDE.md` | target | Optional but strongly recommended |
 | CI | target | FlowForge never replaces the target's CI |
 

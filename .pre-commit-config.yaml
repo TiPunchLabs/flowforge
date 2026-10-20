@@ -106,6 +106,14 @@ repos:
         language: script
         pass_filenames: false
         files: ^(\.github/(workflows/notion-sync\.yml|scripts/flowforge-notion(-sync)?\.sh)|config/(notion(-allowlist)?|github-project)\.json|examples/target-repository/.*\.yml|tests/notion-sync\.sh)$
+      # SPEC.md contract (Phase 8.1): structure checks, absent vs technical error, per-target
+      # isolation, gate placed before any state change and Claude Code, Developer only.
+      - id: spec-contract
+        name: spec contract tests
+        entry: tests/spec-contract.sh
+        language: script
+        pass_filenames: false
+        files: ^(\.github/(workflows/.*\.yml|scripts/flowforge-spec\.sh)|tests/spec-contract\.sh)$
       # Default-branch ruleset (human merge gate): `terraform test` with a mocked provider, no GitHub call.
       - id: target-repository-module-test
         name: target-repository module tests
