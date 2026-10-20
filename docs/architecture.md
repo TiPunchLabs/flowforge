@@ -83,6 +83,10 @@ A target is onboarded in **exactly one** Terraform state, in one of two modes:
 > ⚠️ **Warning**: declaring the same target in both places makes two states manage the
 > same labels and rulesets; every `apply` would undo the other one.
 >
+> 💡 **Note**: for an existing repository, labels or a ruleset that already exist are adopted
+> into the owning state with standard `import` blocks, never recreated nor managed by a second
+> state ([target-onboarding.md §2.1](target-onboarding.md)).
+>
 > 💡 **Note**: in embedded mode the module is consumed by path or Git source
 > (`git::…//terraform/modules/target-repository?ref=vX.Y.Z`); the repository creation and
 > its onboarding then share one dependency graph, one token and one `apply`.

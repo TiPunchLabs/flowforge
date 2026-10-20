@@ -47,11 +47,17 @@ switch the others.
 
 ## 📝 Usage
 
+Instantiate it in **one** state only: the target's own IaC (preferred, as `demo-api` does,
+with `repository = github_repository.<x>.name`) or the FlowForge `terraform/` root. Objects
+that already exist on the repository (labels, ruleset) are adopted with `import` blocks, never
+recreated: [docs/target-onboarding.md §2.1](../../../docs/target-onboarding.md).
+
 ```hcl
-module "demo_api" {
+# FlowForge root (central mode), for a target without IaC of its own.
+module "my_target" {
   source = "./modules/target-repository"
 
-  repository = "demo-api"
+  repository = "my-target"
 
   # Optional, non-secret only
   actions_variables = {
