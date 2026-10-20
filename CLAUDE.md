@@ -25,7 +25,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
 - `docs/spec-contract.md` — the target's `SPEC.md` contract (Phase 8.1): minimal structure, what the gate checks and does not; §7 how the agents use it (Phase 8.2);
 - `docs/preparation-projet-existant-pour-flowforge.md` — target preparation mission (French), run IN a target to write its `SPEC.md` + review document; applies the contract, never redefines it;
-- `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
+- `docs/target-onboarding.md` — the single onboarding reference (Prompt 39): organization / repository / functional levels, existing-repository adoption (`import`), callers, readiness checks R1–R18 (`PASS` / `FAIL` / `NOT_VERIFIED`), `demo-api` reference installation.
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
 - `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
@@ -216,6 +216,11 @@ Prompt 38.1 (fixes from `demo-api` #58 / PR #60): the Reviewer never marks `PASS
 command); the gate writes one `SPEC contract: PASS|FAILED|ERROR` summary block (repository, ref, reason); a stand-alone
 Reviewer `APPROVE` moves the card `Review → Human validation` (opt-in job `project_status`, event `review-approved`,
 `flowforge_project_sync_pr` shared with the cycle); tested by `tests/review-evidence.sh`; NOT VERIFIED LIVE (milestone §9).
+Prompt 39 (onboarding consolidation): `docs/target-onboarding.md` v2.0 is the single onboarding reference (basis of the
+future `GETTING_STARTED.md`): levels A organization / B repository / C functional, one target = one IaC owner = one state,
+existing objects adopted with `import` blocks, caller table incl. the A4 Reviewer Project inputs, read-only readiness
+checks R1–R18 (`PASS` / `FAIL` / `NOT_VERIFIED`, existing scripts and `gh api` only); `demo-api` audited read-only on
+2026-10-20: all `PASS`, org-level lists `NOT_VERIFIED` without `admin:org`, differences intentional and documented (§8).
 
 ## Out of scope for now
 
