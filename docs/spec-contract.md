@@ -152,9 +152,9 @@ Sections 1 and 3 must exist but may be short: their quality is a human matter.
 
 | Result | Meaning | Step | Issue |
 |---|---|---|---|
-| `PASS` | contract holds | succeeds, `SPEC contract: PASS` in the job summary | the run continues normally |
-| `FAILED` | conformity error (checks 1–5) | fails: `SPEC CONTRACT FAILED` diagnostic in the log and the job summary, one `::error` annotation per reason | unchanged: keeps `agent:ready`, no label, comment, branch nor Project move |
-| `ERROR` | technical error: `SPEC.md` could not be read | fails: `SPEC CONTRACT ERROR` diagnostic | unchanged |
+| `PASS` | contract holds | succeeds, `SPEC contract: PASS` block in the job summary (repository, ref) | the run continues normally |
+| `FAILED` | conformity error (checks 1–5) | fails: `SPEC CONTRACT FAILED` diagnostic in the log, `SPEC contract: FAILED` block in the job summary (repository, ref, reasons, actions), one `::error` annotation per reason | unchanged: keeps `agent:ready`, no label, comment, branch nor Project move |
+| `ERROR` | technical error: `SPEC.md` could not be read | fails: `SPEC CONTRACT ERROR` diagnostic in the log, `SPEC contract: ERROR` block in the job summary (repository, ref, technical reason) | unchanged |
 
 The step output `result` (`steps.spec.outputs.result`) carries the same value.
 
@@ -188,7 +188,7 @@ gate.
 
 ## 4. 🔧 Fixing a non-conformity
 
-1. Read the `SPEC CONTRACT FAILED` block in the failed run (log or job summary): it names the
+1. Read the `SPEC CONTRACT FAILED` diagnostic (log) or the `SPEC contract: FAILED` block (job summary) of the failed run: it names the
    repository, the branch and every failed check with its action.
 2. Write or complete `SPEC.md` on the base branch, by pull request (human review, as any change).
 3. Re-apply `agent:ready` on the Issue (remove it, then add it again): the Developer runs again,
@@ -225,9 +225,15 @@ reference for the structure; the mission only applies it. Before submitting the 
 can be checked locally with the gate's own helper:
 
 ```bash
-# From the target repository; <flowforge> is a local FlowForge checkout. Prints nothing when PASS.
-bash -c 'source <flowforge>/.github/scripts/flowforge-spec.sh && flowforge_spec_check SPEC.md && echo PASS'
+# From the target repository; <flowforge> is a local FlowForge checkout. No gh, no network.
+# Last line: "SPEC contract: PASS" (exit 0), "FAILED" (1, reasons above it) or "ERROR" (2).
+bash <flowforge>/.github/scripts/flowforge-spec.sh SPEC.md
 ```
+
+The Reviewer runs the same command on the pull request head (`agents/reviewer.md` §4.8): the
+workflow fetches the checker at its own commit and allows exactly that command. In the
+Developer gate, the result is one `SPEC contract: PASS|FAILED|ERROR` block in the job summary,
+with the repository, the ref read and, when it fails, the reason.
 
 Two Phase 8 instructions share the number 37; they are distinct:
 

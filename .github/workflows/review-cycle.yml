@@ -194,14 +194,7 @@ jobs:
             source /dev/stdin <<<"$code"
           done
 
-          read -r state issue <<<"$(flowforge_pr_issue "$PR_NUMBER")"
-          if [[ "$state" != "OPEN" ]]; then
-            echo "::notice::Pull request #$PR_NUMBER is $state: Project left to agent-lifecycle.yml."
-          elif [[ -z "$issue" ]]; then
-            echo "::notice::Pull request #$PR_NUMBER does not close exactly one Issue: no Project update."
-          else
-            flowforge_project_sync "$issue" "$event"
-          fi
+          flowforge_project_sync_pr "$PR_NUMBER" "$event"
 
   # Permissions of the Reviewer calls: read-only code, `pull-requests: write` for its comment.
   # Permissions of the Iterator calls: `contents: write` for its verified fast-forward push.
@@ -615,11 +608,4 @@ jobs:
             source /dev/stdin <<<"$code"
           done
 
-          read -r state issue <<<"$(flowforge_pr_issue "$PR_NUMBER")"
-          if [[ "$state" != "OPEN" ]]; then
-            echo "::notice::Pull request #$PR_NUMBER is $state: Project left to agent-lifecycle.yml."
-          elif [[ -z "$issue" ]]; then
-            echo "::notice::Pull request #$PR_NUMBER does not close exactly one Issue: no Project update."
-          else
-            flowforge_project_sync "$issue" "$event"
-          fi
+          flowforge_project_sync_pr "$PR_NUMBER" "$event"

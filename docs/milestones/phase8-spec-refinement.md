@@ -125,6 +125,33 @@ regression).
 
 ------
 
+## 9. 🔧 Prompt 38.1 — Reviewer evidence, SPEC gate summary, Project card after APPROVE
+
+Reference run: `demo-api` [#58](https://github.com/TiPunchLabs/demo-api/issues/58) → Draft PR
+[#60](https://github.com/TiPunchLabs/demo-api/pull/60) → stand-alone Reviewer
+([39356503509](https://github.com/TiPunchLabs/demo-api/actions/runs/39356503509), `pull_request`
+event) → `APPROVE`. Three non-blocking anomalies, fixed with the existing mechanisms only (no new
+workflow, agent or dependency; `demo-api` / `demo-api-2` untouched).
+
+| # | Observed on #58 / PR #60 | Cause | Fix |
+|---|---|---|---|
+| A2 | Criterion "`SPEC.md` … passes the contract check" marked `PASS` with "I did not run the contract gate itself, but the structure matches" | The Reviewer had no way to run the checker and no rule against inferring `PASS` | `agents/reviewer.md` §4.4 / §4.8 / §9: a named check is `PASS` only if run; the workflow fetches `flowforge-spec.sh` at its commit and allows exactly `bash <runner temp>/flowforge-review/flowforge-spec.sh SPEC.md`; `PASS` with empty evidence → result refused (`BLOCKED`) |
+| A3 | Gate summary held one line, `- SPEC contract: **PASS**`, without repository nor ref; FAILED / ERROR copied the log block | Summary written ad hoc per result | One `### SPEC contract: PASS\|FAILED\|ERROR` block (repository, ref, file, result, reason) for every result; log, exit codes and fail-closed unchanged; `flowforge-spec.sh` also runs as a local script |
+| A4 | Card of #58 still `Review` after `APPROVE` (checked read-only on 2026-10-19 with `sync-issue.sh --show`) | Only `review-cycle.yml` synced the Project; the stand-alone Reviewer was deliberately untouched | `agent-review.yml` job `project_status` (opt-in, `APPROVE` only, after the comment): event `review-approved`, `Review → Human validation`, via `flowforge_project_sync_pr` now shared with the cycle |
+
+A posteriori, `SPEC.md` of PR #60's head passes the checker (`SPEC contract: PASS`, run locally):
+the `PASS` was right but unproven, which is the defect A2 fixes.
+
+**NOT VERIFIED LIVE.** No run was triggered for this Prompt (no Developer re-run, #58 untouched).
+A4 needs the target caller `flowforge-review.yml` to pass `project_number`, `app_client_id` and
+`app_private_key` ([example](../../examples/target-repository/flowforge-review.yml)): the
+`demo-api` caller is not changed here, so its stand-alone reviews keep moving no card until it is
+updated. The exact-match permission of the A2 command is documented Claude Code behaviour, not yet
+observed in a run. Tests: `tests/review-evidence.sh` (new), `tests/spec-contract.sh`,
+`tests/project-sync.sh`.
+
+------
+
 > **Document created on**: 2026-10-20
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.0 (Prompt 38)
+> **Version**: 1.1 (Prompt 38.1)

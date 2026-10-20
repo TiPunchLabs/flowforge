@@ -9,9 +9,14 @@
 #        Verdict: APPROVE | REQUEST_CHANGES | BLOCKED. The Reviewer never edits, commits,
 #        pushes, merges, nor changes the PR's draft state.
 #
-# Two jobs, so that no job holds both untrusted PR code and a write token:
-#   review   read-only token; checks out and runs the PR code; Claude produces the result
-#   publish  pull-requests: write only; no checkout, no Claude; posts the rendered comment
+# Jobs, so that no job holds both untrusted PR code and a write token:
+#   review          read-only token; checks out and runs the PR code; Claude produces the result
+#   publish         pull-requests: write only; no checkout, no Claude; posts the rendered comment
+#   project_status  opt-in (`project_number` > 0 + the App), APPROVE only, after the comment is
+#                   published: card Review -> Human validation (event review-approved). No
+#                   checkout, no Claude; the App key never reaches the review job. Best-effort.
+#                   Other verdicts change no status and no label. review-cycle.yml does not pass
+#                   `project_number` to its Reviewers: the cycle's own job owns its result.
 #
 # Result artifact `flowforge-review-pr-<n>` (contract documented in docs/architecture.md):
 #   review.json  machine-readable result, for humans and the Iterator (via review-cycle.yml)
@@ -46,6 +51,21 @@ on:
         type: string
         required: false
         default: ""
+      project_number:
+        description: >-
+          Number of the FlowForge GitHub Project to keep in sync (e.g.
+          vars.FLOWFORGE_PROJECT_NUMBER); 0 disables the sync. Needs the App (app_client_id).
+          Only an APPROVE moves the card (Review -> Human validation).
+        type: number
+        required: false
+        default: 0
+      app_client_id:
+        description: >-
+          Client ID of the FlowForge GitHub App, used only by the Project sync job (token
+          scoped to organization projects: write). Empty: no Project sync.
+        type: string
+        required: false
+        default: ""
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -53,6 +73,11 @@ on:
       claude_code_oauth_token:
         description: Claude Code OAuth token authenticating the Reviewer agent.
         required: true
+      app_private_key:
+        description: >-
+          Private key of the FlowForge GitHub App, for the Project sync job only. Never given
+          to the review job.
+        required: false
     outputs:
       verdict:
         description: >-
@@ -257,6 +282,11 @@ jobs:
 
           rules="$(gh api -H "Accept: application/vnd.github.raw+json" \
             "repos/$FLOWFORGE_REPOSITORY/contents/agents/reviewer.md?ref=$FLOWFORGE_SHA")"
+          # The SPEC.md contract checker of the Developer gate, at the same commit, outside the
+          # workspace: the Reviewer runs it (exact command allowed below), never a copy of it.
+          gh api -H "Accept: application/vnd.github.raw+json" \
+            "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/flowforge-spec.sh?ref=$FLOWFORGE_SHA" \
+            > "$CONTEXT_DIR/flowforge-spec.sh"
 
           if [[ -f CLAUDE.md ]]; then
             claude_md="CLAUDE.md exists at the workspace root (base-branch version): read it first."
@@ -290,7 +320,7 @@ jobs:
                   "properties": {
                     "criterion": { "type": "string", "description": "The criterion as written in the Issue." },
                     "status": { "type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"] },
-                    "evidence": { "type": "string", "description": "File, test name or command result supporting the status." }
+                    "evidence": { "type": "string", "description": "File, test name or command result supporting the status. For PASS: the command you ran and its result, or the code and test you read; never a check you did not run. For NOT_VERIFIED: why it could not be verified." }
                   }
                 }
               },
@@ -350,6 +380,14 @@ jobs:
           - The functional contract is SPEC.md as on $BASE_BRANCH: git show
             origin/$BASE_BRANCH:SPEC.md. The pull request's change to it, if any, is in the
             diff. Check the change against it (rules, section 4.8).
+          - SPEC.md contract check (the Developer gate's own rules): run exactly
+              bash $CONTEXT_DIR/flowforge-spec.sh SPEC.md
+            from the workspace root. It reads SPEC.md of the pull request head and ends with
+            "SPEC contract: PASS" (exit 0), "SPEC contract: FAILED" (exit 1, reasons above it)
+            or "SPEC contract: ERROR" (exit 2). Run it whenever a criterion, a finding or the
+            Issue concerns the SPEC.md structure or contract, and quote its last line as
+            evidence. If it cannot run, that criterion is NOT_VERIFIED with the reason: never
+            PASS from reading SPEC.md, nor from its presence (rules, sections 4.4 and 4.8).
           - You are READ-ONLY. Editing tools are disabled. Never try to edit or format files,
             apply fixes, create branches, commit, push, merge, comment, or change the pull
             request. Only run commands that cannot modify the repository (rules, section 9);
@@ -363,7 +401,9 @@ jobs:
           ## Structured output
 
           - acceptance_criteria: one entry per criterion of the Issue, status PASS, FAIL or
-            NOT_VERIFIED, with evidence (section 4.4).
+            NOT_VERIFIED, with evidence (section 4.4). PASS only for a check you actually
+            ran or a proof you actually read; a check you did not run is NOT_VERIFIED, never
+            PASS. The workflow rejects a PASS without evidence.
           - findings: the fields of section 6.2, severities BLOCKER, MAJOR, MINOR, NOTE only.
             Zero findings is valid.
           - verdict: APPROVE, REQUEST_CHANGES or BLOCKED, following section 8 exactly. The
@@ -493,7 +533,8 @@ jobs:
             --disallowedTools "Edit,Write,MultiEdit,NotebookEdit"
             --allowedTools "Read,Glob,Grep,
             Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),
-            Bash(git ls-files:*),Bash(git rev-parse:*)
+            Bash(git ls-files:*),Bash(git rev-parse:*),
+            Bash(bash ${{ runner.temp }}/flowforge-review/flowforge-spec.sh SPEC.md)
             ${{ inputs.allowed_tools != '' && format(',{0}', inputs.allowed_tools) || '' }}"
 
       # Runs even when Claude Code fails: a missing, invalid or inconsistent result becomes
@@ -525,7 +566,8 @@ jobs:
               and (.acceptance_criteria | type == "array") and (.findings | type == "array")
               and all(.acceptance_criteria[];
                     (.status | IN("PASS", "FAIL", "NOT_VERIFIED"))
-                    and ([.criterion, .evidence] | all(type == "string")))
+                    and ([.criterion, .evidence] | all(type == "string"))
+                    and (.status != "PASS" or (.evidence | test("[^[:space:]]"))))
               and all(.findings[];
                     (.severity | IN(severities[]))
                     and ([.title, .file, .line_or_range, .description, .reason, .expected_fix]
@@ -703,3 +745,46 @@ jobs:
               | gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input - --silent
             echo "Created FlowForge comment on PR #$PR_NUMBER." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  # The verdict on the card, once the comment is visible. Only APPROVE: REQUEST_CHANGES and
+  # BLOCKED leave the card where it is (the cycle, or a human, decides what follows).
+  project_status:
+    name: Project status (review result)
+    needs: [review, publish]
+    if: inputs.project_number > 0 && needs.review.outputs.verdict == 'APPROVE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read          # resolve the linked Issue
+      pull-requests: read   # PR state and its closing Issue reference
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ inputs.pull_request_number }}
+    steps:
+      - name: Create Project token
+        id: project_token
+        if: inputs.app_client_id != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app_client_id }}
+          private-key: ${{ secrets.app_private_key }}
+          permission-organization-projects: write
+
+      # Same guards and helper as the review cycle: PR still open, exactly one Issue linked.
+      - name: Project status (Reviewer result)
+        continue-on-error: true
+        env:
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          PROJECT_TOKEN: ${{ steps.project_token.outputs.token }}
+          FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
+          FLOWFORGE_SHA: ${{ job.workflow_sha }}
+        run: |
+          set -euo pipefail
+          for helper in flowforge-state.sh flowforge-project.sh; do
+            code="$(gh api -H "Accept: application/vnd.github.raw+json" \
+              "repos/$FLOWFORGE_REPOSITORY/contents/.github/scripts/$helper?ref=$FLOWFORGE_SHA")"
+            # shellcheck source=/dev/null
+            source /dev/stdin <<<"$code"
+          done
+          flowforge_project_sync_pr "$PR_NUMBER" review-approved

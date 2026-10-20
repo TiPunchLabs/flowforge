@@ -146,8 +146,9 @@ starts the Developer within seconds. Moving the card never starts anything (§6)
 
 **Review.** The Draft PR exists. The review cycle is started by a human today
 (`workflow_dispatch`, architecture §6 open decision), so `Review` also covers "PR delivered,
-cycle not started yet". A stand-alone `flowforge-review.yml` run changes no status, exactly as
-it changes no label: only the cycle owns the decision.
+cycle not started yet". A stand-alone `flowforge-review.yml` run changes no label; since
+Prompt 38.1 (A4) its `APPROVE` moves the card to `Human validation` (opt-in, as for every
+workflow), its other verdicts change no status.
 
 **Iteration.** Bounded by the review cycle (`max_iterations ≤ 3`, unrolled jobs): the board can
 go `Review → Iteration → Review` at most three times per cycle. This document does not change

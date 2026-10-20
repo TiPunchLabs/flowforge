@@ -8,6 +8,8 @@
 #
 #   flowforge_project_sync <issue> <event>   add the Issue to the Project if needed, then apply
 #                                            the event through the transition rules below
+#   flowforge_project_sync_pr <pr> <event>   same, for the single Issue an OPEN pull request
+#                                            closes (needs flowforge-state.sh sourced)
 #   flowforge_project_decide <event> <status> <attention> [force]   pure decision, no API
 #
 # Environment: GITHUB_REPOSITORY; GH_TOKEN (reads the Issue in the calling repository);
@@ -37,6 +39,7 @@ FLOWFORGE_PROJECT_EVENTS='{
   "iterate-started":            {"status": "Iteration", "attention": "", "from": ["Review"], "reason": "Iterator started"},
   "iterate-completed":          {"status": "Review", "attention": "", "from": ["Iteration"], "reason": "Iterator COMPLETED / PARTIAL"},
   "cycle-approved":             {"status": "Human validation", "attention": "", "from": ["Review"], "reason": "Review cycle APPROVED"},
+  "review-approved":            {"status": "Human validation", "attention": "", "from": ["Review"], "reason": "Reviewer APPROVE"},
   "cycle-blocked":              {"status": "Human validation", "attention": "Blocked", "from": ["Review", "Iteration"], "reason": "Review cycle BLOCKED"},
   "cycle-max-iterations":       {"status": "Human validation", "attention": "Max iterations", "from": ["Review"], "reason": "Review cycle MAX_ITERATIONS_REACHED"},
   "cycle-failed":               {"status": null, "attention": "Failed", "from": ["Review", "Iteration"], "reason": "Review cycle technical failure"},
@@ -286,4 +289,19 @@ flowforge_project_sync() {
   echo "::warning::$line"
   [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "- ⚠️ $line" >> "$GITHUB_STEP_SUMMARY"
   [[ "${FLOWFORGE_PROJECT_STRICT:-}" != 1 ]]
+}
+
+# Applies event $2 to the Issue closed by pull request $1, with the guards of the label
+# transitions: the PR is still OPEN (a merge or close belongs to agent-lifecycle.yml) and
+# GitHub links exactly one Issue of the calling repository to it. Otherwise a notice, no write.
+flowforge_project_sync_pr() {
+  local state issue
+  read -r state issue <<<"$(flowforge_pr_issue "$1")"
+  if [[ "$state" != "OPEN" ]]; then
+    echo "::notice::Pull request #$1 is $state: Project left to agent-lifecycle.yml."
+  elif [[ -z "$issue" ]]; then
+    echo "::notice::Pull request #$1 does not close exactly one Issue: no Project update."
+  else
+    flowforge_project_sync "$issue" "$2"
+  fi
 }
