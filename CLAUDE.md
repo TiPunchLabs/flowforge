@@ -15,6 +15,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `.github/workflows/notion-submit.yml` — FlowForge-only (`workflow_dispatch`) Notion Need → GitHub Issue submission (Notion Bridge App);
 - `.github/workflows/notion-sync.yml` — FlowForge-only (`schedule` + `workflow_dispatch`) GitHub → Notion status feedback, central reconciler;
 - `.github/scripts/flowforge-state.sh` — the single implementation of `agent:*` state label transitions;
+- `.github/scripts/flowforge-spec.sh` — `SPEC.md` contract check, run by `agent-develop.yml` before the Developer starts;
 - `.github/scripts/flowforge-refine.sh` — Refiner preconditions, result validation, refined body rendering;
 - `.github/scripts/flowforge-project.sh` — the single implementation of the GitHub Project sync (one way, best-effort);
 - `.github/scripts/flowforge-notion.sh` — Notion submission rules: validation, sanitising, marker lookup, write-back;
@@ -22,6 +23,8 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`, `refiner.md`),
   independent of any target project;
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
+- `docs/spec-contract.md` — the target's `SPEC.md` contract (Phase 8.1): minimal structure, what the gate checks and does not;
+- `docs/preparation-projet-existant-pour-flowforge.md` — target preparation mission (French), run IN a target to write its `SPEC.md` + review document; applies the contract, never redefines it;
 - `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
@@ -42,7 +45,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
 | Path | Contains | Must NOT contain |
 |---|---|---|
 | `.github/workflows/` | Reusable workflows for targets + FlowForge's own CI (`ci.yml`) | Target-specific logic |
-| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`, `flowforge-project.sh`); `flowforge-notion.sh` / `flowforge-notion-sync.sh` (checked out by `notion-submit.yml` / `notion-sync.yml`) | Target-specific logic, tokens |
+| `.github/scripts/` | Step helpers the reusable workflows fetch at their own commit (`flowforge-state.sh`, `flowforge-refine.sh`, `flowforge-project.sh`, `flowforge-spec.sh`); `flowforge-notion.sh` / `flowforge-notion-sync.sh` (checked out by `notion-submit.yml` / `notion-sync.yml`) | Target-specific logic, tokens |
 | `.github/ISSUE_TEMPLATE/` | Issue forms | — |
 | `agents/` | Generic agent rules | Project-specific conventions (those live in the target's `CLAUDE.md`) |
 | `terraform/` | Root module: provider, one `module` block per target **without its own IaC** | Credentials, backend secrets, targets already onboarded in their own IaC |
@@ -86,7 +89,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 7 (Notion) done — PHASE 7 VALIDATED WITH RESERVATIONS; next: Phase 8 (not defined yet)
+## Current phase: Phase 8 (Specification) — 8.1 SPEC contract implemented, not validated live
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -193,7 +196,14 @@ Prompt 36 (closure) done on 2026-10-16, audited on `main` `af22a70`: **PHASE 7 V
 reservation; documentation aligned (README, `docs/architecture.md` §2.12 / §5.9, model, provisioning, onboarding §7);
 sources of truth, identities re-audit, anti-corruption, idempotence, reservations and exit criteria in
 `docs/milestones/phase7-notion-complete.md`; tag `flowforge-phase7-notion-e2e` on the closure merge commit (maintainer).
-**Next: Phase 8**, not defined yet.
+Phase 8 — Specification: Prompt 37 (8.1, SPEC contract) — every target holds `SPEC.md` (four sections, one behaviour,
+one scenario, structure only); step *Check SPEC contract* in `agent-develop.yml`, before any state change, results
+`PASS` / `FAILED` / `ERROR`; Developer only; tested by `tests/spec-contract.sh`; not validated live; see
+`docs/spec-contract.md`, `docs/architecture.md` §2.13. The target preparation mission (run in targets, called
+"Prompt 37" in the 37.1 audit) is distinct from FlowForge's Prompt 37 (the gate): contract §6. Prompt 37.1 audited
+`demo-api` / `demo-api-2`; Prompt 37.2 aligned the mission with the contract (exact titles in the target's language,
+statuses `CONFIRMED` / `OBSERVED` / `KNOWN GAP`, scenario → test coverage) and corrected `demo-api` PR #56 (reference
+POC; `demo-api-2` kept for a secondary validation at the end of Phase 8). Next: 8.2 (requests vs specification), not started.
 
 ## Out of scope for now
 
@@ -222,6 +232,7 @@ tests/developer-delivery.sh                        # pre-commit hook: Developer 
 tests/project-sync.sh                              # pre-commit hook: Project sync (decision, steps, token)
 tests/notion-submit.sh                             # pre-commit hook: Notion submission (validation, idempotence, bot guard)
 tests/notion-sync.sh                               # pre-commit hook: Notion feedback (mapping, correlation, idempotence)
+tests/spec-contract.sh                             # pre-commit hook: SPEC.md contract gate (structure, errors, isolation, placement)
 terraform -chdir=terraform/modules/target-repository test   # pre-commit hook: ruleset, mocked provider
 scripts/github-projects/bootstrap.sh --check       # GitHub call (read-only): Project vs model, needs gh scope read:project
 scripts/notion/bootstrap.sh --check                # Notion call (read-only): space vs model, needs NOTION_TOKEN (local)
