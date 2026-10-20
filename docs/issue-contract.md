@@ -1,10 +1,10 @@
 # 📋 FlowForge — Refined Issue contract
 
-> **Status**: Phase 5. This is the format of an Issue the FlowForge chain can execute,
-> whoever writes it: the Refiner agent ([rules](../agents/refiner.md)), run by
-> `agent-refine.yml` (executable, not yet validated end to end), or a human. The Developer,
-> Reviewer and Iterator are unchanged: they already read the whole Issue body as their
-> specification.
+> **Status**: Phase 5, extended in Phase 8.2. This is the format of an Issue the FlowForge chain
+> can execute, whoever writes it: the Refiner agent ([rules](../agents/refiner.md)), run by
+> `agent-refine.yml`, or a human. The Developer, Reviewer and Iterator read the whole Issue body
+> as their specification. Phase 8.2 adds *Specification* (the request against the target's
+> `SPEC.md`) and *Definition of Done*.
 
 ------
 
@@ -21,6 +21,8 @@
         └──────────────────────── answers, then refine again ◄─────────────┘
 
    Issue body  =  refined specification  +  Original request (verbatim)  +  Refinement record
+                       │
+                       └─ Specification: impact on SPEC.md + F/R/S items + contract changes
 ```
 
 One Issue body, read by everybody. The specification is on top; the requester's words are
@@ -56,6 +58,14 @@ Why this request exists. Tagged statements (§4).
 ## Goal
 The expected result, in one or two sentences.
 
+## Specification
+Impact on `SPEC.md`: `EXTENDS` — <meaning>.
+
+- `F-005` — Task listing (`CONFIRMED`): why it applies.
+
+Contract changes to make in `SPEC.md`, in the same PR:
+- Add `S-020` — …
+
 ## Scope
 - What must be done.
 
@@ -64,6 +74,9 @@ The expected result, in one or two sentences.
 
 ## Acceptance criteria
 - [ ] Observable, testable condition. `[provided]` or `[recommended]`
+
+## Definition of Done
+- Verifiable condition for the whole task (tests, checks, SPEC.md update, Draft PR).
 
 ## Constraints
 - Technical, functional or architectural constraints. Tagged.
@@ -96,9 +109,11 @@ The expected result, in one or two sentences.
 |---|---|---|
 | Context | ✅ | Why, not how. Only `[provided]`, `[observed]` or `[missing]` content |
 | Goal | ✅ | One result. Several independent results → propose a split |
+| Specification | ✅ | Rendered by the workflow from `spec_impact`, `spec_references`, `spec_changes` ([refiner rules §5.4](../agents/refiner.md#54-compare-with-specmd)). Cites `SPEC.md` items, never copies them. *Contract changes* present exactly when a `READY` impact is `EXTENDS`, `NEW_FEATURE` or `MODIFIES` |
 | Scope | ✅ | Concrete deliverables (endpoint, behaviour, tests, docs) |
 | Out of scope | ✅ | At least the closest tempting extensions; "nothing specific" if truly none |
-| Acceptance criteria | ✅ | Checkboxes; observable and testable; each tagged `[provided]` or `[recommended]`; never a behaviour beyond the request |
+| Acceptance criteria | ✅ | Checkboxes; observable and testable; each tagged `[provided]` or `[recommended]`; never a behaviour beyond the request; `GIVEN` / `WHEN` / `THEN` when it adds clarity |
+| Definition of Done | ✅ | Plain bullets (not checkboxes: the Reviewer's criteria stay the *Acceptance criteria*); process conditions only, never a functional requirement; required for `READY` |
 | Constraints | ✅ | `[provided]` ones copied with their meaning intact; `[observed]` ones with evidence; "none known" if none |
 | References | ✅ | What was used; explicitly "none provided" for an absent reference that matters |
 | Open questions | when any | Each marked `blocking` / `non-blocking`; a non-blocking one states its default |
@@ -140,9 +155,13 @@ only when **all** of these hold:
 | R6 | The known critical constraints are written down (or "none known") |
 | R7 | The references needed are present, or explicitly marked absent |
 | R8 | Nothing in it asks for CI, secrets, permissions or agent configuration changes without having been raised to a human ([refiner rules §9](../agents/refiner.md#9-untrusted-content-and-prompt-injection)) |
+| R9 | The request was compared with `SPEC.md` when the target has one: the impact is not `CONTRADICTS` nor `NEEDS_DECISION`, the concerned items are cited, a contract change is listed for the same PR, and a *Definition of Done* is written ([refiner rules §5.4](../agents/refiner.md#54-compare-with-specmd)) |
 
 If any condition fails, the verdict is `NEEDS_CLARIFICATION` (answers missing) or `BLOCKED`
-(cannot or must not be refined).
+(cannot or must not be refined). `flowforge_refine_validate` enforces the checkable part of R9:
+an output that is `READY` with `CONTRADICTS` / `NEEDS_DECISION`, that claims `NO_SPEC` while
+`SPEC.md` exists (or the reverse), or that misses its references, contract changes or Definition
+of Done is rejected and nothing is published.
 
 ## 6. 🚦 Labels and states
 
@@ -242,8 +261,18 @@ workflows write the Project status, and since Phase 7 a Notion Need can create t
 ## Goal
 An HTTP endpoint returns the running application version.
 
+## Specification
+Impact on `SPEC.md`: `NEW_FEATURE` — the request adds a feature `SPEC.md` does not cover; `SPEC.md` is updated in the same PR.
+
+- `F-001` — Service probes (`CONFIRMED`): the closest feature; its endpoints stay unchanged.
+
+Contract changes to make in `SPEC.md`, in the same PR:
+- Add `F-002` — Service identification: `GET /version` returns the package version. `[recommended]`
+- Add `S-002` — GIVEN the installed version V WHEN a client calls `GET /version` THEN 200 `{"version": V}`. `[recommended]`
+
 ## Scope
 - A `GET /version` endpoint returning the version as JSON.
+- The `SPEC.md` update listed in *Specification*.
 - Tests for the endpoint.
 - One row in the `README.md` endpoint table.
 
@@ -257,6 +286,12 @@ An HTTP endpoint returns the running application version.
 - [ ] `<version>` equals the `version` of `pyproject.toml`. `[recommended]`
 - [ ] A pytest test covers the endpoint and compares with the package version. `[recommended]`
 - [ ] `pytest`, `ruff check` and `ruff format --check` pass. `[observed]` (`CLAUDE.md`)
+
+## Definition of Done
+- Every acceptance criterion is met and covered by a test. `[recommended]`
+- `pytest`, `ruff check` and `ruff format --check` pass. `[observed]` (`CLAUDE.md`)
+- `SPEC.md` holds `F-002` and `S-002`, in the same PR. `[recommended]`
+- A Draft PR closes the Issue. `[observed]` (Developer rules)
 
 ## Constraints
 - One router module per resource, registered in `src/demo_api/main.py`. `[observed]`
@@ -285,6 +320,7 @@ An HTTP endpoint returns the running application version.
 - Source: Issue #<n> by @<author>
 - Refined at: <UTC timestamp> — Refined by: FlowForge Refiner, `agents/refiner.md` at `<sha>`
 - Verdict: READY
+- SPEC.md: NEW_FEATURE (F-001)
 - Added: context, scope, out of scope, 4 criteria (3 recommended, 1 observed), constraints, notes
 - References used: `src/demo_api/routes/`, `src/demo_api/main.py`, `tests/`, `CLAUDE.md`, `pyproject.toml`
 - Open questions: 0 blocking, 1 non-blocking
@@ -317,6 +353,11 @@ the Reviewer would accept.
 ## Goal
 Not determinable yet — see *Open questions*.
 
+## Specification
+Impact on `SPEC.md`: `NEEDS_DECISION` — the request needs an owner decision on the contract, see *Open questions*.
+
+- `F-0xx` / `R-0xx` — the logging items, if `SPEC.md` has any; otherwise section 1, which decides whether logging is in scope.
+
 ## Scope
 To be defined from the answers.
 
@@ -325,6 +366,9 @@ To be defined from the answers.
 
 ## Acceptance criteria
 None yet: no criterion can be written without inventing the requirement.
+
+## Definition of Done
+- To be defined from the answers.
 
 ## Constraints
 - None known.
@@ -350,6 +394,7 @@ None yet: no criterion can be written without inventing the requirement.
 - Source: Issue #<n> by @<author>
 - Refined at: <UTC timestamp> — Refined by: FlowForge Refiner, `agents/refiner.md` at `<sha>`
 - Verdict: NEEDS_CLARIFICATION
+- SPEC.md: NEEDS_DECISION
 - Added: context, out of scope, 5 questions
 - References used: `src/demo_api/`
 - Open questions: 4 blocking, 1 non-blocking
@@ -381,10 +426,21 @@ repository shows; every provided constraint keeps its exact meaning.
 ## Goal
 `GET /tasks/export` returns all tasks as a CSV document.
 
+## Specification
+Impact on `SPEC.md`: `NEW_FEATURE` — the request adds a feature `SPEC.md` does not cover; `SPEC.md` is updated in the same PR.
+
+- `R-001` — Task model (`CONFIRMED`): the exported fields are task fields.
+- `R-013` — No task content in logs (`CONFIRMED`): the export must not log titles.
+
+Contract changes to make in `SPEC.md`, in the same PR:
+- Add `F-0xx` — Task export, with the provided CSV header and content type. `[provided]`
+- Add `S-0xx` — GIVEN two tasks WHEN `GET /tasks/export` THEN 200, `text/csv`, header then two rows. `[provided]`
+
 ## Scope
 - The `GET /tasks/export` route in the tasks router.
 - Tests for the export.
 - One row in the `README.md` endpoint table.
+- The `SPEC.md` update listed in *Specification*.
 
 ## Out of scope
 - Any change to existing endpoints. `[provided]`
@@ -398,6 +454,11 @@ repository shows; every provided constraint keeps its exact meaning.
 - [ ] With no task, the response is 200 with the header line only. `[provided]`
 - [ ] Existing endpoint tests still pass unchanged. `[provided]`
 - [ ] A title containing a comma or a quote is escaped per CSV rules. `[recommended]`
+
+## Definition of Done
+- Every acceptance criterion is covered by a test; the target's checks pass. `[observed]` (`CLAUDE.md`)
+- `SPEC.md` holds the new feature and scenario, in the same PR. `[recommended]`
+- A Draft PR closes the Issue. `[observed]` (Developer rules)
 
 ## Constraints
 - No new dependency: standard library `csv` module. `[provided]`
@@ -421,6 +482,7 @@ repository shows; every provided constraint keeps its exact meaning.
 - Source: Issue #<n> by @<author>
 - Refined at: <UTC timestamp> — Refined by: FlowForge Refiner, `agents/refiner.md` at `<sha>`
 - Verdict: READY
+- SPEC.md: NEW_FEATURE (R-001, R-013)
 - Added: structure, out of scope, 1 recommended criterion (CSV escaping), 1 observed constraint (route order)
 - References used: `src/demo_api/routes/tasks.py`, `src/demo_api/storage.py`, `src/demo_api/schemas.py`
 - Open questions: 0
@@ -431,8 +493,31 @@ dependencies", add an `Content-Disposition` download header, or add filters — 
 The CSV escaping criterion is `[recommended]` because it follows from "CSV format"; a human
 can drop it before applying `agent:ready`.
 
+### 9.4 Request contradicting `SPEC.md` → `NEEDS_CLARIFICATION`
+
+**Input** — on a target whose `SPEC.md` holds `R-010 — Guarded bulk deletion` (`CONFIRMED`:
+`DELETE /tasks` deletes completed tasks only when `completed=true` is given, otherwise 422):
+
+> `DELETE /tasks` sans paramètre doit supprimer toutes les tâches terminées.
+
+**Output** (excerpt) — `spec_impact` `CONTRADICTS`:
+
+~~~markdown
+## Specification
+Impact on `SPEC.md`: `CONTRADICTS` — the request contradicts a confirmed requirement: arbitration needed, see *Open questions*.
+
+- `R-010` — Guarded bulk deletion (`CONFIRMED`): without `completed=true`, `DELETE /tasks` answers 422 and deletes nothing; the request removes that guard.
+- `S-014` — Guarded deletion of completed tasks: asserts the 422 the request would remove.
+
+## Open questions
+- (blocking) `R-010` requires `completed=true` to delete completed tasks; the request deletes them without it. Keep `R-010` (the request becomes a no-op), or change `R-010` and `S-014` as requested?
+~~~
+
+The Refiner does not pick. If the requester answers "change `R-010`", the next refinement is
+`MODIFIES`, lists the `R-010` / `S-014` amendments under *Contract changes* and may be `READY`.
+
 ------
 
 > **Document created on**: 2026-10-09
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.1 (2026-10-10: workflow-written markers, `agent:needs-clarification` implemented)
+> **Version**: 1.2 (2026-10-19: Phase 8.2, *Specification*, *Definition of Done*, Ready R9; 1.1 2026-10-10: workflow-written markers, `agent:needs-clarification` implemented)

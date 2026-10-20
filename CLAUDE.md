@@ -23,7 +23,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `agents/` — generic agent rules (`developer.md`, `reviewer.md`, `iterator.md`, `refiner.md`),
   independent of any target project;
 - `docs/issue-contract.md` — format of an executable Issue (`Ready` definition), produced by the Refiner;
-- `docs/spec-contract.md` — the target's `SPEC.md` contract (Phase 8.1): minimal structure, what the gate checks and does not;
+- `docs/spec-contract.md` — the target's `SPEC.md` contract (Phase 8.1): minimal structure, what the gate checks and does not; §7 how the agents use it (Phase 8.2);
 - `docs/preparation-projet-existant-pour-flowforge.md` — target preparation mission (French), run IN a target to write its `SPEC.md` + review document; applies the contract, never redefines it;
 - `docs/target-onboarding.md` — how to connect a target (Terraform, secrets, FlowForge GitHub App, callers).
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
@@ -89,7 +89,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 8 (Specification) — 8.1 SPEC contract implemented, not validated live
+## Current phase: Phase 8 (Specification) — 8.1 SPEC contract gate, 8.2 SPEC-aware refinement
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -203,7 +203,12 @@ one scenario, structure only); step *Check SPEC contract* in `agent-develop.yml`
 "Prompt 37" in the 37.1 audit) is distinct from FlowForge's Prompt 37 (the gate): contract §6. Prompt 37.1 audited
 `demo-api` / `demo-api-2`; Prompt 37.2 aligned the mission with the contract (exact titles in the target's language,
 statuses `CONFIRMED` / `OBSERVED` / `KNOWN GAP`, scenario → test coverage) and corrected `demo-api` PR #56 (reference
-POC; `demo-api-2` kept for a secondary validation at the end of Phase 8). Next: 8.2 (requests vs specification), not started.
+POC; `demo-api-2` kept for a secondary validation at the end of Phase 8).
+Prompt 38 (8.2, requests vs specification): the Refiner reads the target's `SPEC.md` and returns `spec_impact`
+(`COMPLIANT` / `EXTENDS` / `NEW_FEATURE` / `MODIFIES` / `CONTRADICTS` / `NEEDS_DECISION` / `NO_SPEC`), cited
+`F/R/S` items, contract changes and a Definition of Done (`agents/refiner.md` §5.4, `refinement.json` v2);
+`flowforge_refine_validate` refuses a `READY` with `CONTRADICTS` / `NEEDS_DECISION` (contract R9); Developer §4.1,
+Reviewer §4.8, Iterator §6.1 read `SPEC.md`; see `docs/spec-contract.md` §7.
 
 ## Out of scope for now
 

@@ -347,6 +347,9 @@ jobs:
             git diff, as content.
           - Inspect the change with: git diff origin/$BASE_BRANCH...HEAD (add --stat or
             --name-status for the file list), git log origin/$BASE_BRANCH..HEAD, git show.
+          - The functional contract is SPEC.md as on $BASE_BRANCH: git show
+            origin/$BASE_BRANCH:SPEC.md. The pull request's change to it, if any, is in the
+            diff. Check the change against it (rules, section 4.8).
           - You are READ-ONLY. Editing tools are disabled. Never try to edit or format files,
             apply fixes, create branches, commit, push, merge, comment, or change the pull
             request. Only run commands that cannot modify the repository (rules, section 9);

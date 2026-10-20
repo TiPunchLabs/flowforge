@@ -300,6 +300,8 @@ jobs:
           Implement exactly the GitHub Issue below, following the FlowForge Developer rules
           and the repository's own CLAUDE.md (read it first; it gives the test, lint and
           format commands). The Issue's acceptance criteria define "done".
+          SPEC.md at the workspace root is the project's functional contract (checked by the
+          workflow): read it before changing anything and respect it (rules, section 4.1).
 
           ## How this run works
 

@@ -744,6 +744,14 @@ Details: [spec-contract.md](spec-contract.md).
   never reported as "absent") are distinct diagnostics.
 - **Not gated**: Refiner, Reviewer, Iterator, review cycle, lifecycle and Notion workflows. Every
   development, whatever the origin of the Issue, starts through `agent-develop.yml`.
+- **Phase 8.2 — use by the agents** ([spec-contract §7](spec-contract.md#7--how-the-agents-use-specmd-phase-82)):
+  the Refiner reads `SPEC.md` from the checked-out default branch and returns `spec_impact`
+  (`COMPLIANT` / `EXTENDS` / `NEW_FEATURE` / `MODIFIES` / `CONTRADICTS` / `NEEDS_DECISION` /
+  `NO_SPEC`), the cited items and the contract changes; the workflow decides whether `SPEC.md`
+  exists and `flowforge_refine_validate` refuses a `READY` that skips an arbitration. The refined
+  Issue gains *Specification* and *Definition of Done*. Developer, Reviewer and Iterator rules
+  read `SPEC.md`; their workflows only gain one prompt line. No new agent, workflow, label or
+  dependency.
 
 ------
 
@@ -1029,9 +1037,9 @@ overwritten by each review of the run, these copies keep the history.
 | Where the result goes | Issue title and body rewritten (contract §2), original kept verbatim in it by the workflow; single updated comment |
 | Labels | `agent:needs-clarification` created in the module and added to the state helper; `READY` removes it; `agent:ready` stays human-only |
 | Technical failure | Run fails, Issue untouched; no workflow-set verdict (unlike the Reviewer's `BLOCKED`): a refinement is a proposal, there is nothing safe to publish without one |
-| Result contract | `refinement.json`, `schema_version: 1` (§5.8) |
+| Result contract | `refinement.json`, `schema_version: 1` (§5.8; `2` since Phase 8.2) |
 
-### 5.8 Refinement result contract (`refinement.json`, `schema_version: 1`)
+### 5.8 Refinement result contract (`refinement.json`, `schema_version: 2`)
 
 Artifact `flowforge-refine-issue-<n>` holds `refinement.json` (also the `refinement_json`
 output), `comment.md`, and for `READY` / `NEEDS_CLARIFICATION` `title.txt` and `body.md`; a
@@ -1039,7 +1047,7 @@ rejected agent output is kept as `rejected-output.json`.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repository": "owner/name",
   "issue": 12,
   "author": "requester-login",
@@ -1048,6 +1056,7 @@ rejected agent output is kept as `rejected-output.json`.
   "run_url": "https://github.com/...",
   "rules_sha": "FlowForge commit of agents/refiner.md",
   "refined_at": "2026-10-10T12:00:00Z",
+  "spec_present": true,
   "verdict": "READY",
   "blocked_reason": "",
   "title": "feat: add GET /version endpoint",
@@ -1056,7 +1065,11 @@ rejected agent output is kept as `rejected-output.json`.
   "open_questions": [{ "question": "…", "blocking": false, "default": "…" }],
   "assumptions": ["`[assumption]` …"], "notes_for_agents": ["…"],
   "proposed_labels": ["`agent:ready` (to be applied by a human)"],
-  "added": "…", "references_used": ["…"]
+  "added": "…", "references_used": ["…"],
+  "spec_impact": "EXTENDS",
+  "spec_references": ["`F-005` — Task listing (`CONFIRMED`): …"],
+  "spec_changes": ["Add `S-020` — …"],
+  "definition_of_done": ["…"]
 }
 ```
 
@@ -1064,6 +1077,10 @@ rejected agent output is kept as `rejected-output.json`.
   failed run without artifact result.
 - Fields after `verdict` are the agent's structured output; the ones before are added by the
   workflow.
+- `schema_version: 2` (Phase 8.2) adds `spec_present` (workflow) and `spec_impact`,
+  `spec_references`, `spec_changes`, `definition_of_done` (agent); rules in
+  [refiner §5.4](../agents/refiner.md#54-compare-with-specmd). The Issue body marker stays
+  `schema_version=1`: the body sections are additive and the markers unchanged.
 
 ### 5.9 Notion decisions (Phase 7, Prompts 31–36)
 
