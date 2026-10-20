@@ -5,7 +5,7 @@
 # context: `github.repository`, `github.token` and the checkout all refer to the target.
 #
 # Flow:  Issue -> workflow_dispatch -> this workflow -> Claude Code (read-only,
-#        agents/refiner.md + docs/issue-contract.md) -> structured result (JSON)
+#        agents/refiner.md + docs/issue-contract.md, target SPEC.md) -> structured result (JSON)
 #        -> refined Issue title/body + one FlowForge comment, updated on re-runs.
 #        Verdict: READY | NEEDS_CLARIFICATION | BLOCKED, three business outcomes of a
 #        successful run. A technical failure (FAILED) fails the run and leaves the Issue
@@ -76,7 +76,7 @@ on:
         description: Name of the artifact holding refinement.json and the rendered files.
         value: ${{ jobs.refine.outputs.result_artifact }}
       refinement_json:
-        description: refinement.json (schema_version 1) as compact JSON; empty on technical failure.
+        description: refinement.json (schema_version 2) as compact JSON; empty on technical failure.
         value: ${{ jobs.refine.outputs.refinement_json }}
 
 # Nothing by default; each job requests only what it needs.
@@ -226,6 +226,16 @@ jobs:
           else
             claude_md="The target repository has no CLAUDE.md on $DEFAULT_BRANCH: rely on its README, CI and code."
           fi
+          # Phase 8.2: the target's functional contract. Its presence is decided here, not by
+          # the agent, and checked against spec_impact by flowforge_refine_validate.
+          if [[ -f SPEC.md ]]; then
+            spec_present=true
+            spec_md="SPEC.md exists at the workspace root: it is the functional reference of the project. Read it before analysing the request and compare the request with it (rules section 5.4). spec_impact must not be NO_SPEC."
+          else
+            spec_present=false
+            spec_md="The target repository has no SPEC.md on $DEFAULT_BRANCH: spec_impact must be NO_SPEC and spec_references empty (rules section 5.4)."
+          fi
+          echo "spec_present=$spec_present" >> "$GITHUB_OUTPUT"
 
           # Structured output contract; descriptions must not contain single quotes.
           jq -c . > "$CONTEXT_DIR/schema.json" <<'EOF'
@@ -234,7 +244,8 @@ jobs:
             "additionalProperties": false,
             "required": ["verdict", "blocked_reason", "title", "context", "goal", "scope", "out_of_scope",
                          "acceptance_criteria", "constraints", "references", "open_questions", "assumptions",
-                         "notes_for_agents", "proposed_labels", "added", "references_used"],
+                         "notes_for_agents", "proposed_labels", "added", "references_used",
+                         "spec_impact", "spec_references", "spec_changes", "definition_of_done"],
             "properties": {
               "verdict": { "type": "string", "enum": ["READY", "NEEDS_CLARIFICATION", "BLOCKED"] },
               "blocked_reason": { "type": "string", "description": "Why the Issue cannot or must not be refined when BLOCKED; empty string otherwise." },
@@ -263,7 +274,11 @@ jobs:
               "notes_for_agents": { "type": "array", "items": { "type": "string" } },
               "proposed_labels": { "type": "array", "items": { "type": "string" } },
               "added": { "type": "string", "description": "One line for the refinement record: what this refinement added or changed." },
-              "references_used": { "type": "array", "items": { "type": "string" }, "description": "Files, Issues, PRs and documents actually read." }
+              "references_used": { "type": "array", "items": { "type": "string" }, "description": "Files, Issues, PRs and documents actually read." },
+              "spec_impact": { "type": "string", "enum": ["COMPLIANT", "EXTENDS", "NEW_FEATURE", "MODIFIES", "CONTRADICTS", "NEEDS_DECISION", "NO_SPEC"], "description": "How the request relates to SPEC.md (rules section 5.4)." },
+              "spec_references": { "type": "array", "items": { "type": "string" }, "description": "SPEC.md items concerned, one per item: identifier, name, status, why it applies. Never a copy of SPEC.md." },
+              "spec_changes": { "type": "array", "items": { "type": "string" }, "description": "SPEC.md changes the Developer makes in the same PR; non-empty exactly when a READY spec_impact is EXTENDS, NEW_FEATURE or MODIFIES." },
+              "definition_of_done": { "type": "array", "items": { "type": "string" }, "description": "Verifiable conditions for the whole task to be done; required when READY." }
             }
           }
           EOF
@@ -291,6 +306,7 @@ jobs:
           ## How this run works
 
           - The workspace is the default branch of the target repository. $claude_md
+          - $spec_md
           - You are READ-ONLY. Editing tools are disabled. Never try to edit files, create
             branches, commit, push, open a pull request, comment, or change labels. Allowed
             commands: read-only git (status, diff, log, show, ls-files, rev-parse) and
@@ -319,6 +335,10 @@ jobs:
           - Every acceptance criterion carries [provided], [recommended] or [observed].
           - A non-blocking question states its default; a blocking one has default "".
           - BLOCKED: blocked_reason states why; the other fields may be empty.
+          - spec_impact CONTRADICTS or NEEDS_DECISION is never READY: ask the arbitration as a
+            blocking question naming the SPEC.md item. READY requires definition_of_done, and
+            spec_references when SPEC.md exists. spec_changes is filled exactly when a READY
+            spec_impact is EXTENDS, NEW_FEATURE or MODIFIES.
 
           ## FlowForge Refiner rules
 
@@ -402,6 +422,7 @@ jobs:
         env:
           STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
           DIGEST: ${{ steps.context.outputs.digest }}
+          SPEC_PRESENT: ${{ steps.prompt.outputs.spec_present }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
           FLOWFORGE_SHA: ${{ job.workflow_sha }}
@@ -416,7 +437,7 @@ jobs:
           out_dir="$CONTEXT_DIR/result"
           artifact="flowforge-refine-issue-$ISSUE_NUMBER"
           printf '%s\n' "$STRUCTURED_OUTPUT" > "$CONTEXT_DIR/output.json"
-          if ! reason="$(flowforge_refine_validate "$CONTEXT_DIR/output.json")"; then
+          if ! reason="$(flowforge_refine_validate "$CONTEXT_DIR/output.json" "$SPEC_PRESENT")"; then
             cp "$CONTEXT_DIR/output.json" "$out_dir/rejected-output.json"
             echo "::error::$reason Nothing was published; re-run the Refiner."
             exit 1
@@ -426,10 +447,10 @@ jobs:
             --arg author "$(jq -r '.user.login' "$CONTEXT_DIR/issue.json")" \
             --arg original_title "$(jq -r '.title' "$CONTEXT_DIR/issue.json")" \
             --arg digest "$DIGEST" --arg run_url "$RUN_URL" --arg rules_sha "$FLOWFORGE_SHA" \
-            --arg refined_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
-            {schema_version: 1, repository: $repository, issue: ($issue | tonumber), author: $author,
+            --arg refined_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson spec_present "$SPEC_PRESENT" '
+            {schema_version: 2, repository: $repository, issue: ($issue | tonumber), author: $author,
              original_title: $original_title, input_digest: $digest, run_url: $run_url,
-             rules_sha: $rules_sha, refined_at: $refined_at} + .' \
+             rules_sha: $rules_sha, refined_at: $refined_at, spec_present: $spec_present} + .' \
             "$CONTEXT_DIR/output.json" > "$out_dir/refinement.json"
 
           verdict="$(jq -r '.verdict' "$out_dir/refinement.json")"

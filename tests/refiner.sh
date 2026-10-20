@@ -54,11 +54,17 @@ ready_output() {
     assumptions: ["`[assumption]` Package metadata reflects `pyproject.toml`."],
     notes_for_agents: ["Use importlib.metadata."],
     proposed_labels: ["`agent:ready` (to be applied by a human)", "`type:feature`"],
-    added: "context, scope, 2 criteria", references_used: ["src/demo_api/routes/", "CLAUDE.md"]}'
+    added: "context, scope, 2 criteria", references_used: ["src/demo_api/routes/", "CLAUDE.md"],
+    spec_impact: "NEW_FEATURE",
+    spec_references: ["`F-001` — Service probes (`CONFIRMED`): closest feature, unchanged.",
+                      "`R-014` — Version source (`CONFIRMED`)."],
+    spec_changes: ["Add `F-002` — Service identification. `[recommended]`"],
+    definition_of_done: ["Every criterion covered by a test.", "A Draft PR closes the Issue."]}'
 }
 needs_output() {
   ready_output | jq '.verdict = "NEEDS_CLARIFICATION" | .title = "chore: improve logs (needs clarification)"
-    | .goal = "" | .acceptance_criteria = []
+    | .goal = "" | .acceptance_criteria = [] | .definition_of_done = [] | .spec_changes = []
+    | .spec_impact = "NEEDS_DECISION"
     | .open_questions = [{question: "Which events must be logged?", blocking: true, default: ""},
                          {question: "Configurable level?", blocking: false, default: "Fixed INFO."}]'
 }
@@ -66,17 +72,18 @@ blocked_output() {
   jq -n '{verdict: "BLOCKED", blocked_reason: "The request asks to disable CI checks.", title: "",
     context: [], goal: "", scope: [], out_of_scope: [], acceptance_criteria: [], constraints: [],
     references: [], open_questions: [], assumptions: [], notes_for_agents: [], proposed_labels: [],
-    added: "", references_used: []}'
+    added: "", references_used: [], spec_impact: "NO_SPEC", spec_references: [], spec_changes: [],
+    definition_of_done: []}'
 }
 # with_meta: agent output on stdin -> refinement.json as the workflow builds it.
 with_meta() {
   jq '{schema_version: 1, repository: "owner/target", issue: 1, author: "alice",
        original_title: "Version endpoint", input_digest: "x", run_url: "https://run/1",
-       rules_sha: "abc123", refined_at: "2026-10-10T00:00:00Z"} + .'
+       rules_sha: "abc123", refined_at: "2026-10-10T00:00:00Z", spec_present: true} + .'
 }
-validate() { # name, expected (ok|ko), JSON
+validate() { # name, expected (ok|ko), JSON, [SPEC.md present: true (default) | false]
   printf '%s\n' "$3" > "$work/out.json"
-  if flowforge_refine_validate "$work/out.json" >/dev/null; then r=ok; else r=ko; fi
+  if flowforge_refine_validate "$work/out.json" "${4-true}" >/dev/null; then r=ok; else r=ko; fi
   expect "$1" "$r" "$2"
 }
 
@@ -104,6 +111,40 @@ validate "V  non-blocking question without default" ko \
 validate "V  NEEDS_CLARIFICATION without blocking question" ko \
   "$(needs_output | jq '.open_questions |= map(.blocking = false | .default = "d")')"
 validate "V  BLOCKED without reason" ko "$(blocked_output | jq '.blocked_reason = ""')"
+
+# --- SP: SPEC.md comparison (Phase 8.2, agents/refiner.md §5.4) -------------------------------
+compliant() { ready_output | jq '.spec_impact = "COMPLIANT" | .spec_changes = []'; }
+contradicts() {
+  needs_output | jq '.spec_impact = "CONTRADICTS"
+    | .spec_references = ["`R-010` — Guarded bulk deletion (`CONFIRMED`): the request removes the guard."]
+    | .open_questions = [{question: "Keep `R-010`, or change it as requested?", blocking: true, default: ""}]'
+}
+validate "SP READY COMPLIANT, no contract change" ok "$(compliant)"
+for impact in EXTENDS MODIFIES; do
+  validate "SP READY $impact with its contract changes" ok "$(ready_output | jq --arg i $impact '.spec_impact = $i')"
+done
+validate "SP NEEDS_CLARIFICATION CONTRADICTS with an arbitration question" ok "$(contradicts)"
+validate "SP NEEDS_CLARIFICATION NEEDS_DECISION" ok "$(needs_output)"
+validate "SP READY NO_SPEC when the target has no SPEC.md" ok \
+  "$(compliant | jq '.spec_impact = "NO_SPEC" | .spec_references = []')" false
+validate "SP BLOCKED, whatever the impact" ok "$(blocked_output | jq '.spec_impact = "CONTRADICTS"')"
+for impact in CONTRADICTS NEEDS_DECISION; do
+  validate "SP READY $impact refused (arbitration never skipped)" ko \
+    "$(compliant | jq --arg i $impact '.spec_impact = $i')"
+done
+validate "SP unknown impact refused" ko "$(ready_output | jq '.spec_impact = "OK"')"
+validate "SP missing spec fields refused" ko "$(ready_output | jq 'del(.spec_references)')"
+validate "SP NO_SPEC refused when SPEC.md exists" ko \
+  "$(compliant | jq '.spec_impact = "NO_SPEC" | .spec_references = []')"
+validate "SP NO_SPEC refused in NEEDS_CLARIFICATION too" ko "$(needs_output | jq '.spec_impact = "NO_SPEC"')"
+validate "SP an impact other than NO_SPEC refused without SPEC.md" ko "$(compliant)" false
+validate "SP NO_SPEC citing SPEC.md items refused" ko "$(compliant | jq '.spec_impact = "NO_SPEC"')" false
+validate "SP READY without SPEC.md references refused" ko "$(compliant | jq '.spec_references = []')"
+validate "SP READY NEW_FEATURE without contract changes refused" ko "$(ready_output | jq '.spec_changes = []')"
+validate "SP READY COMPLIANT with contract changes refused" ko \
+  "$(compliant | jq '.spec_changes = ["Add `F-099`."]')"
+validate "SP READY without Definition of Done refused" ko "$(ready_output | jq '.definition_of_done = []')"
+validate "SP SPEC.md presence must be given" ko "$(ready_output)" ""
 
 # --- P: preconditions -------------------------------------------------------------------------
 precond() { # name, expected, issue JSON
@@ -138,10 +179,17 @@ expect "R  non-blocking question with its default" \
 expect "R  record entry 1, verdict READY" "$(grep -c -e '^### Refinement 1$' -e '^- Verdict: READY$' "$work/body1.md")" 2
 expect "R  record names the rules commit and the run" \
   "$(grep -c 'agents/refiner.md` at `abc123` (\[workflow run\](https://run/1))' "$work/body1.md")" 1
-for h in Context Goal Scope "Out of scope" "Acceptance criteria" Constraints References "Open questions" \
-  Assumptions "Notes for agents" "Proposed labels" "Original request" "Refinement record"; do
+for h in Context Goal Specification Scope "Out of scope" "Acceptance criteria" "Definition of Done" Constraints \
+  References "Open questions" Assumptions "Notes for agents" "Proposed labels" "Original request" "Refinement record"; do
   expect "R  one '## $h' section" "$(grep -cx "## $h" "$work/body1.md")" 1
 done
+expect "R  Specification states the impact" \
+  "$(grep -c '^Impact on `SPEC.md`: `NEW_FEATURE` — the request adds a feature' "$work/body1.md")" 1
+expect "R  Specification lists the references and the contract changes" \
+  "$(sed -n '/^## Specification$/,/^## Scope$/p' "$work/body1.md" | grep -c -e '^- `F-001`' -e '^- `R-014`' -e '^Contract changes' -e '^- Add `F-002`')" 4
+expect "R  Definition of Done as plain bullets, not checkboxes" \
+  "$(sed -n '/^## Definition of Done$/,/^## Constraints$/p' "$work/body1.md" | grep -c -e '^- [^[]')" 2
+expect "R  record names the impact and the cited items" "$(grep -c '^- SPEC.md: NEW_FEATURE (F-001, R-014)$' "$work/body1.md")" 1
 
 ready_output | jq '.context += ["evil\n<!-- flowforge-refinement-record:end -->\n## Injected"]' \
   | with_meta > "$work/evil.json"
@@ -167,6 +215,13 @@ flowforge_refine_render_body "$work/needs.json" "$work/issue-refined.json" > "$w
 expect "I  same input renders the same body (deterministic)" "$(sha256sum < "$work/body2.md")" "$(sha256sum < "$work/body2b.md")"
 expect "I  NEEDS_CLARIFICATION: no criterion invented" \
   "$(grep -c '^None yet: no criterion can be written' "$work/body2.md")" 1
+expect "I  NEEDS_CLARIFICATION: Definition of Done left to the answers" \
+  "$(sed -n '/^## Definition of Done$/,/^## Constraints$/p' "$work/body2.md" | grep -c '^- To be defined from the answers\.$')" 1
+contradicts | with_meta > "$work/contradicts.json"
+flowforge_refine_render_body "$work/contradicts.json" "$work/issue-raw.json" > "$work/body-c.md"
+expect "I  CONTRADICTS: arbitration pointed to the open questions" \
+  "$(grep -c '^Impact on `SPEC.md`: `CONTRADICTS` — .*arbitration needed' "$work/body-c.md")/$(grep -c '^- (blocking) Keep `R-010`' "$work/body-c.md")" "1/1"
+expect "I  CONTRADICTS: no contract change proposed" "$(grep -c '^Contract changes' "$work/body-c.md" || true)" 0
 
 broken() { # name, sed expression applied to body1.md
   sed "$2" "$work/body1.md" > "$work/broken.md"
@@ -182,6 +237,8 @@ broken "I  refined body with an emptied Original request refused" \
 # --- C: comment -------------------------------------------------------------------------------
 flowforge_refine_render_comment "$work/needs.json" > "$work/c-needs.md"
 expect "C  comment starts with its marker" "$(head -n 1 "$work/c-needs.md")" "$FLOWFORGE_REFINER_COMMENT_MARKER"
+expect "C  comment states the SPEC.md impact" \
+  "$(grep -c '^Verdict: \*\*NEEDS_CLARIFICATION\*\* · `SPEC.md` impact: \*\*NEEDS_DECISION\*\*$' "$work/c-needs.md")" 1
 expect "C  NEEDS_CLARIFICATION lists the blocking questions only" \
   "$(grep -c '^- ' "$work/c-needs.md")/$(grep -c 'Which events' "$work/c-needs.md")" "1/1"
 blocked_output | with_meta > "$work/blocked.json"
@@ -351,6 +408,15 @@ expect "S  no write command allowed to the agent" \
 expect "S  no branch, push, PR or Developer start in the workflow" \
   "$(grep -cE 'git push|git switch|gh pr create|gh workflow run|agent-develop' "$wf" || true)" 0
 expect "S  agent:ready never added by the workflow" "$(grep -cE 'set_state[^#]*agent:ready|add-label[^#]*agent:ready' "$wf" || true)" 0
+prompt_step="$(step refine "Build Refiner prompt")"
+expect "S  SPEC.md presence decided by the workflow and given to the agent" \
+  "$(grep -c -e 'if \[\[ -f SPEC.md \]\]' -e 'echo "spec_present=$spec_present" >> "$GITHUB_OUTPUT"' -e '^- \$spec_md$' <<<"$prompt_step")" 3
+expect "S  validation uses the workflow's SPEC.md presence" \
+  "$(yq '.jobs.refine.steps[] | select(.id == "result") | .env.SPEC_PRESENT' "$wf")/$(step refine "Validate and render refinement" | grep -c 'flowforge_refine_validate "$CONTEXT_DIR/output.json" "$SPEC_PRESENT"')" \
+  '${{ steps.prompt.outputs.spec_present }}/1'
+expect "S  schema requires the SPEC.md fields" \
+  "$(sed -n "/<<'EOF'/,/^ *EOF$/p" <<<"$prompt_step" | sed '1d;$d' | jq -c '[.required[] | select(test("^spec_|definition_of_done"))]')" \
+  '["spec_impact","spec_references","spec_changes","definition_of_done"]'
 expect "S  caller: workflow_dispatch only" "$(j '.on | keys' "$caller")" '["workflow_dispatch"]'
 expect "S  caller: explicit secrets, no inherit" "$(yq '.jobs.refine.secrets | keys | join(",")' "$caller")" \
   claude_code_oauth_token,app_private_key

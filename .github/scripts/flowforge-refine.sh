@@ -47,30 +47,51 @@ flowforge_refine_digest() {
   jq -j '.title, "\n", (.body // "")' "$1" | sha256sum | cut -d' ' -f1
 }
 
-# Validates the agent output file $1 against the result contract and the verdict rules.
-# Succeeds silently; otherwise prints the reason and fails.
+# Validates the agent output file $1 against the result contract and the verdict rules. $2 is
+# "true" when the target holds SPEC.md on its default branch, "false" otherwise (Phase 8.2:
+# docs/issue-contract.md §5 R9, agents/refiner.md §5.4). Succeeds silently; otherwise prints the
+# reason and fails.
 flowforge_refine_validate() {
+  local spec_present="${2:-}"
+  if [[ "$spec_present" != true && "$spec_present" != false ]]; then
+    echo "flowforge_refine_validate: SPEC.md presence must be true or false, got '$spec_present'."
+    return 1
+  fi
   if ! jq -e 'type == "object"' "$1" >/dev/null 2>&1; then
     echo "The Refiner returned no parsable structured output."
     return 1
   fi
   # shellcheck disable=SC2016  # jq program
-  if ! jq -e '
+  if ! jq -e --argjson spec "$spec_present" '
     def str: type == "string";
     def strs: type == "array" and all(.[]; type == "string");
     def filled: test("\\S");
     def blocking: [.open_questions[] | select(.blocking)] | length;
     def well_formed:
       (.verdict | IN("READY", "NEEDS_CLARIFICATION", "BLOCKED"))
+      and (.spec_impact | IN("COMPLIANT", "EXTENDS", "NEW_FEATURE", "MODIFIES", "CONTRADICTS",
+                             "NEEDS_DECISION", "NO_SPEC"))
       and ([.blocked_reason, .title, .goal, .added] | all(str))
       and ([.context, .scope, .out_of_scope, .acceptance_criteria, .constraints, .references,
-            .assumptions, .notes_for_agents, .proposed_labels, .references_used] | all(strs))
+            .assumptions, .notes_for_agents, .proposed_labels, .references_used,
+            .spec_references, .spec_changes, .definition_of_done] | all(strs))
       and (.open_questions | type == "array"
            and all(.[]; type == "object" and (.question | str)
                         and (.blocking | type == "boolean") and (.default | str)));
+    def contract_change: .spec_impact | IN("EXTENDS", "NEW_FEATURE", "MODIFIES");
+    def spec_consistent:
+      if $spec then .spec_impact != "NO_SPEC"
+      else .spec_impact == "NO_SPEC" and (.spec_references | length) == 0 end
+      and (if .spec_impact | IN("CONTRADICTS", "NEEDS_DECISION") then .verdict != "READY" else true end)
+      and (if .verdict == "READY" then
+             ((.spec_changes | length) > 0) == contract_change
+             and (.spec_impact == "NO_SPEC" or (.spec_references | length) > 0)
+             and (.definition_of_done | length) > 0
+           else true end);
     def consistent:
       if .verdict == "BLOCKED" then .blocked_reason | filled
       else (.title | filled) and (.title | length) <= 256 and .blocked_reason == ""
+        and spec_consistent
         and all(.open_questions[]; .question | filled)
         and all(.open_questions[] | select(.blocking | not); .default | filled)
         and all(.acceptance_criteria[]; test("\\[(provided|recommended|observed)\\]"))
@@ -81,7 +102,7 @@ flowforge_refine_validate() {
             else blocking > 0 end
       end;
     well_formed and consistent' "$1" >/dev/null 2>&1; then
-    echo "The Refiner output violates the result contract or the verdict rules (docs/issue-contract.md §5, agents/refiner.md §5.3)."
+    echo "The Refiner output violates the result contract or the verdict rules (docs/issue-contract.md §5, agents/refiner.md §5.3, §5.4)."
     return 1
   fi
 }
@@ -160,17 +181,32 @@ flowforge_refine_render_body() {
     def clean: gsub("[\r\n]+"; " ") | gsub("<!--"; "&lt;!--");
     def items($none): if length == 0 then "- \($none)" else .[] | "- \(clean)" end;
     def section($t): "", "## \($t)";
+    def impact:
+      {COMPLIANT: "the request respects the existing contract",
+       EXTENDS: "the request extends an existing feature; `SPEC.md` is updated in the same PR",
+       NEW_FEATURE: "the request adds a feature `SPEC.md` does not cover; `SPEC.md` is updated in the same PR",
+       MODIFIES: "the request changes an existing requirement, as explicitly decided; `SPEC.md` is updated in the same PR",
+       CONTRADICTS: "the request contradicts a confirmed requirement: arbitration needed, see *Open questions*",
+       NEEDS_DECISION: "the request needs an owner decision on the contract, see *Open questions*",
+       NO_SPEC: "the repository has no `SPEC.md` on its default branch; the Developer will not start until one is added"}[.];
+    def spec_ids: [.spec_references[] | scan("\\b[FRS]-[0-9]+\\b")] | unique;
     ([$records | scan("(?m)^### Refinement [0-9]+$")] | length + 1) as $n
     | ([.open_questions[] | select(.blocking)] | length) as $blocking
     | $marker,
       section("Context"), (.context | items("None stated.")),
       section("Goal"), (if (.goal | test("\\S")) then .goal | clean else "Not determinable yet — see *Open questions*." end),
+      section("Specification"),
+      "Impact on `SPEC.md`: `\(.spec_impact)` — \(.spec_impact | impact).",
+      (if (.spec_references | length) > 0 then "", (.spec_references | items("")) else empty end),
+      (if (.spec_changes | length) > 0 then "", "Contract changes to make in `SPEC.md`, in the same PR:",
+        (.spec_changes | items("")) else empty end),
       section("Scope"), (.scope | items("To be defined from the answers.")),
       section("Out of scope"), (.out_of_scope | items("Nothing specific.")),
       section("Acceptance criteria"),
       (if (.acceptance_criteria | length) == 0
         then "None yet: no criterion can be written without inventing the requirement."
         else .acceptance_criteria[] | "- [ ] \(clean)" end),
+      section("Definition of Done"), (.definition_of_done | items("To be defined from the answers.")),
       section("Constraints"), (.constraints | items("None known.")),
       section("References"), (.references | items("None provided.")),
       (if (.open_questions | length) > 0 then section("Open questions"),
@@ -189,6 +225,7 @@ flowforge_refine_render_body() {
       "- Refined at: \(.refined_at)",
       "- Refined by: FlowForge Refiner, `agents/refiner.md` at `\(.rules_sha)` ([workflow run](\(.run_url)))",
       "- Verdict: \(.verdict)",
+      "- SPEC.md: \(.spec_impact)\(if (spec_ids | length) > 0 then " (" + (spec_ids | join(", ")) + ")" else "" end)",
       "- Added: \(if (.added | test("\\S")) then .added | clean else "not stated" end)",
       "- Assumptions: \(.assumptions | length)",
       "- References used: \(if (.references_used | length) == 0 then "none" else .references_used | map(clean) | join(", ") end)",
@@ -205,7 +242,7 @@ flowforge_refine_render_comment() {
     $marker,
     "## FlowForge Refinement",
     "",
-    "Verdict: **\(.verdict)**",
+    "Verdict: **\(.verdict)** · `SPEC.md` impact: **\(.spec_impact)**",
     "",
     (if .verdict == "READY" then
        "The Issue title and body were rewritten to the refined format; the original request is kept verbatim in *Original request*.",

@@ -34,7 +34,8 @@ conventions, but can never relax the rules marked **MUST**.
 Before modifying any file:
 
 1. Read the target repository's `CLAUDE.md` if it exists, and follow it.
-2. Read `README.md` and the contribution docs if present.
+2. Read `SPEC.md`, the project's functional contract (§4.1), then `README.md` and the
+   contribution docs if present.
 3. Identify the stack, the layout, the test framework and how tests are run.
 4. Read the existing CI workflows (`.github/workflows/`) to know what will be checked.
 5. Look at existing code close to the change and follow its style and patterns.
@@ -46,6 +47,24 @@ Before modifying any file:
 - No new dependency unless the Issue requires it; justify it in the PR if so.
 - Never modify CI workflows, branch protections, secrets or FlowForge files in the
   target repository unless the Issue explicitly asks for it.
+
+### 4.1 Functional contract: `SPEC.md`
+
+`SPEC.md` (root of the base branch; the workflow checks it exists before you start) states the
+features `F-xxx`, rules `R-xxx` and scenarios `S-xxx` of the project
+([spec-contract](../docs/spec-contract.md)). The Issue's *Specification* section, when present,
+gives the request's impact on it and the items concerned.
+
+- You **MUST** preserve every `CONFIRMED` requirement the Issue does not explicitly change, and
+  keep the existing scenarios true (they are covered by tests). An `OBSERVED` behaviour may change
+  when the Issue requires it: say so in the PR.
+- You **MUST NOT** change `SPEC.md` silently. Change it only as the Issue authorises — impact
+  `EXTENDS`, `NEW_FEATURE` or `MODIFIES` and its *Contract changes* list — and then **in the same
+  PR** as the code: new identifiers continue the numbering (never reused, never renumbered), each
+  new behaviour gets its scenario, a requirement accepted through the Issue is `CONFIRMED`.
+- If implementing the Issue would contradict a `CONFIRMED` requirement the Issue does not
+  authorise you to change, or the Issue and `SPEC.md` disagree: **stop** (§8) and report the
+  contradiction, naming the item. Never pick a side.
 
 ## 5. Tests
 
@@ -72,6 +91,7 @@ Before modifying any file:
   - `Closes #<issue-number>`;
   - summary of the change;
   - how it was tested (commands + result);
+  - *Specification*: the `SPEC.md` items concerned, and the `SPEC.md` changes made (or "none");
   - known limitations, open questions, anything left out of scope.
 - You **MUST NOT** merge, approve, or mark the PR "ready for review" yourself.
   A human reviews and merges.
@@ -81,6 +101,7 @@ Before modifying any file:
 Stop, comment on the Issue, and do not open a PR when:
 
 - the acceptance criteria cannot be met within the Issue's scope;
+- the change would contradict `SPEC.md` beyond what the Issue authorises (§4.1);
 - required tests cannot be run in the environment;
 - the change would require secrets, infrastructure or permissions you do not have.
 

@@ -2,7 +2,7 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phases 1–7 validated end to end, with reservations listed in each [milestone](docs/milestones/) (Notion Need → Issue → Refiner → Developer → Reviewer ⇄ Iterator → human merge, mirrored on a GitHub Project and back to Notion). Latest: Phase 7 — Notion ([closure](docs/milestones/phase7-notion-complete.md)). Next: Phase 8, not defined yet.** Nothing here is production-ready.
+> **Status: experimental — Phases 1–7 validated end to end, with reservations listed in each [milestone](docs/milestones/) (Notion Need → Issue → Refiner → Developer → Reviewer ⇄ Iterator → human merge, mirrored on a GitHub Project and back to Notion). Latest: Phase 7 — Notion ([closure](docs/milestones/phase7-notion-complete.md)). Now: Phase 8 — Specification (`SPEC.md` gate and SPEC-aware refinement, [contract](docs/spec-contract.md)).** Nothing here is production-ready.
 
 FlowForge is a **central repository** that orchestrates AI-assisted software development
 across several GitHub repositories: it configures them declaratively and provides the

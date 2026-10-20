@@ -1,9 +1,10 @@
 # 📜 FlowForge — SPEC.md contract
 
-> **Status**: Phase 8.1. Every target repository holds a `SPEC.md` at its root: the functional
-> reference of the project. Before the Developer starts, `agent-develop.yml` checks that it
-> exists and has the minimal structure below. The check is **structural only**: whether the
-> specification is right, complete and consistent stays a human responsibility.
+> **Status**: Phase 8.1 (gate) and 8.2 (use by the agents, §7). Every target repository holds a
+> `SPEC.md` at its root: the functional reference of the project. Before the Developer starts,
+> `agent-develop.yml` checks that it exists and has the minimal structure below. The check is
+> **structural only**: whether the specification is right, complete and consistent stays a human
+> responsibility.
 > Implementation: `.github/scripts/flowforge-spec.sh`, step *Check SPEC contract*; tests:
 > `tests/spec-contract.sh`.
 
@@ -27,7 +28,7 @@
 |---|---|
 | `SPEC.md` exists on the base branch | that it describes the product correctly |
 | it holds the four sections | that the requirements are consistent or complete |
-| at least one behaviour and one scenario are written | that the Issue being developed agrees with it (Phase 8.2) |
+| at least one behaviour and one scenario are written | that the Issue being developed agrees with it (the agents' job since Phase 8.2, §7) |
 
 ------
 
@@ -45,8 +46,8 @@ contradicts the product goes unnoticed until a human reads the PR.
   (`F-001`, `R-001`, `S-001`) an Issue, a review finding or a PR body can point to;
 - **FlowForge** refuses to start an autonomous development on a project that has none.
 
-Phase 8.1 only guarantees the file is there and shaped as below. Using it to analyse new
-requests is Phase 8.2.
+Phase 8.1 guarantees the file is there and shaped as below. Phase 8.2 makes the agents use it
+(§7).
 
 ------
 
@@ -240,6 +241,31 @@ mission with this contract (titles, statuses, coverage) and corrected `demo-api`
 
 ------
 
+## 7. 🔗 How the agents use `SPEC.md` (Phase 8.2)
+
+No new agent, workflow or rules engine: the existing rules read `SPEC.md` and the Refiner's
+structured result carries the comparison.
+
+```text
+request ─► Refiner ── reads SPEC.md ── spec_impact ──┬─ COMPLIANT / EXTENDS / NEW_FEATURE / MODIFIES ─► READY possible
+                                                      ├─ CONTRADICTS / NEEDS_DECISION ─► NEEDS_CLARIFICATION (arbitration), never READY
+                                                      └─ NO_SPEC ─► refinement continues; the Developer gate will refuse
+human agent:ready ─► gate (§3) ─► Developer: respects SPEC.md, updates it in the same PR only when the Issue says so
+                                ─► Reviewer: Issue ↔ SPEC.md ↔ code ↔ tests (findings)
+```
+
+| Agent | Rule | What is enforced by code, not only by the prompt |
+|---|---|---|
+| Refiner | [refiner §5.4](../agents/refiner.md#54-compare-with-specmd): cite `F/R/S` items, classify the impact, never arbitrate, list contract changes, write a Definition of Done | `flowforge_refine_validate`: presence of `SPEC.md` decided by the workflow and matched by `spec_impact`; `CONTRADICTS` / `NEEDS_DECISION` never `READY`; `READY` needs references, a Definition of Done, and contract changes exactly for `EXTENDS` / `NEW_FEATURE` / `MODIFIES` ([issue contract §5](issue-contract.md#5--ready-definition), R9) |
+| Developer | [developer §4.1](../agents/developer.md#41-functional-contract-specmd): preserve `CONFIRMED` requirements, change `SPEC.md` only as the Issue authorises and in the same PR, stop on a contradiction | the gate (§3); the rest is reviewed |
+| Reviewer | [reviewer §4.8](../agents/reviewer.md#48-check-the-functional-contract-specmd): severities for a broken requirement, a silent contract change, a missing or inconsistent `SPEC.md` update | the existing verdict rules (a `BLOCKER` / `MAJOR` prevents `APPROVE`) |
+| Iterator | [iterator §6.1](../agents/iterator.md#61-fix-the-finding-nothing-else): `SPEC.md` changed only to fix a finding, as the Issue authorises | — |
+
+The semantic comparison stays the agents' judgement, reviewed by a human: the code checks only
+what is deterministic.
+
+------
+
 > **Document created on**: 2026-10-19
 > **Author**: xgueret, with Claude Code
-> **Version**: 1.1 (Phase 8.1, Prompt 37; Prompt 37.2: titles rule, statuses, preparation mission)
+> **Version**: 1.2 (Phase 8.1, Prompt 37; Prompt 37.2: titles rule, statuses, preparation mission; Phase 8.2, Prompt 38: §7)

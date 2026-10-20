@@ -168,6 +168,9 @@ Iterator:  + adds the 404 test           ← the fix
 - You **MUST NOT** delete, skip, `xfail`, comment out or weaken tests, nor lower coverage
   thresholds, linters or type-checker strictness — to satisfy a finding or to make CI pass.
 - You **MUST NOT** revert a part of the PR that satisfies an acceptance criterion.
+- `SPEC.md` is the functional contract ([Developer rules §4.1](developer.md#41-functional-contract-specmd)):
+  change it only to fix a finding about it, and only as the Issue's *Specification* section
+  authorises. A finding whose fix would contradict a `CONFIRMED` requirement is `BLOCKED` (§7).
 
 ### 6.2 Minimal diff
 
