@@ -230,6 +230,10 @@ Prompt 39.2 (permission checks): `docs/target-onboarding.md` v2.2 §4 — eviden
 client ID / Project number without printing values, owner-only checks A-1 (org secret/variable lists, `admin:org`) and A-2
 (installation repositories, UI); no new script, no scope change. `demo-api` re-audited 2026-10-21: all `PASS` except R14
 `NOT_VERIFIED` (A-2 not done), #58 Project transitions proven from job logs (§8).
+Prompt 40 (second-target onboarding, `demo-api-2`): R1–R18 replayed; initial `FAIL` on R13 (callers `@main`) and R16
+(`SPEC.md` only in PR #3, wrong section 1 title); fixed with existing mechanisms only — demo-api-2 PR #4 (callers pinned to
+`v0.1.0`), PR #3 (+1 commit: title, undecided status code no longer `CONFIRMED`, coverage), IaC source `?ref=v0.1.0`;
+no FlowForge code change, onboarding §3 / §5 / §10.4 clarified; see `docs/milestones/phase8-second-target-onboarding.md`.
 
 ## Out of scope for now
 

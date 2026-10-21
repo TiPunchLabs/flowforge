@@ -254,7 +254,7 @@ skipped workflow blocks the merge), with explicit `permissions:` (the module kee
 | File | Content | Who validates |
 |---|---|---|
 | `CLAUDE.md` (root) | stack, test / lint / format commands, conventions. Agents read it first; FlowForge's own rules (`agents/`) stay generic | the target owner |
-| `SPEC.md` (root, default branch) | the functional contract: four sections, at least one behaviour and one scenario ([spec-contract.md](spec-contract.md)). **Required**: otherwise the Developer refuses to start (`SPEC contract: FAILED`) | the target owner (content); FlowForge checks the structure only |
+| `SPEC.md` (root, default branch) | the functional contract: four sections, at least one behaviour and one scenario ([spec-contract.md](spec-contract.md)). **Required**: otherwise the Developer refuses to start (`SPEC contract: FAILED`), and the Refiner, which reads the default branch only, classifies every request `NO_SPEC` | the target owner (content); FlowForge checks the structure only |
 
 For an existing project, run the target preparation mission
 ([preparation-projet-existant-pour-flowforge.md](preparation-projet-existant-pour-flowforge.md))
@@ -391,6 +391,10 @@ the scope permanent. Until A-1 / A-2 are done, the matching results stay as R10 
 ------
 
 ## 🚀 5. First request
+
+**Before it**: readiness checks without `FAIL` (§4), and both target PRs **merged** on the
+default branch: `SPEC.md` (R16, R18) and the pinned callers (R13). A `SPEC.md` still in an open PR
+is invisible to the agents: the Refiner answers `NO_SPEC`, the Developer `SPEC contract: FAILED`.
 
 1. Open an Issue in the target describing the need (or submit it from Notion, §9).
 2. Refine it (human-started, never automatic):
@@ -557,7 +561,21 @@ git ls-remote origin 'refs/tags/v0.1.0^{}'                  # must print <full-s
    Changes to `workflow_call` inputs or secrets, or to the job `permissions:`, require the same
    change in the callers.
 2. **Callers** (PR in the target): replace the SHA and the `# vX.Y.Z` comment in all five files.
-   Adapt inputs only if the interface changed.
+   Adapt inputs only if the interface changed. New **optional** inputs are not reported by any
+   tool: compare each caller with `examples/target-repository/` (e.g. callers copied before
+   v0.1.0 lack the stand-alone Reviewer's Project inputs). Check the keys against the version:
+   ```bash
+   # Per caller: unknown with/secrets keys and missing required ones; all four lists must be empty.
+   SHA=<full sha>; f=.github/workflows/flowforge-review.yml
+   j=$(yq -o=json '.jobs[]' "$f" | jq -c '{uses, with:(.with//{}|keys), secrets:(.secrets//{}|keys)}')
+   wf=$(jq -r '.uses|split("@")[0]|split("/")[-1]' <<<"$j")
+   def=$(gh api "repos/TiPunchLabs/flowforge/contents/.github/workflows/$wf?ref=$SHA" --jq .content | base64 -d | yq -o=json '.on.workflow_call')
+   jq -c --argjson d "$def" '($d.inputs//{}) as $I | ($d.secrets//{}) as $S | {
+     unknown_inputs: [.with[] as $k | select($I|has($k)|not) | $k],
+     unknown_secrets: [.secrets[] as $k | select($S|has($k)|not) | $k],
+     missing_inputs: ([$I|to_entries[]|select(.value.required)|.key] - .with),
+     missing_secrets: ([$S|to_entries[]|select(.value.required)|.key] - .secrets)}' <<<"$j"
+   ```
 3. **Terraform** (the owning IaC): set `?ref=vNEW`, then `terraform init`. It re-installs the
    module when its source changes; `-upgrade` is not needed and would also upgrade providers.
    Then `terraform validate` and `terraform plan`.
@@ -584,5 +602,5 @@ apply only after review. Never roll back by moving a tag.
 ------
 
 > **Document created on**: 2026-10-11
-> **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompts 39, 39.1, 39.2)
-> **Version**: 2.2 — §4 evidence levels (`DIRECT` / `REPO-SIDE` / `DECLARED` / `FUNCTIONAL`), permissions per check, owner-only checks; §8 audit 2026-10-21 (Prompt 39.2)
+> **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompts 39, 39.1, 39.2, 40)
+> **Version**: 2.3 — §3 / §5 `SPEC.md` and callers merged before the first refinement, §10.4 interface check and optional inputs (second-target validation, Prompt 40)
