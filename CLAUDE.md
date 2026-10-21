@@ -225,6 +225,11 @@ Prompt 39.1 (versioning): first version `v0.1.0` (experimental POC) = `main` `af
 yet (maintainer's go-ahead). Module consumed by Git source `?ref=v0.1.0`, callers pinned to the full SHA (same in all
 five), scripts follow `job.workflow_sha`; update / rollback in `docs/target-onboarding.md` §10. `demo-api` PR #62 pins
 its callers (merge after the tag); its IaC (`02-infrastructure/demo-api`, not under Git) gets the source change after the tag.
+Prompt 39.2 (permission checks): `docs/target-onboarding.md` v2.2 §4 — evidence levels `DIRECT` / `REPO-SIDE` / `DECLARED` /
+`FUNCTIONAL` (dated), required permission per check, R2 reads the App **installation** (org owner + `read:org`), R11 compares
+client ID / Project number without printing values, owner-only checks A-1 (org secret/variable lists, `admin:org`) and A-2
+(installation repositories, UI); no new script, no scope change. `demo-api` re-audited 2026-10-21: all `PASS` except R14
+`NOT_VERIFIED` (A-2 not done), #58 Project transitions proven from job logs (§8).
 
 ## Out of scope for now
 

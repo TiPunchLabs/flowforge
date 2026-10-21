@@ -275,45 +275,118 @@ The agent commands listed in `allowed_tools` must be the ones `CLAUDE.md` docume
 
 ## ✅ 4. Readiness checks
 
-Run before the first request. Each check is **read-only** and reuses an existing script or a
-`gh api` read; none needs an organization-admin token unless stated.
+Run them before the first request. Each check is **read-only**: it uses an existing script or a
+`gh api` read and never prints a secret value.
+
+### 4.1 🧠 Results and evidence
 
 | Result | Meaning |
 |---|---|
-| `PASS` | the check was actually run and the expected value observed |
-| `FAIL` | a mandatory item is missing or wrong: fix before the first request |
-| `NOT_VERIFIED` | the check could not be run (token scope, no run yet): never read as `PASS` |
+| `PASS` | the check was run and the evidence covers its claim **now** |
+| `FAIL` | a mandatory item is absent or wrong: fix it before the first request |
+| `NOT_VERIFIED` | the available permissions or data cannot settle it. Never read it as `PASS` |
+
+| Evidence | What it proves | What it does not prove |
+|---|---|---|
+| `DIRECT` | the current configuration, read from the object itself (ruleset, labels, App **installation**) | — |
+| `REPO-SIDE` | what the target's workflows receive (secrets / variables visible to the repository) | the organization-level *Selected repositories* list itself |
+| `DECLARED` | what the App **asks** for (`apps/<slug>`) | that the installation accepted it ([provisioning.md §6.2](github-projects/provisioning.md)) |
+| `FUNCTIONAL` (dated) | a run used the item successfully at that date (log line, App-authored PR) | that it is unchanged since |
+
+Rules:
+
+- `DECLARED` alone is never a `PASS`.
+- `FUNCTIONAL` alone gives a `PASS` only for the **validity of a value nobody can read** (a
+  secret, the App key), and only if the run is **newer than the item's `updated_at`**. For
+  anything that can be read directly (permissions, installation, lists), a `FUNCTIONAL` proof
+  is cited in the evidence but the result stays `NOT_VERIFIED` until a direct read is done.
+- A missing permission gives `NOT_VERIFIED`, never `PASS` and never `FAIL`.
+- The Project sync steps are `continue-on-error` (best effort): a green step is no proof.
+  The proof is the step's log line `Project sync <repo>#<n> [<event>]: update — Status A → B`.
+
+### 4.2 📋 Checks R1–R18
 
 ```bash
 R=TiPunchLabs/<target>   # owner/name
+APP=tipunchlabs-flowforge
 ```
 
-| # | Level | Check | Command | `PASS` when | `FAIL` when |
-|---|---|---|---|---|---|
-| R1 | A | FlowForge callable | `gh api repos/TiPunchLabs/flowforge --jq .visibility` | `public` | — (`private`: `NOT_VERIFIED`, check its Actions access settings) |
-| R2 | A | App permissions | `gh api apps/tipunchlabs-flowforge --jq .permissions` | contents/pull_requests `write`, organization_projects `write`, **no** `issues` | `issues` present, or contents/pull_requests missing |
-| R3 | A | Project conforms | `scripts/github-projects/bootstrap.sh --check` (scope `read:project`) | `Check: Project conforms to the model.` | any reported drift (only if `FLOWFORGE_PROJECT_NUMBER` is set) |
-| R4 | B | Repository readable | `gh api repos/$R --jq '[.visibility,.default_branch,.has_issues]'` | readable, Issues enabled | 404, Issues disabled |
-| R5 | B | Actions allowed | `gh api repos/$R/actions/permissions` | `enabled: true`, `allowed_actions: all` | disabled or `local_only` (`selected`: `NOT_VERIFIED`, inspect the list) |
-| R6 | B | One IaC owner | `grep -rn 'target-repository' <target IaC> terraform/*.tf` and `terraform -chdir=<owning IaC> state list \| grep github_issue_label` (local state, no API) | exactly one state holds the module and its 6 labels | module in two places / none |
-| R7 | B | Labels | `gh api repos/$R/labels --paginate --jq '.[].name' \| grep -c '^agent:'` | `6` | fewer (workflows then skip the state with a warning) |
-| R8 | B | Merge gate | `gh api repos/$R/rulesets --jq '.[] \| [.name,.enforcement]'` | `flowforge-default-branch` `active` (or the documented replacement) | absent or not `active` |
-| R9 | B | Token settings | `gh api repos/$R/actions/permissions/workflow` | `can_approve_pull_request_reviews: true` | `false` (blocks `GITHUB_TOKEN` delivery) |
-| R10 | B | Secrets visible | `gh api repos/$R/actions/organization-secrets --jq '.secrets[].name'` | `CLAUDE_CODE_OAUTH_TOKEN` (+ `FLOWFORGE_APP_PRIVATE_KEY` with the App) | `CLAUDE_CODE_OAUTH_TOKEN` missing |
-| R11 | B | Variables visible | `gh api repos/$R/actions/organization-variables --jq '.variables[] \| [.name,.value]'` | `FLOWFORGE_APP_CLIENT_ID` set; `FLOWFORGE_PROJECT_NUMBER` = `1` if the sync is wanted | client ID visible without the private key, or the reverse |
-| R12 | B | No repository override | `gh api repos/$R/actions/secrets --jq '.secrets[].name'`; same with `variables` | none of the four names | any of them at repository level |
-| R13 | B | Callers installed | `gh workflow list -R $R`, then per caller `yq '.jobs[].with \| keys' .github/workflows/flowforge-<x>.yml` on the default branch | 5 callers `active`, each with `project_number` and `app_client_id` (lifecycle: no agent inputs) | a caller missing, or a `secrets: inherit` |
-| R14 | B | App installed on the target | not readable with a user token (`repos/$R/installation` needs an App JWT) | after the first run: Draft PR author `app/tipunchlabs-flowforge` (§6) | PR author `github-actions[bot]` while `FLOWFORGE_APP_CLIENT_ID` is set |
-| R15 | B | Required check name | ruleset `required_status_checks[].context` (R8 detail) vs the CI job `name:` | identical, or no required check yet | different names (every merge blocked) |
-| R16 | C | `SPEC.md` contract | `bash <flowforge>/.github/scripts/flowforge-spec.sh SPEC.md` on the default branch | `SPEC contract: PASS` | `FAILED` (`ERROR` = `NOT_VERIFIED`) |
-| R17 | C | `CLAUDE.md` present | `gh api repos/$R/contents/CLAUDE.md --jq .name` | found | absent |
-| R18 | C | `SPEC.md` validated by the owner | documentary: the owner answered `docs/flowforge-spec-review.md` and merged `SPEC.md` | owner confirms | — (otherwise `NOT_VERIFIED`) |
+Permissions column: *public* = any token; *repo read* / *repo admin* = access to the target
+(`repo` scope); *org owner* = organization owner role **and** `read:org`; *`admin:org`* = that
+token scope, which the default `gh` login does not carry (§4.3).
 
-The organization-level lists themselves (`gh api orgs/<org>/actions/secrets/<name>/repositories`)
-need the `admin:org` scope; R10–R12 read the same facts from the repository side and are enough.
+| # | Lvl | Claim | Method | Permission | Evidence | `PASS` when | `FAIL` when |
+|---|---|---|---|---|---|---|---|
+| R1 | A | FlowForge is callable | `gh api repos/TiPunchLabs/flowforge --jq .visibility` | public | `DIRECT` | `public` | — (`private`: `NOT_VERIFIED`, check its Actions access settings) |
+| R2 | A | App permissions **granted** | `gh api orgs/TiPunchLabs/installations --jq '.installations[] \| select(.app_slug=="'$APP'") \| {permissions, suspended_at, repository_selection}'` | org owner | `DIRECT` (installation) | contents / pull_requests / organization_projects `write`, **no** `issues`, `suspended_at: null` | `issues` granted, a required permission missing, or suspended |
+| R3 | A | Project exists, has the model's statuses and fields | `scripts/github-projects/bootstrap.sh --check` | `read:project` | `DIRECT` | `Check: Project conforms to the model.` | drift reported (only if the sync is wanted) |
+| R4 | B | Repository readable, Issues on | `gh api repos/$R --jq '[.visibility,.default_branch,.has_issues]'` | repo read | `DIRECT` | readable, `has_issues: true` | 404, Issues disabled |
+| R5 | B | Actions allowed | `gh api repos/$R/actions/permissions` | repo admin | `DIRECT` | `enabled: true`, `allowed_actions: all` | disabled or `local_only` (`selected`: `NOT_VERIFIED`, inspect the list) |
+| R6 | B | One IaC owner | `grep -rn 'target-repository' <target IaC>/*.tf terraform/*.tf`; `jq -r '.resources[] \| "\(.module) \(.type)"' <owning IaC>/terraform.tfstate` (local file, no API) | local files | `DIRECT` | exactly one state holds the module, its 6 labels, ruleset and token settings | module in two places, or none |
+| R7 | B | Labels | `gh api repos/$R/labels --paginate --jq '.[].name' \| grep -c '^agent:'` | repo read | `DIRECT` | `6` | fewer (workflows then skip the state with a warning) |
+| R8 | B | Merge gate | `gh api repos/$R/rulesets --jq '.[] \| [.name,.enforcement]'` | repo read | `DIRECT` | `flowforge-default-branch` `active` (or the documented replacement) | absent or not `active` |
+| R9 | B | Token settings | `gh api repos/$R/actions/permissions/workflow` | repo admin | `DIRECT` | `can_approve_pull_request_reviews: true` | `false` (blocks `GITHUB_TOKEN` delivery) |
+| R10 | B | Secrets reach the target | `gh api repos/$R/actions/organization-secrets --jq '.secrets[] \| [.name,.updated_at]'` (names and dates only, never values) | repo admin | `REPO-SIDE`; value validity `FUNCTIONAL` | `CLAUDE_CODE_OAUTH_TOKEN` and, with the App, `FLOWFORGE_APP_PRIVATE_KEY` visible | `CLAUDE_CODE_OAUTH_TOKEN` not visible |
+| R11 | B | Variables reach the target and match | `gh api repos/$R/actions/organization-variables --jq '.variables[].name'`, then the two comparisons below | repo admin; public | `REPO-SIDE` + `DIRECT` | both visible; client ID = the App's; Project number = `config/github-project.json` | client ID without key (or the reverse), or a mismatch |
+| R12 | B | No repository override | `gh api repos/$R/actions/secrets --jq .total_count`; same with `variables` | repo admin | `DIRECT` | none of the four names at repository level | any of them at repository level |
+| R13 | B | Callers installed and pinned | `gh workflow list -R $R`; per caller `yq '.jobs[] \| [.uses, (.with \| has("project_number")), (.with \| has("app_client_id"))]'` on the default branch | repo read | `DIRECT` | 5 callers `active`, same full SHA of a published tag (§10), Project inputs present, no `secrets: inherit` | a caller missing, `@main`, mixed SHAs, `secrets: inherit` |
+| R14 | B | App installed **on the target** | §4.3 A-2 (organization owner, UI) | org owner (UI) | `DIRECT`; otherwise `FUNCTIONAL` | the target is in the installation's repository list | the target is absent while `FLOWFORGE_APP_CLIENT_ID` is visible |
+| R15 | B | Required check name | ruleset `required_status_checks[].context` vs the CI job `name:` | repo read | `DIRECT` | identical, or no required check yet | different (every merge blocked) |
+| R16 | C | `SPEC.md` contract | `bash <flowforge>/.github/scripts/flowforge-spec.sh SPEC.md` on the default branch | local file | `DIRECT` | `SPEC contract: PASS` | `FAILED` (`ERROR` = `NOT_VERIFIED`) |
+| R17 | C | `CLAUDE.md` present | `gh api repos/$R/contents/CLAUDE.md --jq .name` | repo read | `DIRECT` | found | absent |
+| R18 | C | `SPEC.md` validated by the owner | documentary: the owner answered `docs/flowforge-spec-review.md` and merged `SPEC.md` | — | documentary | owner confirms | — (otherwise `NOT_VERIFIED`) |
 
-**Ready to receive a first request** = no `FAIL`; `NOT_VERIFIED` only on R14 (resolved by the
-first run) and, if accepted by the owner, R18.
+R11 comparisons (they print only `MATCH` / `MISMATCH`, never a value):
+
+```bash
+vars() { gh api "repos/$R/actions/organization-variables" --jq ".variables[] | select(.name==\"$1\") | .value"; }
+[ "$(gh api apps/$APP --jq .client_id)" = "$(vars FLOWFORGE_APP_CLIENT_ID)" ] && echo MATCH || echo MISMATCH
+[ "$(jq .number config/github-project.json)" = "$(vars FLOWFORGE_PROJECT_NUMBER)" ] && echo MATCH || echo MISMATCH
+```
+
+**Value validity (R10, `FUNCTIONAL`).** No API can read a secret. The proof is a run, newer
+than the secret's `updated_at`, in which the secret was used:
+
+- `FLOWFORGE_APP_PRIVATE_KEY`: a step *Create App delivery token* or *Create Project token* succeeded.
+- `CLAUDE_CODE_OAUTH_TOKEN`: an agent produced a result (a verdict or a Draft PR).
+
+Read a run's log lines with the job-log endpoint:
+
+```bash
+gh api "repos/$R/actions/runs/<run id>/jobs" --jq '.jobs[] | [.id, .name] | @tsv'
+gh api "repos/$R/actions/jobs/<job id>/logs" | grep -E 'Project sync |permission-'
+```
+
+Without such a run (a new target), the validity is `NOT_VERIFIED` until the first run.
+
+**App capabilities.** The App can *create PRs* and *move Project cards* on a target when R2
+(granted permissions) and R14 (installed on the target) both `PASS`. A dated `FUNCTIONAL` proof
+(an App-authored PR, a `Project sync … update` line) confirms that the chain works. It does not
+replace R2 or R14.
+
+### 4.3 🔑 Checks that need an organization owner
+
+These checks cannot be run with the default `gh` login (`repo`, `read:org`, `project`). They are
+done **once**, by an organization owner, and never by widening a stored token:
+
+| Id | Covers | Procedure (read-only) |
+|---|---|---|
+| A-1 | org secrets and variables: *Selected repositories* list (complements R10 / R11) | UI: Organization settings → Secrets and variables → Actions → each of the four entries → *Repository access*. CLI: needs the `admin:org` scope: `gh api orgs/TiPunchLabs/actions/secrets/<name>/repositories --jq '.repositories[].full_name'` (`variables/<name>/repositories` likewise) |
+| A-2 | App installation: repository list (R14) | UI: Organization settings → GitHub Apps → FlowForge → **Configure** → *Repository access*. The `user/installations/<id>/repositories` API needs a GitHub App user token or a PAT |
+| A-3 | App permissions, for an operator who is not an owner (replaces R2) | UI: the same page, *Permissions* |
+
+If a CLI check is wanted, it is a **human decision** that uses a short-lived token: a
+fine-grained token with an expiry of one day, *Organization permissions* → Secrets: read-only,
+Variables: read-only, exported in the current shell only (`GH_TOKEN=… gh api …`), then revoked.
+Never store it, and never run `gh auth refresh -s admin:org` on the everyday login: that makes
+the scope permanent. Until A-1 / A-2 are done, the matching results stay as R10 / R11
+(`REPO-SIDE`) and R14 `NOT_VERIFIED`.
+
+**Ready to receive a first request** = no `FAIL`. `NOT_VERIFIED` is accepted only on:
+
+- R14 until A-2 is done (the first App-authored PR then confirms it functionally, §6);
+- R10 value validity on a new target, until the first run;
+- R18, if the owner accepts it.
 
 ------
 
@@ -337,7 +410,7 @@ first run) and, if accepted by the owner, R18.
 | Check | Expected |
 |---|---|
 | Developer run summary | `SPEC contract: PASS` block; *Delivered by: `<app-slug>[bot] (GitHub App)`* |
-| Draft PR author | `app/tipunchlabs-flowforge` (closes R14) |
+| Draft PR author | `app/tipunchlabs-flowforge`: dated `FUNCTIONAL` confirmation of R14 (R14 itself needs A-2, §4.3) |
 | Target CI on that PR | starts without the "Approve workflows to run" banner |
 | `flowforge-review.yml` on that PR | skipped (bot actor) until a human acts or dispatches it |
 | Review cycle with `REQUEST_CHANGES` | Iterator push starts CI, no extra `FlowForge review` run |
@@ -353,8 +426,8 @@ first run) and, if accepted by the owner, R18.
 |---|---|---|
 | Developer stops with `SPEC contract: FAILED` | `SPEC.md` absent or incomplete on the base branch | fix `SPEC.md` (R16); the Issue keeps `agent:ready`, remove and re-apply it |
 | Agent PR shows "Approve workflows to run" | `GITHUB_TOKEN` delivery: App variable/key not visible, or App not installed | R10, R11, R14 |
-| Workflow fails at token creation | `FLOWFORGE_APP_CLIENT_ID` visible but the key is not (or the reverse), or a repository-level override | R10–R12 |
-| Card never moves | `FLOWFORGE_PROJECT_NUMBER` unset/not visible, App lacks organization Projects permission | R2, R11; sync warnings in the run summary ([synchronization.md §6](github-projects/synchronization.md)) |
+| Workflow fails at token creation | `FLOWFORGE_APP_CLIENT_ID` visible but the key is not (or the reverse), or a repository-level override, or the installation has not accepted a permission the token requests | R2, R10–R12 |
+| Card never moves | `FLOWFORGE_PROJECT_NUMBER` unset/not visible, App lacks organization Projects permission | R2, R11; the job log has no `Project sync … update` line (a green step proves nothing, §4.1); sync warnings in the run summary ([synchronization.md §6](github-projects/synchronization.md)) |
 | State label skipped with a warning | module not applied on the target | R7, `terraform apply` in the owning state |
 | `terraform plan` wants to create existing labels / ruleset | existing objects not adopted | `import` blocks (§2.1) |
 | Every `apply` changes the same labels back | the target is declared in two states | R6: keep one module block |
@@ -366,40 +439,52 @@ first run) and, if accepted by the owner, R18.
 
 ## 📌 8. Reference installation: `demo-api`
 
-Audited read-only on 2026-10-20 (FlowForge `main` `3306d88`, `demo-api` `main` `aee9a87`). Not
-modified.
+Audited read-only on 2026-10-21 (Prompt 39.2): FlowForge `main` `3eba913`, `v0.1.0` = `afa60c5`;
+`demo-api` `main` `d684829`. The account used is an organization owner with the default `gh`
+scopes (`repo`, `read:org`, `project`, no `admin:org`). Nothing was modified.
 
-| Check | Observed | Result |
+| Check | Result | Evidence | Limitation |
+|---|---|---|---|
+| R1 | `PASS` | FlowForge `public` (`DIRECT`) | — |
+| R2 | `PASS` | installation `tipunchlabs-flowforge`: contents / pull_requests / organization_projects `write`, metadata `read`, no `issues`, `suspended_at: null`, `repository_selection: selected` (`DIRECT`) | — |
+| R3 | `PASS` | `bootstrap.sh --check`: *Project conforms to the model* (`DIRECT`) | read with the maintainer's token. The App's access is R2 plus the `FUNCTIONAL` lines below |
+| R4 | `PASS` | `public`, `main`, Issues on (`DIRECT`) | — |
+| R5 | `PASS` | `enabled: true`, `allowed_actions: all` (`DIRECT`) | — |
+| R6 | `PASS` | module `flowforge` only in `02-infrastructure/demo-api/github-terraform`, source `…?ref=v0.1.0` (installed: same); its state holds 6 labels, ruleset, token settings; no module block in FlowForge root (`DIRECT`) | the IaC folder is not under Git |
+| R7 | `PASS` | 6 `agent:*` labels (`DIRECT`) | — |
+| R8 | `PASS` | `flowforge-default-branch` `active`, admin bypass `pull_request` mode (`DIRECT`) | — |
+| R9 | `PASS` | `write`, `can_approve_pull_request_reviews: true` (`DIRECT`) | — |
+| R10 | `PASS` | `CLAUDE_CODE_OAUTH_TOKEN` (updated 2026-10-15 22:33Z) and `FLOWFORGE_APP_PRIVATE_KEY` (2026-10-15 22:28Z) visible (`REPO-SIDE`). Validity `FUNCTIONAL`, newer than both dates: App tokens minted and an `APPROVE` produced on 2026-10-20 (runs below) | organization *Selected repositories* list not read (A-1). Validity holds as of 2026-10-20 |
+| R11 | `PASS` | `FLOWFORGE_APP_CLIENT_ID` visible, `MATCH` with the App; `FLOWFORGE_PROJECT_NUMBER` visible, `1` = `config/github-project.json` (`REPO-SIDE` + `DIRECT`) | organization list not read (A-1) |
+| R12 | `PASS` | 0 repository secrets, 0 repository variables (`DIRECT`) | — |
+| R13 | `PASS` | 5 callers + CI `active`; all at `afa60c599fa47643bba45e26dad0e836b0375b69` (`v0.1.0`), with `project_number` and `app_client_id`, explicit secrets (`DIRECT`) | — |
+| R14 | `NOT_VERIFIED` | `FUNCTIONAL` only: the App minted delivery and Project tokens for `demo-api` on 2026-10-20 (run `39356037326`) and authored PR #60 (2026-10-20 01:56Z) | repository list of the installation not read (A-2): needs the owner UI |
+| R15 | `PASS` | required `Tests, lint and format` (15368) = CI job `name:` (`DIRECT`) | — |
+| R16 | `PASS` | `flowforge-spec.sh` on `main`'s `SPEC.md`: `SPEC contract: PASS` (`DIRECT`) | structure only |
+| R17 | `PASS` | `CLAUDE.md` present (`DIRECT`) | content not judged |
+| R18 | `PASS` | `docs/flowforge-spec-review.md` present, `SPEC.md` merged by the owner (PR #56) | documentary |
+
+**Project transitions, `FUNCTIONAL` (2026-10-20, Issue #58).** Read from the job logs. Every
+line is `update`, with no warning:
+
+| Run | Log label | Transition |
 |---|---|---|
-| R1 | FlowForge `public` | `PASS` |
-| R2 | contents / pull_requests / organization_projects `write`, metadata `read`, no `issues` | `PASS` |
-| R3 | `Check: Project conforms to the model.` | `PASS` |
-| R4 | `public`, default branch `main` | `PASS` |
-| R5 | `enabled: true`, `allowed_actions: all` | `PASS` |
-| R6 | module `flowforge` in `02-infrastructure/demo-api/github-terraform` only (same state as `github_repository.this`); FlowForge root declares no target; state holds the 6 labels, ruleset, token settings | `PASS` |
-| R7 | 6 `agent:*` labels, colours as the module | `PASS` |
-| R8 | `flowforge-default-branch` `active`, admin bypass `pull_request` mode (`admin_pull_request_bypass = true`) | `PASS` |
-| R9 | `default_workflow_permissions: write`, `can_approve_pull_request_reviews: true` | `PASS` |
-| R10 | `CLAUDE_CODE_OAUTH_TOKEN`, `FLOWFORGE_APP_PRIVATE_KEY` (organization) | `PASS` |
-| R11 | `FLOWFORGE_APP_CLIENT_ID` set, `FLOWFORGE_PROJECT_NUMBER = 1` (organization) | `PASS` |
-| R12 | no repository secret or variable | `PASS` |
-| R13 | 5 callers + CI `active`; all pass `project_number` and `app_client_id`, including `flowforge-review.yml` (A4) | `PASS` |
-| R14 | PRs #50, #53, #60 authored by `app/tipunchlabs-flowforge` | `PASS` (from runs) |
-| R15 | required `Tests, lint and format` (15368) = CI job `name:` | `PASS` |
-| R16 | `flowforge-spec.sh` on `main`'s `SPEC.md`: `SPEC contract: PASS` | `PASS` |
-| R17 | `CLAUDE.md` present | `PASS` |
-| R18 | `docs/flowforge-spec-review.md` present, `SPEC.md` merged by the owner (PR #56) | `PASS` (documentary) |
-| Org-level visibility lists | `gh api orgs/TiPunchLabs/actions/...` → 403 without `admin:org` | `NOT_VERIFIED` (covered by R10–R12) |
+| `39356037326` Developer | `[Developer started]`, `[Draft PR delivered]` | `Status Ready → Developing`, then `Developing → Review` |
+| `39452791058` stand-alone Reviewer (A4) | `[Reviewer APPROVE]` | `Status Review → Human validation` |
+| `39454789555` lifecycle | `[Pull request merged]` | `Status Human validation → Done` |
+
+Today `sync-issue.sh TiPunchLabs/demo-api 58 --show` gives `Done`, no Attention. The App's Project
+tokens requested `organization-projects: write` and were granted (R2).
 
 **Differences with the theory, all intentional (target choices, not drift):**
 
 | Item | `demo-api` | Theory / examples | Status |
 |---|---|---|---|
-| Module source | local path to the FlowForge working tree | Git source `?ref=v0.1.0` (§10) | change prepared (Prompt 39.1), applied by the maintainer after the tag: the IaC folder is not under Git |
+| Module source | `git::…?ref=v0.1.0` | Git source `?ref=vX.Y.Z` (§10) | aligned |
 | Provider token | `token = var.github_token` (`TF_VAR_github_token` from `pass` via direnv) | FlowForge root: `GITHUB_TOKEN` env only | target's own IaC, never in a file: acceptable |
 | `flowforge-review.yml` | `pull_request.branches: [main]` | no branch filter | stricter filter, compatible |
 | `setup_uv`, `allowed_tools`, `review_/iterate_allowed_tools` | set (uv / pytest / ruff / pre-commit) | commented placeholders | project-specific by design |
-| Callers' ref | `@main` on `main` | full SHA of v0.1.0 (§10) | pinned by `demo-api` PR #62 (Prompt 39.1), to merge after the tag |
+| Callers' ref | full SHA of `v0.1.0` | full SHA of a tag (§10) | aligned (`demo-api` PR #62) |
 | Organization Project linked to the repository | not linked (`projectsV2` empty) | not required: cards are added by the sync | aligned |
 
 ------
@@ -499,5 +584,5 @@ apply only after review. Never roll back by moving a tag.
 ------
 
 > **Document created on**: 2026-10-11
-> **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompts 39, 39.1)
-> **Version**: 2.1 — §10 versions and updates: module by tag, callers by full SHA, update and rollback (Prompt 39.1)
+> **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompts 39, 39.1, 39.2)
+> **Version**: 2.2 — §4 evidence levels (`DIRECT` / `REPO-SIDE` / `DECLARED` / `FUNCTIONAL`), permissions per check, owner-only checks; §8 audit 2026-10-21 (Prompt 39.2)
