@@ -1112,4 +1112,5 @@ rejected agent output is kept as `rejected-output.json`.
 | Required status checks in the default-branch ruleset | Once targets have a stable CI check |
 | Automatic start of the review cycle after the Developer (today: `workflow_dispatch`) | After the review cycle E2E |
 | Refiner label trigger (`agent:refine`) or automatic refinement on Issue opened | After the Refiner E2E (Prompts 23–24) |
+| Refiner → Developer chaining (automatic start after `READY`) | Designed in [autonomy-contract.md](autonomy-contract.md) (Phase 9, Prompt 42); implementation Prompt 43 |
 | Aligning `.github/ISSUE_TEMPLATE/feature.yml` with the refined Issue contract | After the Refiner E2E |

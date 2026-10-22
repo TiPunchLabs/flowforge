@@ -26,6 +26,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/spec-contract.md` — the target's `SPEC.md` contract (Phase 8.1): minimal structure, what the gate checks and does not; §7 how the agents use it (Phase 8.2);
 - `docs/preparation-projet-existant-pour-flowforge.md` — target preparation mission (French), run IN a target to write its `SPEC.md` + review document; applies the contract, never redefines it;
 - `docs/target-onboarding.md` — the single onboarding reference (Prompt 39): organization / repository / functional levels, existing-repository adoption (`import`), callers, readiness checks R1–R18 (`PASS` / `FAIL` / `NOT_VERIFIED`), `demo-api` reference installation.
+- `docs/autonomy-contract.md` — Phase 9 design (Prompt 42, not implemented): modes `SUPERVISED` / `SEMI_AUTO`, risk `LOW` / `MEDIUM` / `HIGH` (only `LOW` starts alone), deterministic start gates, Prompt 43 plan.
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
 - `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
@@ -238,6 +239,14 @@ Prompt 40 (second-target onboarding, `demo-api-2`): R1–R18 replayed; initial `
 no FlowForge code change, onboarding §3 / §5 / §10.4 clarified; see `docs/milestones/phase8-second-target-onboarding.md`.
 Prompt 40.1 (2026-10-22, after the owner merged PR #3 / #4): Refiner live on `demo-api-2` from `v0.1.0` — #5 `READY` / `COMPLIANT`, #6 `NEEDS_CLARIFICATION` / `CONTRADICTS` on `R-004` (arbitration left to the owner), cards `Refining → Ready` / `Refining → Backlog` + `Needs clarification`; no Developer; verdict VALIDATED (Terraform plan pending, expected no changes).
 Prompt 41 (2026-10-22, documentation only): `README.md` rewritten as the entry point, `GETTING_STARTED.md` (steps 1–8 + troubleshooting, Terraform example validated against `v0.1.0`); closure `docs/milestones/phase8-specification-complete.md`: **PHASE 8 VALIDATED WITH RESERVATIONS** — live: gate `PASS` (demo-api run `39356037326`), Developer `SPEC.md` update (PR #60), Reviewer checker + card after `APPROVE` (run `39452791058`); open: gate `FAILED` / `ERROR` live, 38.1 summary block live, contradiction / finding / Iterator paths, non-Refiner runs from the pinned SHA, R14 / A-1 / A-2, `demo-api-2` plan.
+
+Phase 9 — Controlled autonomy (target `v0.2.0`): Prompt 42 (design only) — `docs/autonomy-contract.md`: `SUPERVISED`
+(default, = v0.1.0) / `SEMI_AUTO` (repository variables `FLOWFORGE_AUTONOMY_MODE` + `FLOWFORGE_AUTONOMY_OWNER`, managed by
+Terraform in the target's state); the Refiner proposes a risk, deterministic floors (SPEC impact, title type, keywords) can
+only raise it; owner decisions 2026-10-22: `AUTO_START` only for `LOW` + `COMPLIANT` requests opened and dispatched by the
+owner, never from Notion, opt-out label `agent:manual`, gates G1–G12 incl. the #58 explicitness rule; `agent:ready` then set
+by the publish job (`GITHUB_TOKEN`) and the Developer started by a `develop` job of the same refine caller run; merge always
+human; pilots pinned to `v0.1.0`, unchanged. Nothing implemented; Prompt 43 plan in §10.
 
 ## Out of scope for now
 
