@@ -23,6 +23,31 @@ resource "github_actions_variable" "flowforge_variables" {
   value         = each.value
 }
 
+# Autonomy (docs/autonomy-contract.md §2.1): repository variables, created only when the input is
+# set; null = no variable = SUPERVISED. Never organization-level: that would enable every target.
+resource "github_actions_variable" "autonomy_mode" {
+  count = var.autonomy_mode == null ? 0 : 1
+
+  repository    = data.github_repository.target.name
+  variable_name = "FLOWFORGE_AUTONOMY_MODE"
+  value         = var.autonomy_mode
+
+  lifecycle {
+    precondition {
+      condition     = var.autonomy_mode != "SEMI_AUTO" || var.autonomy_owner != null
+      error_message = "autonomy_mode = \"SEMI_AUTO\" requires autonomy_owner (the repository owner's GitHub login)."
+    }
+  }
+}
+
+resource "github_actions_variable" "autonomy_owner" {
+  count = var.autonomy_owner == null ? 0 : 1
+
+  repository    = data.github_repository.target.name
+  variable_name = "FLOWFORGE_AUTONOMY_OWNER"
+  value         = var.autonomy_owner
+}
+
 resource "github_workflow_repository_permissions" "workflow_permissions" {
   repository = data.github_repository.target.name
 

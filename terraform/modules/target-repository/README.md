@@ -34,8 +34,10 @@ The module never creates, renames, archives or deletes the repository itself.
 | `agent:review` | **1** | A Draft PR is waiting for human review |
 | `agent:blocked` | **1** | The agent cannot proceed and needs human input |
 | `agent:done` | **4.1** | The agent PR was merged by a human; terminal state |
+| `agent:manual` | **9** | Control label, **not a state**: never start the Developer automatically |
 
-An Issue carries at most one of these state labels (lifecycle: `docs/architecture.md` §2.6).
+An Issue carries at most one of the six state labels (lifecycle: `docs/architecture.md` §2.6);
+`agent:manual` is outside that set and may sit next to any of them.
 `agent:ready` is set by a human; the Refiner, Developer, review-cycle and lifecycle workflows
 switch the others.
 
@@ -91,6 +93,8 @@ module "my_target" {
 | `required_approving_review_count` | `number` | `1` | Approvals required to merge (1–10) |
 | `admin_pull_request_bypass` | `bool` | `false` | Repository admins may bypass the ruleset **through a PR merge only** |
 | `required_status_checks` | `list(object({context, integration_id}))` | `[]` | Checks that must pass before merging; set only with the FlowForge GitHub App (see below) |
+| `autonomy_mode` | `string` | `null` | `null` (no variable, `SUPERVISED`), `"SUPERVISED"` or `"SEMI_AUTO"`; writes `FLOWFORGE_AUTONOMY_MODE` (see below) |
+| `autonomy_owner` | `string` | `null` | GitHub login of the repository owner, **required** with `SEMI_AUTO` (plan fails otherwise); writes `FLOWFORGE_AUTONOMY_OWNER` |
 
 ### Outputs
 
@@ -100,6 +104,28 @@ module "my_target" {
 | `default_branch` | Default branch of the repository |
 | `labels` | Managed label names |
 | `default_branch_ruleset_id` | ID of the default-branch ruleset (`null` when disabled) |
+| `autonomy_mode` | Effective autonomy mode (`SUPERVISED` unless `SEMI_AUTO`) |
+
+### Controlled autonomy (Phase 9)
+
+`SEMI_AUTO` lets a `LOW`-risk request of the repository owner start the Developer without a human
+`agent:ready`, when every gate of [docs/autonomy-contract.md](../../../docs/autonomy-contract.md)
+§4 passes. Opt-in per target, in the state that owns it:
+
+```hcl
+  autonomy_mode  = "SEMI_AUTO"
+  autonomy_owner = "owner-login"
+```
+
+- `null` inputs create no resource: the target stays `SUPERVISED`. The two variables are
+  **repository** Actions variables, never organization ones (one would enable every target), and
+  cannot be set through `actions_variables` (validation).
+- Back to `SUPERVISED`: set `autonomy_mode = "SUPERVISED"` (or `null`) and apply. Emergency:
+  `gh variable set FLOWFORGE_AUTONOMY_MODE -R <owner>/<repo> --body SUPERVISED`, then the same
+  change here **before** the next `apply`, otherwise it restores `SEMI_AUTO`.
+- The target's `flowforge-refine.yml` caller must hold the `develop` job of
+  `examples/target-repository/flowforge-refine.yml`.
+- Tested offline by `tests/autonomy.tftest.hcl` (mocked provider).
 
 ------
 

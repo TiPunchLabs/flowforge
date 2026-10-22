@@ -40,6 +40,11 @@ variable "labels" {
       color       = "8250DF"
       description = "FlowForge: the agent PR was merged by a human; the work is done"
     }
+    # Control label, not a state label: forces human validation (no automatic start).
+    "agent:manual" = {
+      color       = "5319E7"
+      description = "FlowForge: never start the Developer automatically; a human applies agent:ready"
+    }
   }
 
   validation {
@@ -49,9 +54,36 @@ variable "labels" {
 }
 
 variable "actions_variables" {
-  description = "Non-secret GitHub Actions repository variables, keyed by variable name. Never put secrets here."
+  description = "Non-secret GitHub Actions repository variables, keyed by variable name. Never put secrets here. The autonomy variables are set through autonomy_mode / autonomy_owner only."
   type        = map(string)
   default     = {}
+
+  validation {
+    condition     = !contains(keys(var.actions_variables), "FLOWFORGE_AUTONOMY_MODE") && !contains(keys(var.actions_variables), "FLOWFORGE_AUTONOMY_OWNER")
+    error_message = "Set FLOWFORGE_AUTONOMY_MODE / FLOWFORGE_AUTONOMY_OWNER with autonomy_mode / autonomy_owner, not actions_variables."
+  }
+}
+
+variable "autonomy_mode" {
+  description = "FlowForge autonomy mode (docs/autonomy-contract.md): null (default, no variable, SUPERVISED), \"SUPERVISED\" or \"SEMI_AUTO\" (LOW-risk requests of autonomy_owner may start the Developer without a human agent:ready). SEMI_AUTO requires autonomy_owner."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.autonomy_mode == null || contains(["SUPERVISED", "SEMI_AUTO"], coalesce(var.autonomy_mode, "SUPERVISED"))
+    error_message = "autonomy_mode must be null, \"SUPERVISED\" or \"SEMI_AUTO\"."
+  }
+}
+
+variable "autonomy_owner" {
+  description = "GitHub login of the repository's human owner, the only person whose own Issues, refined on their own dispatch, may start automatically in SEMI_AUTO. null: no variable."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.autonomy_owner == null || can(regex("^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$", coalesce(var.autonomy_owner, "x")))
+    error_message = "autonomy_owner must be a GitHub user login (letters, digits, single hyphens, at most 39 characters)."
+  }
 }
 
 variable "default_branch_ruleset_enabled" {
