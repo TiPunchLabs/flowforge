@@ -112,6 +112,10 @@ regression).
 | R3 | Reviewer §4.8 (contract findings) and Iterator §6.1 | Need a PR | Same run as R2 |
 | R4 | Rules served from `main` | Runs used the feature branch through a temporary caller | Re-run one case after the merge |
 
+> 💡 **Update (Prompt 41, 2026-10-22)**: R1 (`PASS` path) and part of R2 / R3 were then observed live on
+> `demo-api` #58 → PR #60 (gate `PASS`, `SPEC.md` updated as authorised, Reviewer ran the checker).
+> Current status of every reservation: [Phase 8 closure](phase8-specification-complete.md) §5.
+
 ## 8. 📌 Observations
 
 - Case B: the endpoint path is an observable API choice that the Refiner left **non-blocking** with
