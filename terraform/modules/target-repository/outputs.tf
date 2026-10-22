@@ -17,3 +17,8 @@ output "default_branch_ruleset_id" {
   description = "ID of the default-branch ruleset, null when disabled."
   value       = one(github_repository_ruleset.default_branch[*].ruleset_id)
 }
+
+output "autonomy_mode" {
+  description = "Effective FlowForge autonomy mode: SUPERVISED unless autonomy_mode is SEMI_AUTO."
+  value       = coalesce(var.autonomy_mode, "SUPERVISED")
+}

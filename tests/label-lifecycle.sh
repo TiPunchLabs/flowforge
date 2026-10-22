@@ -285,9 +285,10 @@ expect "W  lifecycle caller: pull_request closed only" \
   "$(yq -o=json -I=0 '.on' "$root/examples/target-repository/flowforge-lifecycle.yml")" '{"pull_request":{"types":["closed"]}}'
 expect "W  no write-all anywhere" "$(grep -rl 'write-all' "$wf" "$root/examples" | wc -l)" 0
 expect "W  no merge, no ready-for-review in the lifecycle" "$(grep -cE 'gh pr (merge|ready)' "$wf/agent-lifecycle.yml" || true)" 0
-expect "W  Terraform manages every state label" \
+# agent:manual (Phase 9) is a control label managed by the module, never a state label.
+expect "W  Terraform manages every state label, plus the agent:manual control label" \
   "$(grep -oE '"agent:[a-z-]+" = \{' "$root/terraform/modules/target-repository/variables.tf" | sed -E 's/"([^"]+)".*/\1/' | jq -Rnc '[inputs] | sort')" \
-  "$(jq -c sort <<<"$state_labels")"
+  "$(jq -c '. + ["agent:manual"] | sort' <<<"$state_labels")"
 expect "W  helper and module agree on the state set" \
   "$(bash -c 'source "$1"; printf "%s\n" "${FLOWFORGE_STATE_LABELS[@]}"' _ "$helper" | jq -Rnc '[inputs] | sort')" \
   "$(jq -c sort <<<"$state_labels")"

@@ -759,6 +759,25 @@ Details: [spec-contract.md](spec-contract.md).
   read `SPEC.md`; their workflows only gain one prompt line. No new agent, workflow, label or
   dependency.
 
+### 2.14 Controlled autonomy (Phase 9, Prompt 43)
+
+Details: [autonomy-contract.md](autonomy-contract.md).
+
+- **Modes**: `SUPERVISED` (default, v0.1.0 behaviour) and `SEMI_AUTO`, from the repository
+  variables `FLOWFORGE_AUTONOMY_MODE` / `FLOWFORGE_AUTONOMY_OWNER` (module inputs
+  `autonomy_mode` / `autonomy_owner`, `null` = no variable), passed by the refine caller.
+- **Decision**: `flowforge_autonomy_decide` (`.github/scripts/flowforge-refine.sh`), in the refine
+  job's *Validate and render refinement* step, after validation: gates G1–G12, effective risk =
+  max(proposal, impact / title-type / keyword floors), result `AUTO_START` / `HUMAN_REQUIRED` /
+  `NO_START`, stored as `autonomy` in `refinement.json` (schema 3) and the run summary. Any error
+  is `D-ERROR` (human path), never a failed refinement.
+- **Start**: only on `SEMI_AUTO` + `AUTO_START`, the publish job (`GITHUB_TOKEN`) re-reads the
+  Issue (`agent:manual`, state), applies `agent:ready` as its last write, reads it back, and only
+  then outputs `autostart=true`; the target's refine caller job `develop` (`needs: refine`,
+  `if: autostart == 'true'`) calls `agent-develop.yml`, unchanged (it still requires
+  `agent:ready` and an absent branch). No new workflow, permission, secret or event chain.
+- **Opt-out**: label `agent:manual` (control label, not a state); per target, the module input.
+
 ------
 
 ## 3. 📐 Contract between FlowForge and a target
@@ -1048,7 +1067,7 @@ overwritten by each review of the run, these copies keep the history.
 | Technical failure | Run fails, Issue untouched; no workflow-set verdict (unlike the Reviewer's `BLOCKED`): a refinement is a proposal, there is nothing safe to publish without one |
 | Result contract | `refinement.json`, `schema_version: 1` (§5.8; `2` since Phase 8.2) |
 
-### 5.8 Refinement result contract (`refinement.json`, `schema_version: 2`)
+### 5.8 Refinement result contract (`refinement.json`, `schema_version: 3`)
 
 Artifact `flowforge-refine-issue-<n>` holds `refinement.json` (also the `refinement_json`
 output), `comment.md`, and for `READY` / `NEEDS_CLARIFICATION` `title.txt` and `body.md`; a
@@ -1056,7 +1075,7 @@ rejected agent output is kept as `rejected-output.json`.
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "repository": "owner/name",
   "issue": 12,
   "author": "requester-login",
@@ -1078,7 +1097,10 @@ rejected agent output is kept as `rejected-output.json`.
   "spec_impact": "EXTENDS",
   "spec_references": ["`F-005` — Task listing (`CONFIRMED`): …"],
   "spec_changes": ["Add `S-020` — …"],
-  "definition_of_done": ["…"]
+  "definition_of_done": ["…"],
+  "risk_level": "MEDIUM",
+  "risk_reasons": ["new route `[provided]`"],
+  "autonomy": { "mode": "SUPERVISED", "effective_risk": "MEDIUM", "decision": "HUMAN_REQUIRED", "…": "…" }
 }
 ```
 
@@ -1090,6 +1112,9 @@ rejected agent output is kept as `rejected-output.json`.
   `spec_references`, `spec_changes`, `definition_of_done` (agent); rules in
   [refiner §5.4](../agents/refiner.md#54-compare-with-specmd). The Issue body marker stays
   `schema_version=1`: the body sections are additive and the markers unchanged.
+- `schema_version: 3` (Phase 9) adds `risk_level`, `risk_reasons` (agent; tolerated when absent:
+  the risk is then unknown) and `autonomy` (workflow, written last, overriding anything the agent
+  may send under that name); fields in [autonomy contract §10.2](autonomy-contract.md#102-refinementjson-v3-additions).
 
 ### 5.9 Notion decisions (Phase 7, Prompts 31–36)
 

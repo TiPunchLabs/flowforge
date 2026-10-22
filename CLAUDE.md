@@ -26,7 +26,7 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/spec-contract.md` — the target's `SPEC.md` contract (Phase 8.1): minimal structure, what the gate checks and does not; §7 how the agents use it (Phase 8.2);
 - `docs/preparation-projet-existant-pour-flowforge.md` — target preparation mission (French), run IN a target to write its `SPEC.md` + review document; applies the contract, never redefines it;
 - `docs/target-onboarding.md` — the single onboarding reference (Prompt 39): organization / repository / functional levels, existing-repository adoption (`import`), callers, readiness checks R1–R18 (`PASS` / `FAIL` / `NOT_VERIFIED`), `demo-api` reference installation.
-- `docs/autonomy-contract.md` — Phase 9 design (Prompt 42, not implemented): modes `SUPERVISED` / `SEMI_AUTO`, risk `LOW` / `MEDIUM` / `HIGH` (only `LOW` starts alone), deterministic start gates, Prompt 43 plan.
+- `docs/autonomy-contract.md` — Phase 9 design (Prompt 42) and implementation notes (Prompt 43, §13): modes `SUPERVISED` / `SEMI_AUTO`, risk `LOW` / `MEDIUM` / `HIGH` (only `LOW` starts alone), deterministic start gates, Prompt 43 plan.
 - `docs/github-projects/kanban-model.md` — GitHub Project / Kanban model (statuses, fields, transitions; Phase 6).
 - `docs/github-projects/provisioning.md` — the provisioned Project, `scripts/github-projects/bootstrap.sh`, IDs, UI steps.
 - `docs/github-projects/synchronization.md` — workflows → Project sync: event mapping, stale guard, token, errors (Prompt 28).
@@ -246,12 +246,18 @@ Terraform in the target's state); the Refiner proposes a risk, deterministic flo
 only raise it; owner decisions 2026-10-22: `AUTO_START` only for `LOW` + `COMPLIANT` requests opened and dispatched by the
 owner, never from Notion, opt-out label `agent:manual`, gates G1–G12 incl. the #58 explicitness rule; `agent:ready` then set
 by the publish job (`GITHUB_TOKEN`) and the Developer started by a `develop` job of the same refine caller run; merge always
-human; pilots pinned to `v0.1.0`, unchanged. Nothing implemented; Prompt 43 plan in §10.
+human; pilots pinned to `v0.1.0`, unchanged. Prompt 43 plan in §10.
+Prompt 43 (implementation, branch `feat/phase9-semi-auto`): `flowforge_autonomy_decide` in `flowforge-refine.sh` (gates
+G1–G12, floors, `autonomy` in `refinement.json` schema 3, record line / comment in `SEMI_AUTO` only), `agent-refine.yml`
+inputs `autonomy_mode` / `autonomy_owner`, SPEC check before the agent, publish job applies + reads back `agent:ready`
+then outputs `autostart`; refine caller job `develop`; module label `agent:manual` + inputs `autonomy_mode` /
+`autonomy_owner` (`null` = no variable); `agent-develop.yml` unchanged; S1–S13 offline in `tests/refiner.sh`,
+`tests/autonomy.tftest.hcl`; adjustments in the contract §13. NOT VERIFIED LIVE.
 
 ## Out of scope for now
 
 Creating/modifying GitHub repositories, `terraform apply`, Project → workflow triggers (card moves never start agents), Notion sync and Issue creation from Notion beyond Prompts 33–34, Notion triggering agents, automatic
-Refiner triggers or Refiner → Developer chaining, real secrets, triggering Claude Code runs,
+Refiner triggers, Refiner → Developer chaining outside `SEMI_AUTO` + `AUTO_START`, real secrets, triggering Claude Code runs,
 creating `demo-api` from this repository.
 
 ## Validation commands
@@ -270,7 +276,7 @@ tests/review-no-op.sh                              # pre-commit hook: closed/mer
 tests/iterate-no-op.sh                             # pre-commit hook: Iterator NO_OP (#22)
 tests/iterate-preconditions.sh                     # pre-commit hook: Iterator entry contract, loop bound
 tests/label-lifecycle.sh                           # pre-commit hook: agent:* label lifecycle
-tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels
+tests/refiner.sh                                   # pre-commit hook: Refiner result, rendering, labels, autonomy S1–S13
 tests/developer-delivery.sh                        # pre-commit hook: Developer delivery gate (#34)
 tests/project-sync.sh                              # pre-commit hook: Project sync (decision, steps, token)
 tests/notion-submit.sh                             # pre-commit hook: Notion submission (validation, idempotence, bot guard)

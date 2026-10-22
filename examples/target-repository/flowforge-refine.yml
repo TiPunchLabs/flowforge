@@ -12,10 +12,17 @@
 #
 # Result: READY or NEEDS_CLARIFICATION rewrite the Issue title and body (original request kept
 # verbatim inside it); NEEDS_CLARIFICATION adds agent:needs-clarification; BLOCKED only
-# comments. The Developer is never started: a human applies `agent:ready` after reading.
+# comments. By default (SUPERVISED) the Developer is never started: a human applies
+# `agent:ready` after reading.
+#
+# Controlled autonomy (opt-in, docs/autonomy-contract.md): with the repository variables
+# FLOWFORGE_AUTONOMY_MODE=SEMI_AUTO and FLOWFORGE_AUTONOMY_OWNER=<owner login>, managed by the
+# target-repository Terraform module, a LOW-risk request opened and dispatched by the owner that
+# passes every gate gets `agent:ready` from the workflow, and the `develop` job below starts the
+# Developer in the same run. Unset variables = SUPERVISED. Opt out per Issue: label agent:manual.
 #
 # Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml, and the
-# agent:needs-clarification label (target-repository Terraform module).
+# agent:needs-clarification / agent:manual labels (target-repository Terraform module).
 name: FlowForge refine
 
 on:
@@ -44,8 +51,35 @@ jobs:
       # GitHub Project sync (opt-in): organization variable, unset = 0 = off. Needs the App (Project only).
       project_number: ${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}
       app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
+      # Autonomy (repository variables only, never organization-level): unset = SUPERVISED.
+      autonomy_mode: ${{ vars.FLOWFORGE_AUTONOMY_MODE || 'SUPERVISED' }}
+      autonomy_owner: ${{ vars.FLOWFORGE_AUTONOMY_OWNER }}
     # Explicit, minimal secrets contract: never `secrets: inherit`.
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       # Project sync only; the Refiner agent never receives an App token.
+      app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}
+
+  # SEMI_AUTO only: runs when the refine run decided AUTO_START and read agent:ready back on the
+  # Issue. The same job as flowforge-agent.yml (same reusable workflow, permissions, secrets and
+  # inputs: keep both in sync), reached through a second door; agent-develop.yml still requires
+  # agent:ready and an absent agent branch. Skipped in SUPERVISED.
+  develop:
+    needs: refine
+    if: needs.refine.outputs.autostart == 'true'
+    uses: OWNER/flowforge/.github/workflows/agent-develop.yml@main
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    with:
+      issue_number: ${{ fromJSON(inputs.issue_number) }}
+      base_branch: ${{ needs.refine.outputs.base_branch }}
+      # Project-specific: the same values as in flowforge-agent.yml.
+      # setup_uv: true
+      # allowed_tools: "Bash(uv sync:*),Bash(uv run pytest:*),Bash(uv run ruff:*)"
+      app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
+      project_number: ${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}

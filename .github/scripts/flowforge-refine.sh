@@ -18,6 +18,18 @@ FLOWFORGE_RECORD_START='<!-- flowforge-refinement-record:start -->'
 FLOWFORGE_RECORD_END='<!-- flowforge-refinement-record:end -->'
 # GitHub rejects an Issue body above 65536 characters.
 FLOWFORGE_REFINER_MAX_BODY=65536
+# Phase 9 (docs/autonomy-contract.md): opt-out label (a control label, not a state label) and the
+# marker every Notion-submitted Issue carries (flowforge-notion.sh).
+FLOWFORGE_MANUAL_LABEL=agent:manual
+FLOWFORGE_NOTION_MARKER='flowforge:notion-page-id='
+# Keyword floor (autonomy contract §3.1): word prefixes, case-insensitive, matched at a word start
+# (a term starting with a non-word character, a path fragment, matches anywhere). One hit => HIGH.
+FLOWFORGE_RISK_KEYWORDS=(
+  authent authoriz autoris login password "mot de passe" token jeton secret credential
+  permission role oauth jwt session security sécurité crypt tls ssl cve vulnerab
+  terraform .tf infra .github/ workflow pipeline ci/cd deploy docker migration migrat
+  delete suppression drop truncate purge schema database "base de données"
+)
 
 # Succeeds if the Issue $1 (JSON of the REST issues API) may be refined: an open Issue, not a
 # pull request, with no FlowForge state label other than agent:needs-clarification. An Issue
@@ -107,6 +119,162 @@ flowforge_refine_validate() {
   fi
 }
 
+# Prints the autonomy mode for the raw input $1: SEMI_AUTO only on an exact match, SUPERVISED
+# otherwise (absent, empty, any other value); an unexpected value is reported on stderr.
+flowforge_autonomy_mode() {
+  case "${1:-}" in
+    SEMI_AUTO) echo SEMI_AUTO ;;
+    "" | SUPERVISED) echo SUPERVISED ;;
+    *) echo "::warning::Unknown autonomy mode '$(tr -cd 'A-Za-z0-9_-' <<<"$1" | cut -c1-32)': SUPERVISED applies." >&2
+       echo SUPERVISED ;;
+  esac
+}
+
+# Prints, as a compact JSON array, the SPEC.md item identifiers (F-/R-/S-) found in the Markdown
+# headings of the file $1 (gate G5: a cited item must exist as a heading).
+flowforge_refine_spec_ids() {
+  { grep -E '^ {0,3}#{2,6}[[:space:]]' "$1" || true; } \
+    | { grep -oE '\b[FRS]-[0-9]+\b' || true; } | sort -u | jq -Rnc '[inputs]'
+}
+
+# Autonomy decision (docs/autonomy-contract.md §3, §4): deterministic, no LLM, no GitHub call.
+#   $1 refinement.json, already validated by flowforge_refine_validate
+#   $2 the Issue as read before the agent ran (REST JSON)
+#   $3 every comment author except FlowForge's own Refiner comment: [{login, type}]
+#   $4 workflow context: {mode, owner, actor, spec_check, spec_ids, repo_labels}
+# Prints the `autonomy` object (gates G1-G12, risk, decision). Every gate is evaluated, so the
+# trace lists all failed gates. Fails on any evaluation error: the caller then falls back to
+# flowforge_autonomy_error (G12), never to AUTO_START.
+flowforge_autonomy_decide() {
+  local refinement="$1" issue="$2" commenters="$3" context="$4" original keywords
+  original="$(flowforge_refine_original "$issue" 2>/dev/null)" || return 1
+  keywords="$(printf '%s\n' "${FLOWFORGE_RISK_KEYWORDS[@]}" | jq -Rnc '[inputs]')" || return 1
+  # shellcheck disable=SC2016  # jq program
+  jq -ce --slurpfile issue "$issue" --slurpfile commenters "$commenters" --slurpfile ctx "$context" \
+    --arg original "$original" --argjson keywords "$keywords" \
+    --arg manual "$FLOWFORGE_MANUAL_LABEL" --arg notion "$FLOWFORGE_NOTION_MARKER" '
+    def rank: {LOW: 0, MEDIUM: 1, HIGH: 2}[.];
+    def level: ["LOW", "MEDIUM", "HIGH"][.];
+    def esc: gsub("(?<c>[.*+?^$|(){}\\[\\]\\\\])"; "\\\(.c)");
+    def login: ascii_downcase | gsub("[^a-z0-9\\[\\]-]"; "");
+    def gate($id; $pass; $code; $detail):
+      {($id): {result: (if $pass then "PASS" else "BLOCKED" end), code: $code, detail: $detail}};
+    $issue[0] as $issue | $commenters[0] as $commenters | $ctx[0] as $ctx
+    | if ([$ctx.repo_labels, $ctx.spec_ids, $commenters, $issue.labels] | all(type == "array")) | not
+      then error("incomplete autonomy context") else . end
+    | (([.context, .scope, .out_of_scope, .acceptance_criteria, .constraints, .references,
+         .notes_for_agents, .spec_references, .spec_changes, .definition_of_done] | flatten) + [.goal])
+      as $agent_text
+
+    # Risk (§3.1): the proposal can raise the floor, never lower it; unknown => HIGH.
+    | (.risk_level | if type == "string" and rank != null then . else null end) as $proposed
+    | ({COMPLIANT: "LOW", EXTENDS: "MEDIUM", NEW_FEATURE: "MEDIUM"}[.spec_impact] // "HIGH") as $impact_floor
+    | ((.title | capture("^(?<t>[a-z]+)(\\([^()]*\\))?(?<b>!?): ")) // {t: "", b: ""}) as $type
+    | (if $type.t | IN("ci", "build") then "HIGH"
+       elif ($type.t | IN("test", "docs", "refactor")) and $type.b == "" then "LOW"
+       else "MEDIUM" end) as $type_floor
+    | ([.title, .goal, .scope[], .acceptance_criteria[], .constraints[], .references[],
+        .spec_changes[], .notes_for_agents[], $original] | join("\n")) as $text
+    | [$keywords[] as $k
+       | select($text | test((if $k | test("^\\w") then "\\b" else "" end) + ($k | esc); "i")) | $k] as $hits
+    | ([$impact_floor, $type_floor, (if $hits == [] then "LOW" else "HIGH" end)] | map(rank) | max) as $floor
+    | (if $proposed == null then 2 else [($proposed | rank), $floor] | max end | level) as $effective
+    | ([if $impact_floor != "LOW" then .spec_impact else empty end,
+        if $type_floor != "LOW" then "type \(if $type.t == "" then "none" else $type.t + $type.b end)" else empty end]
+       + $hits) as $risk_words
+
+    # Explicitness (#58), SPEC.md items, origin.
+    | ([$agent_text[] | scan("\\b[FRS]-[0-9]+\\b")] | unique) as $cited
+    | ([.spec_references[] | scan("\\b[FRS]-[0-9]+\\b")] | unique) as $refs
+    | ($cited - $ctx.spec_ids) as $unknown
+    | ([$agent_text[] | select(test("\\[(recommended|assumption)\\]"))] | length) as $tagged
+    | ($ctx.owner // "" | login) as $owner
+    | [$commenters[] | select((.login // "" | login) != $owner or .type != "User") | .login // "" | login] as $others
+    | ($owner != "" and $issue.user.type == "User" and ($issue.user.login // "" | login) == $owner
+       and ($ctx.actor // "" | login) == $owner and $others == []) as $owner_ok
+    | ((($issue.body // "") + "\n" + $original) | contains($notion)) as $from_notion
+    | ([$issue.labels[].name] | index($manual) != null) as $has_manual
+    | ($ctx.repo_labels | index($manual) != null) as $manual_exists
+
+    | (gate("G1"; .verdict == "READY"; "D-VERDICT"; "verdict \(.verdict)")
+      + gate("G2"; $ctx.mode == "SEMI_AUTO"; "D-MODE"; "mode \($ctx.mode)")
+      + gate("G3"; .spec_present == true and $ctx.spec_check == "PASS"; "D-SPEC";
+             if .spec_present == true then "SPEC.md contract check \($ctx.spec_check)" else "no SPEC.md" end)
+      + gate("G4"; .spec_impact == "COMPLIANT" and .spec_changes == []; "D-IMPACT";
+             "impact \(.spec_impact), \(.spec_changes | length) contract change(s)")
+      + gate("G5"; $refs != [] and $unknown == []; "D-REFS";
+             if $refs == [] then "no SPEC.md item cited"
+             elif $unknown != [] then "not in SPEC.md: \($unknown | join(", "))"
+             else "cited: \($cited | join(", "))" end)
+      + gate("G6"; (.acceptance_criteria | length) > 0 and (.definition_of_done | length) > 0; "D-INCOMPLETE";
+             "\(.acceptance_criteria | length) criteria, \(.definition_of_done | length) Definition of Done item(s)")
+      + gate("G7"; .open_questions == [] and .assumptions == [] and $tagged == 0; "D-IMPLICIT";
+             "\(.open_questions | length) open question(s), \(.assumptions | length) assumption(s), \($tagged) [recommended] / [assumption] item(s)")
+      + gate("G8"; $proposed != null and $effective == "LOW";
+             (if $proposed == null then "D-RISK-UNKNOWN" elif $effective == "LOW" then "D-RISK" else "D-RISK-\($effective)" end);
+             "effective \($effective) (proposed \($proposed // "none"), floor \($floor | level))\(if $risk_words != [] then ": " + ($risk_words | join(", ")) else "" end)")
+      + gate("G9"; $owner_ok; "D-OWNER";
+             if $owner == "" then "no autonomy owner declared"
+             else "owner @\($owner); author @\($issue.user.login // "" | login) (\($issue.user.type // "unknown")), dispatched by @\($ctx.actor // "" | login), other commenters: \(if $others == [] then "none" else $others | unique | map("@" + .) | join(", ") end)" end)
+      + gate("G10"; $from_notion | not; "D-NOTION"; if $from_notion then "Notion page marker found" else "no Notion marker" end)
+      + gate("G11"; ($has_manual | not) and $manual_exists; (if $has_manual or $manual_exists then "D-MANUAL" else "D-MANUAL-MISSING" end);
+             if $has_manual then "the Issue carries \($manual)" elif $manual_exists then "\($manual) absent" else "label \($manual) missing on the repository" end)
+      + gate("G12"; true; "D-ERROR"; "evaluated without error")) as $gates
+    | [$gates | to_entries[] | select(.value.result == "BLOCKED")] as $blocked
+    | {mode: $ctx.mode, owner: ($ctx.owner // ""), proposed_risk: $proposed, risk_floor: ($floor | level),
+       risk_floor_reasons: $risk_words, effective_risk: $effective, spec_check: $ctx.spec_check,
+       gates: $gates,
+       reasons: [$blocked[] | .value.code + (if .key == "G8" and $risk_words != [] then ": " + ($risk_words | join(", ")) else "" end)],
+       would_auto_start: ([$blocked[] | select(.key != "G2")] == []),
+       decision: (if $gates.G1.result == "BLOCKED" or $gates.G6.result == "BLOCKED" then "NO_START"
+                  elif $blocked == [] then "AUTO_START" else "HUMAN_REQUIRED" end)}
+  ' "$refinement"
+}
+
+# Prints the fail-closed `autonomy` object used when flowforge_autonomy_decide failed (G12):
+# verdict $1, mode $2. Never AUTO_START: the v0.1.0 human path applies.
+flowforge_autonomy_error() {
+  # shellcheck disable=SC2016  # jq program
+  jq -nc --arg verdict "$1" --arg mode "$2" '
+    {mode: $mode, owner: "", proposed_risk: null, risk_floor: "HIGH", risk_floor_reasons: [],
+     effective_risk: "HIGH", spec_check: "", gates: {G12: {result: "BLOCKED", code: "D-ERROR",
+     detail: "the autonomy check could not be evaluated"}}, reasons: ["D-ERROR"],
+     would_auto_start: false, decision: (if $verdict == "READY" then "HUMAN_REQUIRED" else "NO_START" end)}'
+}
+
+# Downgrades, in place, the decision of the refinement file $1 to HUMAN_REQUIRED (D-MANUAL): the
+# publish job found agent:manual right before applying agent:ready (G11 re-check). Never upgrades.
+flowforge_autonomy_downgrade() {
+  local tmp
+  tmp="$(mktemp)"
+  # shellcheck disable=SC2016  # jq program
+  jq --arg manual "$FLOWFORGE_MANUAL_LABEL" '
+    .autonomy |= (.gates.G11 = {result: "BLOCKED", code: "D-MANUAL", detail: "\($manual) added while the Refiner ran"}
+      | .reasons = (if (.reasons | index("D-MANUAL")) then .reasons else .reasons + ["D-MANUAL"] end)
+      | .would_auto_start = false
+      | .decision = (if .decision == "AUTO_START" then "HUMAN_REQUIRED" else .decision end))' "$1" > "$tmp" \
+    && mv -- "$tmp" "$1"
+}
+
+# Prints the run summary block of the autonomy decision held by the refinement file $1.
+flowforge_autonomy_summary() {
+  # shellcheck disable=SC2016  # jq program
+  jq -r '
+    .autonomy as $a
+    | def cell: tostring | gsub("[\r\n]+"; " ") | gsub("\\|"; "\\|");
+    "### FlowForge autonomy",
+    "- Autonomy mode: `\($a.mode)`",
+    "- Risk: **\($a.effective_risk)** (proposed \($a.proposed_risk // "none"), floor \($a.risk_floor))",
+    "- Decision: **\($a.decision)**",
+    (if $a.mode != "SEMI_AUTO" then "- Would start automatically in `SEMI_AUTO`: \(if $a.would_auto_start then "yes" else "no" end)" else empty end),
+    "- Reasons: \(if $a.reasons == [] then "G1–G12 passed" else $a.reasons | map(cell) | join(", ") end)",
+    "",
+    "| Gate | Result | Code | Detail |",
+    "|---|---|---|---|",
+    ($a.gates | to_entries[] | "| \(.key) | \(.value.result) | `\(.value.code)` | \(.value.detail | cell) |")
+  ' "$1"
+}
+
 # Prints the lines strictly between the marker lines $2 and $3 of the file $1. Fails unless
 # each marker appears exactly once, start before end.
 _flowforge_refine_block() {
@@ -190,6 +358,8 @@ flowforge_refine_render_body() {
        NEEDS_DECISION: "the request needs an owner decision on the contract, see *Open questions*",
        NO_SPEC: "the repository has no `SPEC.md` on its default branch; the Developer will not start until one is added"}[.];
     def spec_ids: [.spec_references[] | scan("\\b[FRS]-[0-9]+\\b")] | unique;
+    def autonomy_line:
+      "- Autonomy: SEMI_AUTO · risk \(.effective_risk) (proposed \(.proposed_risk // "none"), floor \(.risk_floor)) · \(.decision)\(if .reasons == [] then "" else " (" + (.reasons | map(clean) | join(", ")) + ")" end)";
     ([$records | scan("(?m)^### Refinement [0-9]+$")] | length + 1) as $n
     | ([.open_questions[] | select(.blocking)] | length) as $blocking
     | $marker,
@@ -230,6 +400,7 @@ flowforge_refine_render_body() {
       "- Assumptions: \(.assumptions | length)",
       "- References used: \(if (.references_used | length) == 0 then "none" else .references_used | map(clean) | join(", ") end)",
       "- Open questions: \($blocking) blocking, \((.open_questions | length) - $blocking) non-blocking",
+      (if (.autonomy.mode // "") == "SEMI_AUTO" then .autonomy | autonomy_line else empty end),
       $re' "$refinement"
 }
 
@@ -237,8 +408,26 @@ flowforge_refine_render_body() {
 # place (marker + github-actions[bot] author) instead of adding comments.
 flowforge_refine_render_comment() {
   # shellcheck disable=SC2016  # jq program
-  jq -r --arg marker "$FLOWFORGE_REFINER_COMMENT_MARKER" '
+  jq -r --arg marker "$FLOWFORGE_REFINER_COMMENT_MARKER" --arg manual "$FLOWFORGE_MANUAL_LABEL" '
     def clean: gsub("[\r\n]+"; " ") | gsub("<!--"; "&lt;!--");
+    def plain:
+      (split(": ") | .[0]) as $code | (.[($code | length):] | ltrimstr(": ")) as $words
+      | ({"D-VERDICT": "the refinement is not READY",
+          "D-MODE": "the repository is not in SEMI_AUTO mode",
+          "D-SPEC": "SPEC.md does not pass the contract check",
+          "D-IMPACT": "the request is not COMPLIANT with SPEC.md, or changes it",
+          "D-REFS": "SPEC.md items are not cited, or a cited item does not exist",
+          "D-INCOMPLETE": "acceptance criteria or Definition of Done missing",
+          "D-IMPLICIT": "open questions, assumptions or `[recommended]` items remain",
+          "D-RISK-MEDIUM": "the effective risk is MEDIUM",
+          "D-RISK-HIGH": "the effective risk is HIGH",
+          "D-RISK-UNKNOWN": "the proposed risk is missing or unknown",
+          "D-OWNER": "the Issue author, the dispatcher or a commenter is not the repository owner",
+          "D-NOTION": "the Issue was submitted from Notion",
+          "D-MANUAL": "the Issue carries `\($manual)`",
+          "D-MANUAL-MISSING": "the `\($manual)` label does not exist on the repository",
+          "D-ERROR": "the autonomy check could not be evaluated"}[$code] // "unknown reason")
+        + " (`\($code)`\(if $words == "" then "" else ": " + ($words | clean) end))";
     $marker,
     "## FlowForge Refinement",
     "",
@@ -247,7 +436,17 @@ flowforge_refine_render_comment() {
     (if .verdict == "READY" then
        "The Issue title and body were rewritten to the refined format; the original request is kept verbatim in *Original request*.",
        "",
-       "Review it, then a human may apply `agent:ready` to start the Developer. Applying it accepts the `[recommended]` items as requirements."
+       (if (.autonomy.mode // "") == "SEMI_AUTO" and .autonomy.decision == "AUTO_START" then
+          "This run starts the Developer automatically (`SEMI_AUTO`, risk `LOW`): every autonomy gate passed, so no human `agent:ready` is needed. The merge stays human."
+        else
+          "Review it, then a human may apply `agent:ready` to start the Developer. Applying it accepts the `[recommended]` items as requirements.",
+          (if (.autonomy.mode // "") == "SEMI_AUTO" then
+             "",
+             "**No automatic start** (`SEMI_AUTO`, risk `\(.autonomy.effective_risk)`), human validation required:",
+             "",
+             (.autonomy.reasons[] | "- \(plain)")
+           else empty end)
+        end)
      elif .verdict == "NEEDS_CLARIFICATION" then
        "The Issue title and body were rewritten to the refined format; the original request is kept verbatim in *Original request*. `agent:ready` must not be applied yet.",
        "",

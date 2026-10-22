@@ -291,8 +291,11 @@ expect "T9 failing gate makes only read calls (no label, comment nor Issue write
 # --- T11: preparing SPEC.md and other agents are not gated ---------------------------------
 expect "T11 only the Developer workflow runs the gate (Refiner, Reviewer, Iterator, cycle, lifecycle, Notion: none)" \
   "$(grep -lE 'flowforge_spec_' "$wf"/*.yml | xargs -n1 basename | paste -sd, -)" "agent-develop.yml"
-expect "T11 the helper is used only by the gate and the Reviewer's local check" \
-  "$(grep -l 'flowforge-spec\.sh' "$wf"/*.yml | xargs -n1 basename | paste -sd, -)" "agent-develop.yml,agent-review.yml"
+# Phase 9: the Refiner runs the local check as input of autonomy gate G3; it never blocks a run.
+expect "T11 the helper is used only by the gate and the local checks (Reviewer, Refiner autonomy G3)" \
+  "$(grep -l 'flowforge-spec\.sh' "$wf"/*.yml | xargs -n1 basename | paste -sd, -)" "agent-develop.yml,agent-refine.yml,agent-review.yml"
+expect "T11 the Refiner's local check never fails the run" \
+  "$(yq '.jobs.refine.steps[] | select(.id == "prompt") | .run' "$wf/agent-refine.yml" | grep -c 'bash "$CONTEXT_DIR/flowforge-spec.sh" SPEC.md > /dev/null || rc=$?')" 1
 expect "T11 gate and helper hold no target-specific name" \
   "$(cat "$helper" "$work/spec.sh" | grep -ciE 'demo-api|tipunchlabs' || true)" 0
 

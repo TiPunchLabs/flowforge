@@ -305,7 +305,7 @@ Rules:
 - The Project sync steps are `continue-on-error` (best effort): a green step is no proof.
   The proof is the step's log line `Project sync <repo>#<n> [<event>]: update — Status A → B`.
 
-### 4.2 📋 Checks R1–R18
+### 4.2 📋 Checks R1–R19
 
 ```bash
 R=TiPunchLabs/<target>   # owner/name
@@ -324,18 +324,19 @@ token scope, which the default `gh` login does not carry (§4.3).
 | R4 | B | Repository readable, Issues on | `gh api repos/$R --jq '[.visibility,.default_branch,.has_issues]'` | repo read | `DIRECT` | readable, `has_issues: true` | 404, Issues disabled |
 | R5 | B | Actions allowed | `gh api repos/$R/actions/permissions` | repo admin | `DIRECT` | `enabled: true`, `allowed_actions: all` | disabled or `local_only` (`selected`: `NOT_VERIFIED`, inspect the list) |
 | R6 | B | One IaC owner | `grep -rn 'target-repository' <target IaC>/*.tf terraform/*.tf`; `jq -r '.resources[] \| "\(.module) \(.type)"' <owning IaC>/terraform.tfstate` (local file, no API) | local files | `DIRECT` | exactly one state holds the module, its 6 labels, ruleset and token settings | module in two places, or none |
-| R7 | B | Labels | `gh api repos/$R/labels --paginate --jq '.[].name' \| grep -c '^agent:'` | repo read | `DIRECT` | `6` | fewer (workflows then skip the state with a warning) |
+| R7 | B | Labels | `gh api repos/$R/labels --paginate --jq '.[].name' \| grep -c '^agent:'` | repo read | `DIRECT` | `7` from module `v0.2.0` (6 states + `agent:manual`); `6` with `v0.1.0` | fewer (workflows then skip the state with a warning; without `agent:manual` no automatic start, `D-MANUAL-MISSING`) |
 | R8 | B | Merge gate | `gh api repos/$R/rulesets --jq '.[] \| [.name,.enforcement]'` | repo read | `DIRECT` | `flowforge-default-branch` `active` (or the documented replacement) | absent or not `active` |
 | R9 | B | Token settings | `gh api repos/$R/actions/permissions/workflow` | repo admin | `DIRECT` | `can_approve_pull_request_reviews: true` | `false` (blocks `GITHUB_TOKEN` delivery) |
 | R10 | B | Secrets reach the target | `gh api repos/$R/actions/organization-secrets --jq '.secrets[] \| [.name,.updated_at]'` (names and dates only, never values) | repo admin | `REPO-SIDE`; value validity `FUNCTIONAL` | `CLAUDE_CODE_OAUTH_TOKEN` and, with the App, `FLOWFORGE_APP_PRIVATE_KEY` visible | `CLAUDE_CODE_OAUTH_TOKEN` not visible |
 | R11 | B | Variables reach the target and match | `gh api repos/$R/actions/organization-variables --jq '.variables[].name'`, then the two comparisons below | repo admin; public | `REPO-SIDE` + `DIRECT` | both visible; client ID = the App's; Project number = `config/github-project.json` | client ID without key (or the reverse), or a mismatch |
-| R12 | B | No repository override | `gh api repos/$R/actions/secrets --jq .total_count`; same with `variables` | repo admin | `DIRECT` | none of the four names at repository level | any of them at repository level |
+| R12 | B | No repository override | `gh api repos/$R/actions/secrets --jq .total_count`; same with `variables` | repo admin | `DIRECT` | none of the four names at repository level; only `FLOWFORGE_AUTONOMY_MODE` / `FLOWFORGE_AUTONOMY_OWNER` allowed there, when in the target's state (R19) | any of the four at repository level |
 | R13 | B | Callers installed and pinned | `gh workflow list -R $R`; per caller `yq '.jobs[] \| [.uses, (.with \| has("project_number")), (.with \| has("app_client_id"))]'` on the default branch | repo read | `DIRECT` | 5 callers `active`, same full SHA of a published tag (§10), Project inputs present, no `secrets: inherit` | a caller missing, `@main`, mixed SHAs, `secrets: inherit` |
 | R14 | B | App installed **on the target** | §4.3 A-2 (organization owner, UI) | org owner (UI) | `DIRECT`; otherwise `FUNCTIONAL` | the target is in the installation's repository list | the target is absent while `FLOWFORGE_APP_CLIENT_ID` is visible |
 | R15 | B | Required check name | ruleset `required_status_checks[].context` vs the CI job `name:` | repo read | `DIRECT` | identical, or no required check yet | different (every merge blocked) |
 | R16 | C | `SPEC.md` contract | `bash <flowforge>/.github/scripts/flowforge-spec.sh SPEC.md` on the default branch | local file | `DIRECT` | `SPEC contract: PASS` | `FAILED` (`ERROR` = `NOT_VERIFIED`) |
 | R17 | C | `CLAUDE.md` present | `gh api repos/$R/contents/CLAUDE.md --jq .name` | repo read | `DIRECT` | found | absent |
 | R18 | C | `SPEC.md` validated by the owner | documentary: the owner answered `docs/flowforge-spec-review.md` and merged `SPEC.md` | — | documentary | owner confirms | — (otherwise `NOT_VERIFIED`) |
+| R19 | B | Autonomy configuration (`v0.2.0`) | `gh api repos/$R/actions/variables --jq '.variables[] \| select(.name \| startswith("FLOWFORGE_AUTONOMY_")) \| [.name,.value]'`; `gh api orgs/TiPunchLabs/actions/variables --jq '[.variables[].name \| select(startswith("FLOWFORGE_AUTONOMY_"))]'`; owning state holds `autonomy_*` inputs | repo admin; `admin:org` | `DIRECT` | none (`SUPERVISED`), or `SEMI_AUTO` with an owner = the repository's human owner, both in the target's Terraform state, none at organization level | autonomy variable at organization level, `SEMI_AUTO` without owner, or set outside the target's state |
 
 R11 comparisons (they print only `MATCH` / `MISMATCH`, never a value):
 

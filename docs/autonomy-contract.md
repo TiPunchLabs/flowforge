@@ -1,8 +1,8 @@
 # 🎛️ FlowForge — Autonomy contract (v0.2.0)
 
-> **Status**: **design only** (Phase 9, Prompt 42), **owner decisions integrated** (§11). Nothing
-> described here is implemented: no workflow, agent, script, Terraform or target was changed.
-> Implementation is Prompt 43 (§10).
+> **Status**: design (Phase 9, Prompt 42), owner decisions integrated (§11), **implemented in
+> Prompt 43** (§13: technical adjustments). Offline-tested (S1–S13); live validation on `demo-api`
+> pending (§9). Pilots stay on `v0.1.0`, unchanged.
 > **Objective**: decide, with deterministic and verifiable rules, when FlowForge may start the
 > Developer on its own after a refinement, and when a human must still apply `agent:ready`.
 > **Prerequisites**: [architecture](architecture.md) §2.6 (labels), §2.7 (merge gate), §2.9
@@ -535,6 +535,52 @@ Constraints restated by the owner, all held: `SUPERVISED` default (§2); `READY`
 
 ------
 
+## 13. 🛠️ Implementation notes (Prompt 43)
+
+Where the implementation adjusts §3–§10, the stricter reading was kept (fail-closed):
+
+| Point | Contract | Implemented | Why |
+|---|---|---|---|
+| G7 scope of `[recommended]` / `[assumption]` | acceptance criteria | **every** refined field (context, scope, out of scope, criteria, constraints, references, notes, SPEC references / changes, DoD, goal) | a recommended decision outside the criteria is still a decision nobody took (#58) |
+| G5 cited items | ≥ 1 in the references, all exist | ≥ 1 in `spec_references`; every `F/R/S-nnn` cited in any refined field must head a `SPEC.md` heading | a criterion citing an unknown item is a missing reference |
+| G9 comments | every human comment by the owner | **every** comment except FlowForge's own Refiner comment, all pages (bots included) | a bot comment (e.g. an earlier Developer stop) also means "not only the owner" |
+| G9 logins | equal | case-insensitive (GitHub logins are) | — |
+| Decision step | separate step *Decide autonomy* | inside *Validate and render refinement*, after validation, before rendering | the record line and comment depend on the decision |
+| SPEC check (G3) | default branch | run in *Build Refiner prompt*, **before** the agent, as the step outputs `spec_check` / `spec_ids` | the agent cannot influence it |
+| `gates` | booleans | `{result: PASS\|BLOCKED, code, detail}` per gate, `reasons` = blocked codes (G8 with its words), plus `would_auto_start` (all gates but G2) | traceable, and `SUPERVISED` can be evaluated before enabling `SEMI_AUTO` |
+| `risk_level` / `risk_reasons` | schema v3 in the validator | required by the agent's JSON schema; **not** required by `flowforge_refine_validate` (missing or unknown ⇒ `D-RISK-UNKNOWN`) | an autonomy problem never fails a valid refinement (§8); older outputs stay valid |
+| `SEMI_AUTO` without owner | Terraform `validation` | resource `precondition` (plan fails) | cross-variable validation needs Terraform ≥ 1.9; the module supports ≥ 1.6 |
+| Publish re-check | before `agent:ready` | first read (before any write) **and** a fresh read right before the label; on `agent:manual` the body and comment are re-rendered and republished with `D-MANUAL` | the trace never claims a start that did not happen because of the opt-out |
+| Workflow outputs | `autostart`, `base_branch` | also `autonomy_decision`, `effective_risk`, `autonomy_reasons` | report the decision to the caller |
+
+Recovery after a failure **after** `agent:ready` was applied (label read-back failed, run
+cancelled before `develop`): the Issue keeps `agent:ready`, nothing runs, and any re-run fails the
+Refiner preconditions (no second refinement, no double start). A human removes and re-applies
+`agent:ready` to start the Developer through `flowforge-agent.yml`, as for a lost label event.
+
+### 13.1 Live validation plan (`demo-api`, next prompt)
+
+From a temporary `demo-api` caller branch pinned to this branch's SHA, dispatched with
+`gh workflow run flowforge-refine.yml --ref <branch>` and **explicit** inputs (no repository
+variable, `demo-api` `main` and Terraform untouched, `demo-api-2` untouched), on dedicated Issues:
+
+| Order | Scenario | Inputs | Expected | Developer may start |
+|---|---|---|---|---|
+| 1 | S1 | none (`SUPERVISED`) | `HUMAN_REQUIRED (D-MODE)`, `develop` skipped, body / comment as v0.1.0 | no |
+| 2 | S4, S7, S13 | `SEMI_AUTO` + owner | `HUMAN_REQUIRED` with the expected codes | no |
+| 3 | S12 | `SEMI_AUTO` + owner, Issue with `agent:manual` | `HUMAN_REQUIRED (D-MANUAL)` | no |
+| 4 | S2 | `SEMI_AUTO` + owner, `test:` request | `AUTO_START`, `agent:ready` by `github-actions`, `develop` → Draft PR, merge human | **yes** |
+| 5 | S10 | back to no input | `HUMAN_REQUIRED (D-MODE)` | no |
+
+Two owner approvals, each asked separately: **A — Terraform**: the `demo-api` `plan` showing only
+the additive `agent:manual` label, then the `apply` (needed before 3 and 4; without it every
+decision is `D-MANUAL-MISSING`); **B — Developer**: before each run that can reach `AUTO_START`
+(order 4), with the Issue, mode, expected risk and decision, and the workflows that may start
+(`flowforge-refine.yml` jobs `refine`, `publish`, `develop` → `agent-develop.yml`). The temporary
+branch is deleted afterwards; `SEMI_AUTO` is never left enabled on `demo-api`.
+
+------
+
 > **Document created on**: 2026-10-21
 > **Author**: xgueret, with Claude Code
-> **Version**: 0.2 (design, Phase 9 — Prompt 42, owner decisions of 2026-10-22 integrated)
+> **Version**: 0.3 (Prompt 43 implementation notes, §13)
