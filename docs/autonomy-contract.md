@@ -152,9 +152,24 @@ effective = max(proposed, floor)                   LOW < MEDIUM < HIGH; missing/
 |---|---|
 | `impact_floor` | `COMPLIANT` → `LOW`; `EXTENDS`, `NEW_FEATURE` → `MEDIUM`; `MODIFIES` → `HIGH`; anything else is not `READY` and not evaluated |
 | `type_floor` | From the refined title's Conventional Commit type: `test`, `docs`, `refactor` (optional scope, no `!`) → `LOW`; `ci`, `build` → `HIGH`; any other type (`feat`, `fix`, `perf`, `chore`, …) or an unparsable title → `MEDIUM` |
-| `keyword_floor` | `HIGH` if a fixed list of word prefixes (case-insensitive, matched at a word start: `\b<term>`) matches the refined `title`, `goal`, `scope`, `acceptance_criteria`, `constraints`, `references`, `spec_changes`, `notes_for_agents` **or** the original request (English and French terms, path fragments): `authent`, `authoriz`, `autoris`, `login`, `password` / `mot de passe`, `token` / `jeton`, `secret`, `credential`, `permission`, `role`, `oauth`, `jwt`, `session`, `security` / `sécurité`, `crypt`, `tls`, `ssl`, `cve`, `vulnerab`, `terraform`, `.tf`, `infra`, `.github/`, `workflow`, `pipeline`, `ci/cd`, `deploy`, `docker`, `migration` / `migrat`, `delete` / `suppression`, `drop`, `truncate`, `purge`, `schema`, `database` / `base de données`. Otherwise `LOW` |
+| `keyword_floor` | `HIGH` if a fixed list of word prefixes (case-insensitive, matched at a word start: `\b<term>`) matches the refined `title`, `goal`, `scope`, `acceptance_criteria`, `references`, `spec_changes`, **or** the `constraints`, `notes_for_agents` and original request **minus their prohibition clauses** (below) (English and French terms, path fragments): `authent`, `authoriz`, `autoris`, `login`, `password` / `mot de passe`, `token` / `jeton`, `secret`, `credential`, `permission`, `role`, `oauth`, `jwt`, `session`, `security` / `sécurité`, `crypt`, `tls`, `ssl`, `cve`, `vulnerab`, `terraform`, `.tf`, `infra`, `.github/`, `workflow`, `pipeline`, `ci/cd`, `deploy`, `docker`, `migration` / `migrat`, `delete` / `suppression`, `drop`, `truncate`, `purge`, `schema`, `database` / `base de données`. Otherwise `LOW` |
 
 - The keyword list lives in `flowforge-refine.sh` next to the validator, as one array, and is tested.
+- **Prohibition clauses** (Prompt 44.2B.1, from `demo-api` #63: the Refiner copied *Do not modify
+  `.github/workflows/`* from `CLAUDE.md` into the constraints, which raised a tests-only request to
+  `HIGH`). In the constraints, the notes and the original request, each clause (cut at `.` `;` `,`
+  `:` `!` `?` before a space, and at line ends) that **opens** with a ban on a change — *do not /
+  don't / never / must not / should not / ne pas / ne jamais* + *modify, change, edit, touch, alter,
+  update, rewrite, remove, delete* (or the French verbs), *no change(s) / without changes / aucune
+  modification / sans modifier* — is not scanned, **unless** it holds a connective that may carry a
+  second operation (*but, unless, except, instead, however, then, and, also, plus, mais, sauf,
+  sinon, puis, et, aussi, ensuite, plutôt*). Anything else is scanned, so ambiguity stays `HIGH`:
+  *Do not forget to update the workflow*, *Do not modify X, update the workflow*, *… unless needed*.
+  A list of protected paths after one ban (*Do not modify src/, .github/ or terraform/*) is cut at
+  its commas and stays `HIGH` (a false positive): one ban per clause. The positive fields (title,
+  goal, scope, criteria, references, contract changes) are always scanned whole, a negation there
+  included, so the Refiner cannot hide a change by rewording it. Rules: `FLOWFORGE_RISK_BAN` /
+  `FLOWFORGE_RISK_BAN_BREAK` in `flowforge-refine.sh`, tested.
 - Each floor is deliberately coarse: a **false positive** costs one human click (the v0.1.0 path);
   a false negative is what the floors exist to reduce. Matched words and types are recorded (§5.4).
 - The LLM can **raise** the level (it sees the code), never **lower** it below the floor. The title

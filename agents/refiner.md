@@ -206,7 +206,12 @@ with.
 7. **Definition of Done.** `definition_of_done` lists the verifiable conditions for the whole
    task: criteria covered by tests, the target's checks passing (`[observed]` from `CLAUDE.md` or
    CI), `SPEC.md` updated when the impact requires it, a Draft PR that closes the Issue. Process
-   only: it never adds a functional requirement.
+   only: it never adds a functional requirement. When the request states its own completion
+   conditions (*Done when*, *Definition of Done*), keep them `[provided]` and add nothing that
+   only restates them or the acceptance criteria ("every criterion is met"); conditions the
+   repository enforces are `[observed]`, with their source. An item is `[recommended]` only when
+   the task needs a condition nobody stated: it is a proposal a human accepts, so it rules out an
+   automatic start ([autonomy contract](../docs/autonomy-contract.md#4--decision-rules), G7).
 
 ### 5.5 Risk proposal (Phase 9)
 
@@ -222,6 +227,9 @@ with deterministic floors, and the start decision never comes from the agent
 | `HIGH` | Authentication / authorisation; secrets, tokens, permissions; infrastructure, Terraform; CI/CD workflows; deletion or migration of data; security changes |
 
 - **`HIGH` when unsure.** Never lower a level to make a request look simpler.
+- Files or areas the change must not touch are written as a prohibition in `constraints` or
+  `out_of_scope` ("Do not modify `.github/workflows/`."), one per clause, never in the scope or
+  the criteria: the workflow's keyword floor reads those as changes to make.
 - Do not write the title, the criteria or the risk to obtain an automatic start: a request that
   needs a decision states it as an open question, which forces human validation anyway.
 

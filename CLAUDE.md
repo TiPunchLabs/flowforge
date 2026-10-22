@@ -253,6 +253,9 @@ inputs `autonomy_mode` / `autonomy_owner`, SPEC check before the agent, publish 
 then outputs `autostart`; refine caller job `develop`; module label `agent:manual` + inputs `autonomy_mode` /
 `autonomy_owner` (`null` = no variable); `agent-develop.yml` unchanged; S1–S13 offline in `tests/refiner.sh`,
 `tests/autonomy.tftest.hcl`; adjustments in the contract §13. NOT VERIFIED LIVE.
+Prompt 44.2B.1 (fix of the `demo-api` #63 L1 false positives, run `39835505094`): keyword floor skips prohibition clauses
+of the constraints / notes / original request (`FLOWFORGE_RISK_BAN`, contract §3.1), positive fields still scanned whole;
+G7 unchanged (strict), the Refiner keeps a complete Definition of Done without restating items (`agents/refiner.md` §5.4).
 
 ## Out of scope for now
 
