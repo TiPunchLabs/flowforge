@@ -234,6 +234,7 @@ Prompt 40 (second-target onboarding, `demo-api-2`): R1–R18 replayed; initial `
 (`SPEC.md` only in PR #3, wrong section 1 title); fixed with existing mechanisms only — demo-api-2 PR #4 (callers pinned to
 `v0.1.0`), PR #3 (+1 commit: title, undecided status code no longer `CONFIRMED`, coverage), IaC source `?ref=v0.1.0`;
 no FlowForge code change, onboarding §3 / §5 / §10.4 clarified; see `docs/milestones/phase8-second-target-onboarding.md`.
+Prompt 40.1 (2026-10-22, after the owner merged PR #3 / #4): Refiner live on `demo-api-2` from `v0.1.0` — #5 `READY` / `COMPLIANT`, #6 `NEEDS_CLARIFICATION` / `CONTRADICTS` on `R-004` (arbitration left to the owner), cards `Refining → Ready` / `Refining → Backlog` + `Needs clarification`; no Developer; verdict VALIDATED (Terraform plan pending, expected no changes).
 
 ## Out of scope for now
 

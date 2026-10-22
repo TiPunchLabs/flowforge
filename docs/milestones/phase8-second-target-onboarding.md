@@ -3,7 +3,8 @@
 > **Objective**: replay [docs/target-onboarding.md](../target-onboarding.md) on a second, already
 > running target, with the existing mechanisms only, and record what is reproducible.
 > **Scope**: Prompt 40. FlowForge `main` `a3fdc72` (PR #64), version `v0.1.0` = `afa60c5`.
-> **Not done**: no `terraform apply`, no Developer run, no `agent:ready`, no merge, `demo-api` untouched.
+> **Not done**: no `terraform apply`, no Developer run, no `agent:ready`, no merge by the agent, `demo-api` untouched.
+> **Prompt 40.1**: the owner merged demo-api-2 PR #3 and #4 (2026-10-22 00:29Z / 00:30Z, `main` `3e7a1d3`); cases C and D run live (§5, §8).
 
 ------
 
@@ -13,7 +14,7 @@
  demo-api-2 before                         changes (one PR or commit each)            after
  ─────────────────                         ───────────────────────────────            ─────
  callers @main, Reviewer w/o Project ──►  demo-api-2 PR #4  (pin v0.1.0 SHA)  ──►  R13 PASS
- SPEC.md in PR #3, gate FAILED       ──►  demo-api-2 PR #3  (+1 commit)       ──►  R16 PASS (branch)
+ SPEC.md in PR #3, gate FAILED       ──►  demo-api-2 PR #3  (+1 commit)       ──►  R16 PASS
  module source = local path          ──►  IaC commit d7cb0fd (?ref=v0.1.0)    ──►  R6 PASS, plan pending
                       FlowForge: no workflow, script or module change (docs only)
 ```
@@ -45,15 +46,15 @@ Commands of [target-onboarding.md §4.2](../target-onboarding.md), maintainer to
 | R7 | `PASS` | `PASS` | 6 `agent:*` labels (`DIRECT`) | — |
 | R8 | `PASS` | `PASS` | `flowforge-default-branch` `active`, admin bypass `pull_request` (`DIRECT`) | — |
 | R9 | `PASS` | `PASS` | `write`, `can_approve_pull_request_reviews: true` (`DIRECT`) | — |
-| R10 | `PASS` | `PASS` | both secrets visible (`REPO-SIDE`), updated 2026-10-15 22:28Z / 22:33Z; validity `FUNCTIONAL`: run `38942830212` (2026-10-16) minted App tokens and delivered PR #2 | organization list not read (A-1) |
+| R10 | `PASS` | `PASS` | both secrets visible (`REPO-SIDE`), updated 2026-10-15 22:28Z / 22:33Z; validity `FUNCTIONAL`: run `38942830212` (2026-10-16) minted App tokens and delivered PR #2; Refiner runs `39702286050` / `39702289783` (2026-10-22) produced verdicts and Project updates | organization list not read (A-1) |
 | R11 | `PASS` | `PASS` | both variables visible, client ID `MATCH`, Project number `MATCH` (`REPO-SIDE` + `DIRECT`) | organization list not read (A-1) |
 | R12 | `PASS` | `PASS` | 0 repository secrets, 0 repository variables (`DIRECT`) | — |
-| R13 | **`FAIL`** | `PASS` on PR #4 | initial: 5 callers `@main`. PR #4: one full SHA (`v0.1.0`), interface check clean (§10.4), Reviewer Project inputs present, no `secrets: inherit` (`DIRECT`) | `PASS` on `main` once PR #4 is merged |
+| R13 | **`FAIL`** | `PASS` | initial: 5 callers `@main`. `main` `3e7a1d3` (PR #4): one full SHA (`v0.1.0`), interface check clean (§10.4), Reviewer Project inputs present, no `secrets: inherit` (`DIRECT`) | — |
 | R14 | `NOT_VERIFIED` | `NOT_VERIFIED` | `FUNCTIONAL` only: PR #2 authored by `app/tipunchlabs-flowforge` (2026-10-16) | installation repository list (A-2) |
 | R15 | `PASS` | `PASS` | required `Tests, lint and format` (15368) = CI job `name:` (`DIRECT`) | — |
-| R16 | **`FAIL`** | `PASS` on PR #3 | no `SPEC.md` on `main`; PR #3 head now `SPEC contract: PASS` (checker at `v0.1.0` and at `main`) | `PASS` on `main` once PR #3 is merged |
+| R16 | **`FAIL`** | `PASS` | initial: no `SPEC.md` on `main`. `main` `3e7a1d3`: `SPEC contract: PASS` (checker at `v0.1.0`); both Refiner runs saw it (`spec_present: true`) (`DIRECT`) | structure only |
 | R17 | `PASS` | `PASS` | `CLAUDE.md` present (`DIRECT`) | content not judged |
-| R18 | `NOT_VERIFIED` | `NOT_VERIFIED` | review document present, PR #3 not merged by the owner | owner merge |
+| R18 | `NOT_VERIFIED` | `PASS` | review document present, `SPEC.md` merged by the owner (PR #3) | documentary; Q-07 stays open |
 
 **Project chain, `FUNCTIONAL` (2026-10-16, Issue #1, FlowForge `@main` of that day).** Job-log
 lines, all `update`: Developer `38942830212` `Ready → Developing → Review`; review cycle
@@ -81,7 +82,7 @@ Source changed to `git::https://github.com/TiPunchLabs/flowforge.git//terraform/
 same module address `module.flowforge` (IaC commit `d7cb0fd`, branch `chore/flowforge-v0.1.0`).
 `terraform fmt -check`, `init`, `validate`: OK. No change to the module's `.tf` files between the
 last apply (2026-10-15) and `v0.1.0`: the expected plan is *No changes*.
-`terraform plan`: run by the maintainer (credentials in `pass`), result in §8.
+`terraform plan`: to be run by the maintainer (credentials in `pass`), §7 action 1.
 
 ## 5. 🧪 Cases A–D
 
@@ -89,8 +90,8 @@ last apply (2026-10-15) and `v0.1.0`: the expected plan is *No changes*.
 |---|---|---|
 | A — `SPEC.md` valid | `PASS` | `flowforge-spec.sh SPEC.md` on PR #3 head: `SPEC contract: PASS` |
 | B — configuration | `PASS` (PR #4) | all `with:` / `secrets:` keys exist in the `v0.1.0` `workflow_call` interfaces, no required one missing, `actionlint` clean, same SHA ×5 |
-| C — compatible request refined | pending | needs PR #3 and #4 merged (the Refiner reads `main`): §8 |
-| D — contradiction blocked | pending | same |
+| C — compatible request refined | `PASS` | Issue #5, run `39702286050`: `READY`, `COMPLIANT` (§8) |
+| D — contradiction blocked | `PASS` | Issue #6, run `39702289783`: `NEEDS_CLARIFICATION`, `CONTRADICTS` on `R-004` (§8) |
 
 ## 6. ⚖️ Comparison with `demo-api`
 
@@ -117,13 +118,56 @@ No FlowForge-specific adaptation for `demo-api-2` was needed.
 
 | # | Action | Closes |
 |---|---|---|
-| 1 | `terraform plan` in the IaC (expected *No changes*), then merge branch `chore/flowforge-v0.1.0` of the IaC repository | R6, §4 |
-| 2 | Review and merge demo-api-2 PR #3 (`SPEC.md`) | R16, R18 on `main` |
-| 3 | Review and merge demo-api-2 PR #4 (callers) | R13 on `main` |
-| 4 | Approve the two test Issues (case C compatible, case D contradiction), then refine them | C, D |
-| 5 | A-2 (installation repository list, UI) | R14 |
+| 1 | `terraform plan` in the IaC (expected *No changes*), then merge branch `chore/flowforge-v0.1.0` of the IaC repository | §4; state untouched (serial 15, 2026-10-15) |
+| 2 | ~~Merge demo-api-2 PR #3 and #4~~ | done 2026-10-22 |
+| 3 | ~~Create and refine the test Issues~~ | done (§8) |
+| 4 | A-2 (installation repository list, UI) | R14 |
+| 5 | Decide Issues #5 (`READY`: apply `agent:ready` or close) and #6 (answer or close); Q-07 when TD-01 is refined | owner decisions |
 
-## 8. 🗒️ Pending results
+## 8. 🧪 Cases C and D, live (2026-10-22, Prompt 40.1)
 
-To be completed after actions 1–4: Terraform plan output, cases C and D (Issue, run, verdict,
-`spec_impact`, references, Definition of Done, label).
+Issues created from the drafts the owner approved. The Refiner was started with `gh workflow run
+flowforge-refine.yml` on `main` `3e7a1d3` (caller pinned to `v0.1.0`; `rules_sha` in both results =
+`afa60c5`). Both runs ended `success` (jobs *Refine Issue* and *Publish refinement on Issue*).
+Both `refinement.json` files have `schema_version: 2` and `spec_present: true`.
+
+| | C — compatible | D — contradiction |
+|---|---|---|
+| Issue | [#5](https://github.com/TiPunchLabs/demo-api-2/issues/5) "test: cover note list ordering and the 500-character limit" | [#6](https://github.com/TiPunchLabs/demo-api-2/issues/6) "feat: let clients choose the id of a new note" (client id, replace if it exists) |
+| Run | [39702286050](https://github.com/TiPunchLabs/demo-api-2/actions/runs/39702286050) | [39702289783](https://github.com/TiPunchLabs/demo-api-2/actions/runs/39702289783) |
+| Verdict / `spec_impact` | `READY` / `COMPLIANT` (expected) | `NEEDS_CLARIFICATION` / `CONTRADICTS` (expected) |
+| `SPEC.md` items | `S-006`, `S-007` (both `NOT_COVERED`), `R-002`, `R-005`, `F-002`, `F-003` | `R-004` first (both halves: client-chosen id and overwrite), `R-003`, `F-002`, `S-013`, `S-012`, the section 1 "no update" limit |
+| Context | 5 lines tagged `[provided]` / `[observed]`, with file sources | 6 lines; the unstated motivation is tagged `[missing]` |
+| Acceptance criteria | 6 (GIVEN / WHEN / THEN for ordering and 500 characters, no `src/` change, no test weakened, checks pass) | none (not `READY`) |
+| Definition of Done | 4 items | empty |
+| `spec_changes` | empty (tests only) | empty |
+| Questions | none | 5 blocking, plus 1 non-blocking with a default. The first is the arbitration *keep `R-004` (and drop this request), or change `R-004` and `S-013`*; no option is chosen |
+| Label | none (`agent:ready` stays human) | `agent:needs-clarification`, by `github-actions[bot]` (publish job) |
+| Project card (job-log lines, all `update`) | `(none) → Refining → Ready` | `(none) → Refining → Backlog`, Attention `Needs clarification` (model T4 / E4) |
+| `sync-issue.sh --show` | `Ready`, no Attention | `Backlog`, `Needs clarification` |
+
+No other run has started since (no Developer, no review): `gh run list` shows only these two
+Refiner runs after 00:50Z. No agent took a functional decision: the questions on #6 name the
+`SPEC.md` items and leave the choice to the owner.
+
+**New live evidence.**
+- The `Refining` status was observed on the GitHub Project. On the Notion side it stayed NOT
+  VERIFIED LIVE in Phase 7.
+- These are the first Refiner runs served from a pinned version (`v0.1.0`), not from `@main` or a
+  feature branch.
+- The Phase 8.2 behaviour was reproduced on a second target, with a different `SPEC.md`.
+
+**Observation (not a FlowForge defect).** The `demo-api-2` `SPEC.md` carries per-scenario coverage
+lines (`Coverage: NOT_COVERED`). Case C adds the tests for S-006 / S-007 and is correctly
+`COMPLIANT`, with no `spec_changes`. The Developer changes `SPEC.md` only as the Issue authorises,
+so it will not update those lines: they will be stale after the merge. The gate does not read
+coverage ([spec-contract §5](../spec-contract.md)), and the mission keeps the authoritative table
+in the review document. The target owner chooses: drop the coverage lines from `SPEC.md`, or ask
+for their update in such Issues.
+
+## 9. ✅ Verdict
+
+**VALIDATED.** One human action is pending: the Terraform plan, expected *No changes*; no apply is
+needed. R1–R18 have no `FAIL`. R14 stays `NOT_VERIFIED` until A-2, which §4.3 accepts. Cases A–D
+`PASS`. `demo-api-2` needed no FlowForge-specific adaptation. The generic findings are in
+[target-onboarding.md](../target-onboarding.md) v2.3.
