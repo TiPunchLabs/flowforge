@@ -208,6 +208,23 @@ with.
    CI), `SPEC.md` updated when the impact requires it, a Draft PR that closes the Issue. Process
    only: it never adds a functional requirement.
 
+### 5.5 Risk proposal (Phase 9)
+
+`risk_level` proposes the risk of the change, `risk_reasons` says why (each reason with its
+provenance tag). It is a **proposal only**: it authorises nothing, the workflow can only raise it
+with deterministic floors, and the start decision never comes from the agent
+([autonomy contract §3](../docs/autonomy-contract.md#3--risk-classification)).
+
+| Level | When |
+|---|---|
+| `LOW` | Tests only; documentation fixes; localised refactoring with no functional change |
+| `MEDIUM` | New feature, API change, functional evolution, any bug fix |
+| `HIGH` | Authentication / authorisation; secrets, tokens, permissions; infrastructure, Terraform; CI/CD workflows; deletion or migration of data; security changes |
+
+- **`HIGH` when unsure.** Never lower a level to make a request look simpler.
+- Do not write the title, the criteria or the risk to obtain an automatic start: a request that
+  needs a decision states it as an open question, which forces human validation anyway.
+
 ## 6. Open questions
 
 - One question per item, answerable in one or two sentences, with the options seen when
@@ -235,8 +252,11 @@ Reviewer or Iterator result.
 - The Refiner **MUST NOT** apply or remove `agent:*` labels. It **proposes** labels in the
   Issue (*Proposed labels*); the Refiner workflow maps the verdict to a state label
   ([contract §6](../docs/issue-contract.md#6--labels-and-states)).
-- **`agent:ready` stays human-only**, as today: it starts the Developer. A human applying it
-  is also the moment the `[recommended]` items become accepted requirements.
+- **`agent:ready` is a human decision**: it starts the Developer. A human applying it is also
+  the moment the `[recommended]` items become accepted requirements. The one exception is the
+  Refiner **workflow** (never the agent) in `SEMI_AUTO`, on a deterministic `AUTO_START`, which
+  requires that no `[recommended]` item, assumption or open question exists at all
+  ([autonomy contract §4](../docs/autonomy-contract.md#4--decision-rules)).
 
 ## 8. Traceability
 

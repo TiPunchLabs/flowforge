@@ -157,6 +157,12 @@ only when **all** of these hold:
 | R8 | Nothing in it asks for CI, secrets, permissions or agent configuration changes without having been raised to a human ([refiner rules §9](../agents/refiner.md#9-untrusted-content-and-prompt-injection)) |
 | R9 | The request was compared with `SPEC.md` when the target has one: the impact is not `CONTRADICTS` nor `NEEDS_DECISION`, the concerned items are cited, a contract change is listed for the same PR, and a *Definition of Done* is written ([refiner rules §5.4](../agents/refiner.md#54-compare-with-specmd)) |
 
+`READY` is **not** a start authorisation. Without a human `agent:ready`, the Developer only starts
+when the target is `SEMI_AUTO` and the deterministic autonomy gates G1–G12 all pass — among them:
+no open question at all (non-blocking ones included), no assumption, no `[recommended]` item,
+`COMPLIANT` with no contract change, effective risk `LOW`, Issue opened and refinement dispatched
+by the repository owner ([autonomy contract §4](autonomy-contract.md#4--decision-rules)).
+
 If any condition fails, the verdict is `NEEDS_CLARIFICATION` (answers missing) or `BLOCKED`
 (cannot or must not be refined). `flowforge_refine_validate` enforces the checkable part of R9:
 an output that is `READY` with `CONTRADICTS` / `NEEDS_DECISION`, that claims `NO_SPEC` while
@@ -173,7 +179,8 @@ label per Issue).
 |---|---|---|---|
 | *(none)* | Backlog | — | Raw or refined Issue, not started |
 | `agent:needs-clarification` | Needs clarification | Refiner workflow, from the verdict | Blocking questions wait for the requester |
-| `agent:ready` | Ready | **human only** | Accepted specification; starts the Developer |
+| `agent:ready` | Ready | **human**; or the Refiner **workflow** on a `SEMI_AUTO` `AUTO_START` | Accepted specification; starts the Developer |
+| `agent:manual` | — (control label, not a state) | human | Never start automatically: a human must apply `agent:ready` |
 
 - The Refiner **agent** applies no label; the workflow `agent-refine.yml` maps its verdict:
   `NEEDS_CLARIFICATION` → `agent:needs-clarification`; `READY` → no state label
@@ -181,9 +188,12 @@ label per Issue).
   change, the reason is commented.
 - `agent:needs-clarification` follows the existing rule of [architecture §2.6](architecture.md#26-issue-label-lifecycle-phase-41):
   **at most one** `agent:*` state label per Issue.
-- `agent:ready` stays human-only. Besides keeping a human gate before any code is written,
-  a label applied with `GITHUB_TOKEN` would not start the Developer: GitHub does not trigger
-  workflows from events created by that token.
+- `agent:ready` is a human decision in `SUPERVISED` (the default). A label applied with
+  `GITHUB_TOKEN` does not start the Developer (GitHub does not trigger workflows from events
+  created by that token): in `SEMI_AUTO`, after `AUTO_START`, the publish job applies it as its
+  last write and the refine caller's `develop` job starts the Developer in the same run.
+- `agent:manual` is outside the state set: the state helper never adds or removes it, and it
+  may stay on the Issue. It only forces the human path.
 
 **GitHub Project states** (implemented in Phase 6, written by the workflows): the Refiner owns
 the states before the Developer starts, and never moves an Issue past `Ready`. The model is
@@ -215,6 +225,7 @@ The last section of the body. Fields:
 | Assumptions | Count, listed in *Assumptions* |
 | References used | Files, Issues, PRs, documents read |
 | Open questions | Count of blocking / non-blocking |
+| Autonomy | `SEMI_AUTO` only: effective risk (proposed, floor) and decision with the failed gates, e.g. `SEMI_AUTO · risk HIGH (proposed LOW, floor HIGH) · HUMAN_REQUIRED (D-RISK-HIGH: terraform)`. Absent in `SUPERVISED` (body identical to v0.1.0) |
 
 On a second refinement the record gains a new entry; earlier entries and the *Original
 request* are kept. The Refiner never edits comments, other Issues or Pull Requests.
