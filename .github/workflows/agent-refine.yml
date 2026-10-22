@@ -9,18 +9,28 @@
 #        -> refined Issue title/body + one FlowForge comment, updated on re-runs.
 #        Verdict: READY | NEEDS_CLARIFICATION | BLOCKED, three business outcomes of a
 #        successful run. A technical failure (FAILED) fails the run and leaves the Issue
-#        untouched. The Refiner never writes code, branches, commits, pushes or PRs, and
-#        never starts the Developer: `agent:ready` stays a human action.
+#        untouched. The Refiner never writes code, branches, commits, pushes or PRs.
+#
+# Autonomy (Phase 9, docs/autonomy-contract.md): after a validated result, a deterministic check
+# (flowforge_autonomy_decide, bash + jq, no LLM) evaluates gates G1-G12 and decides AUTO_START,
+# HUMAN_REQUIRED or NO_START. SUPERVISED (default): the decision is only recorded
+# (refinement.json, run summary); `agent:ready` stays a human action, as in v0.1.0. SEMI_AUTO
+# (repository variables, Terraform): on AUTO_START only, the publish job re-checks agent:manual,
+# applies `agent:ready` with GITHUB_TOKEN (which starts no workflow) as its last write, reads it
+# back, then sets the output `autostart` to true; the CALLER's `develop` job (needs: refine)
+# then calls agent-develop.yml in the same run. This workflow never starts the Developer itself.
 #
 # Labels (one FlowForge state at a time, .github/scripts/flowforge-state.sh):
-#   READY                -> no FlowForge state (agent:needs-clarification removed)
+#   READY                -> no FlowForge state (agent:needs-clarification removed);
+#                           agent:ready on SEMI_AUTO + AUTO_START only
 #   NEEDS_CLARIFICATION  -> agent:needs-clarification
 #   BLOCKED              -> unchanged; body unchanged, reason in the comment
 #
 # Two jobs, so that the agent never runs next to a write token:
 #   refine   contents/issues/pull-requests: read; Claude reads the Issue and the default
 #            branch, returns the result; the workflow validates and renders it
-#   publish  issues: write only; no checkout, no Claude; applies the rendered result
+#   publish  issues: write only; no checkout, no Claude; applies the rendered result, and
+#            agent:ready on a verified AUTO_START
 #
 # Project (opt-in, `project_number` > 0 + the FlowForge App): refine job start -> Refining;
 # READY -> Ready; NEEDS_CLARIFICATION / BLOCKED -> Backlog + Attention; technical failure ->
@@ -56,6 +66,20 @@ on:
         type: string
         required: false
         default: ""
+      autonomy_mode:
+        description: >-
+          SUPERVISED (default, v0.1.0 behaviour) or SEMI_AUTO (vars.FLOWFORGE_AUTONOMY_MODE,
+          managed by Terraform in the target's state). Any other value means SUPERVISED.
+        type: string
+        required: false
+        default: SUPERVISED
+      autonomy_owner:
+        description: >-
+          GitHub login of the repository owner (vars.FLOWFORGE_AUTONOMY_OWNER), the only person
+          whose own Issue, dispatched by them, may start automatically. Empty: never.
+        type: string
+        required: false
+        default: ""
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -76,8 +100,29 @@ on:
         description: Name of the artifact holding refinement.json and the rendered files.
         value: ${{ jobs.refine.outputs.result_artifact }}
       refinement_json:
-        description: refinement.json (schema_version 2) as compact JSON; empty on technical failure.
+        description: >-
+          refinement.json (schema_version 3, with the workflow-written `autonomy` object) as
+          compact JSON, as decided before publishing; empty on technical failure.
         value: ${{ jobs.refine.outputs.refinement_json }}
+      autonomy_decision:
+        description: >-
+          AUTO_START, HUMAN_REQUIRED or NO_START: the publish job's final decision (it may only
+          downgrade the refine job's one), else the refine job's; empty on technical failure.
+        value: ${{ jobs.publish.outputs.autonomy_decision || jobs.refine.outputs.autonomy_decision }}
+      effective_risk:
+        description: LOW, MEDIUM or HIGH (max of the Refiner proposal and the deterministic floors).
+        value: ${{ jobs.refine.outputs.effective_risk }}
+      autonomy_reasons:
+        description: Comma-separated reason codes of the failed gates; empty on AUTO_START.
+        value: ${{ jobs.publish.outputs.autonomy_reasons || jobs.refine.outputs.autonomy_reasons }}
+      autostart:
+        description: >-
+          "true" only when SEMI_AUTO decided AUTO_START and the publish job applied and read back
+          agent:ready; empty otherwise. The caller's develop job runs on it, never on anything else.
+        value: ${{ jobs.publish.outputs.autostart }}
+      base_branch:
+        description: Default branch the Refiner read, for the caller's develop job.
+        value: ${{ jobs.refine.outputs.base_branch }}
 
 # Nothing by default; each job requests only what it needs.
 permissions: {}
@@ -101,6 +146,10 @@ jobs:
       verdict: ${{ steps.result.outputs.verdict }}
       result_artifact: ${{ steps.result.outputs.artifact }}
       refinement_json: ${{ steps.result.outputs.refinement_json }}
+      autonomy_decision: ${{ steps.result.outputs.autonomy_decision }}
+      effective_risk: ${{ steps.result.outputs.effective_risk }}
+      autonomy_reasons: ${{ steps.result.outputs.autonomy_reasons }}
+      base_branch: ${{ steps.context.outputs.default_branch }}
     env:
       GH_TOKEN: ${{ github.token }}
       ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -136,13 +185,17 @@ jobs:
           flowforge_refine_records "$CONTEXT_DIR/issue.json" > /dev/null
 
           # Human comments carry the requester's answers on a re-refinement. FlowForge's own
-          # comment is left out; the 30 most recent are kept.
+          # comment is left out; the 30 most recent are kept. Every other author is kept in
+          # commenters.json for the autonomy owner gate (G9).
           gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
             | jq -s --arg marker "$FLOWFORGE_REFINER_COMMENT_MARKER" '
                 add // []
-                | [.[] | select((.user.login == "github-actions[bot]" and (.body // "" | startswith($marker))) | not)
-                       | {author: .user.login, created_at, body}]
-                | .[-30:]' > "$CONTEXT_DIR/comments.json"
+                | [.[] | select((.user.login == "github-actions[bot]" and (.body // "" | startswith($marker))) | not)]' \
+            > "$CONTEXT_DIR/comments-all.json"
+          jq '[.[] | {author: .user.login, created_at, body}] | .[-30:]' "$CONTEXT_DIR/comments-all.json" \
+            > "$CONTEXT_DIR/comments.json"
+          jq '[.[] | {login: .user.login, type: .user.type}]' "$CONTEXT_DIR/comments-all.json" \
+            > "$CONTEXT_DIR/commenters.json"
 
           default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq '.default_branch')"
           {
@@ -228,14 +281,29 @@ jobs:
           fi
           # Phase 8.2: the target's functional contract. Its presence is decided here, not by
           # the agent, and checked against spec_impact by flowforge_refine_validate.
+          # Phase 9: SPEC.md contract check (gate G3) and its item identifiers (G5), computed
+          # here, before the agent runs, and passed on as step outputs.
           if [[ -f SPEC.md ]]; then
             spec_present=true
             spec_md="SPEC.md exists at the workspace root: it is the functional reference of the project. Read it before analysing the request and compare the request with it (rules section 5.4). spec_impact must not be NO_SPEC."
+            raw .github/scripts/flowforge-spec.sh > "$CONTEXT_DIR/flowforge-spec.sh"
+            rc=0
+            bash "$CONTEXT_DIR/flowforge-spec.sh" SPEC.md > /dev/null || rc=$?
+            case "$rc" in 0) spec_check=PASS ;; 1) spec_check=FAILED ;; *) spec_check=ERROR ;; esac
+            # shellcheck source=/dev/null
+            source /dev/stdin <<<"$(raw .github/scripts/flowforge-refine.sh)"
+            spec_ids="$(flowforge_refine_spec_ids SPEC.md)"
           else
             spec_present=false
             spec_md="The target repository has no SPEC.md on $DEFAULT_BRANCH: spec_impact must be NO_SPEC and spec_references empty (rules section 5.4)."
+            spec_check=FAILED
+            spec_ids='[]'
           fi
-          echo "spec_present=$spec_present" >> "$GITHUB_OUTPUT"
+          {
+            echo "spec_present=$spec_present"
+            echo "spec_check=$spec_check"
+            echo "spec_ids=$spec_ids"
+          } >> "$GITHUB_OUTPUT"
 
           # Structured output contract; descriptions must not contain single quotes.
           jq -c . > "$CONTEXT_DIR/schema.json" <<'EOF'
@@ -245,7 +313,8 @@ jobs:
             "required": ["verdict", "blocked_reason", "title", "context", "goal", "scope", "out_of_scope",
                          "acceptance_criteria", "constraints", "references", "open_questions", "assumptions",
                          "notes_for_agents", "proposed_labels", "added", "references_used",
-                         "spec_impact", "spec_references", "spec_changes", "definition_of_done"],
+                         "spec_impact", "spec_references", "spec_changes", "definition_of_done",
+                         "risk_level", "risk_reasons"],
             "properties": {
               "verdict": { "type": "string", "enum": ["READY", "NEEDS_CLARIFICATION", "BLOCKED"] },
               "blocked_reason": { "type": "string", "description": "Why the Issue cannot or must not be refined when BLOCKED; empty string otherwise." },
@@ -278,7 +347,9 @@ jobs:
               "spec_impact": { "type": "string", "enum": ["COMPLIANT", "EXTENDS", "NEW_FEATURE", "MODIFIES", "CONTRADICTS", "NEEDS_DECISION", "NO_SPEC"], "description": "How the request relates to SPEC.md (rules section 5.4)." },
               "spec_references": { "type": "array", "items": { "type": "string" }, "description": "SPEC.md items concerned, one per item: identifier, name, status, why it applies. Never a copy of SPEC.md." },
               "spec_changes": { "type": "array", "items": { "type": "string" }, "description": "SPEC.md changes the Developer makes in the same PR; non-empty exactly when a READY spec_impact is EXTENDS, NEW_FEATURE or MODIFIES." },
-              "definition_of_done": { "type": "array", "items": { "type": "string" }, "description": "Verifiable conditions for the whole task to be done; required when READY." }
+              "definition_of_done": { "type": "array", "items": { "type": "string" }, "description": "Verifiable conditions for the whole task to be done; required when READY." },
+              "risk_level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"], "description": "Proposed risk of the change (rules section 5.5); HIGH when unsure. A proposal only: it authorises nothing." },
+              "risk_reasons": { "type": "array", "items": { "type": "string" }, "description": "Why this risk level, each with its provenance tag." }
             }
           }
           EOF
@@ -339,6 +410,8 @@ jobs:
             blocking question naming the SPEC.md item. READY requires definition_of_done, and
             spec_references when SPEC.md exists. spec_changes is filled exactly when a READY
             spec_impact is EXTENDS, NEW_FEATURE or MODIFIES.
+          - risk_level: LOW, MEDIUM or HIGH per rules section 5.5, HIGH when unsure; risk_reasons
+            says why. It is a proposal: the workflow can only raise it, and it decides nothing.
 
           ## FlowForge Refiner rules
 
@@ -423,6 +496,12 @@ jobs:
           STRUCTURED_OUTPUT: ${{ steps.claude.outputs.structured_output }}
           DIGEST: ${{ steps.context.outputs.digest }}
           SPEC_PRESENT: ${{ steps.prompt.outputs.spec_present }}
+          SPEC_CHECK: ${{ steps.prompt.outputs.spec_check }}
+          SPEC_IDS: ${{ steps.prompt.outputs.spec_ids }}
+          AUTONOMY_MODE: ${{ inputs.autonomy_mode }}
+          AUTONOMY_OWNER: ${{ inputs.autonomy_owner }}
+          # Who dispatched this run (a re-run included): gate G9, never taken from Issue text.
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           FLOWFORGE_REPOSITORY: ${{ job.workflow_repository }}
           FLOWFORGE_SHA: ${{ job.workflow_sha }}
@@ -448,12 +527,31 @@ jobs:
             --arg original_title "$(jq -r '.title' "$CONTEXT_DIR/issue.json")" \
             --arg digest "$DIGEST" --arg run_url "$RUN_URL" --arg rules_sha "$FLOWFORGE_SHA" \
             --arg refined_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson spec_present "$SPEC_PRESENT" '
-            {schema_version: 2, repository: $repository, issue: ($issue | tonumber), author: $author,
+            {schema_version: 3, repository: $repository, issue: ($issue | tonumber), author: $author,
              original_title: $original_title, input_digest: $digest, run_url: $run_url,
              rules_sha: $rules_sha, refined_at: $refined_at, spec_present: $spec_present} + .' \
             "$CONTEXT_DIR/output.json" > "$out_dir/refinement.json"
 
           verdict="$(jq -r '.verdict' "$out_dir/refinement.json")"
+
+          # Autonomy decision (docs/autonomy-contract.md §4), in every mode. Any error here is
+          # fail-closed (G12, D-ERROR): never AUTO_START, the refinement is still published.
+          mode="$(flowforge_autonomy_mode "$AUTONOMY_MODE")"
+          if ! autonomy="$(
+              gh api --paginate "repos/$GITHUB_REPOSITORY/labels?per_page=100" \
+                | jq -sc '[(add // [])[].name]' > "$CONTEXT_DIR/repo-labels.json" \
+              && jq -n --arg mode "$mode" --arg owner "$AUTONOMY_OWNER" --arg actor "$TRIGGERING_ACTOR" \
+                   --arg spec_check "$SPEC_CHECK" --argjson spec_ids "$SPEC_IDS" \
+                   --slurpfile labels "$CONTEXT_DIR/repo-labels.json" \
+                   '{mode: $mode, owner: $owner, actor: $actor, spec_check: $spec_check,
+                     spec_ids: $spec_ids, repo_labels: $labels[0]}' > "$CONTEXT_DIR/autonomy-context.json" \
+              && flowforge_autonomy_decide "$out_dir/refinement.json" "$CONTEXT_DIR/issue.json" \
+                   "$CONTEXT_DIR/commenters.json" "$CONTEXT_DIR/autonomy-context.json")"; then
+            echo "::warning::The autonomy check could not be evaluated (D-ERROR): no automatic start, human validation applies."
+            autonomy="$(flowforge_autonomy_error "$verdict" "$mode")"
+          fi
+          jq --argjson autonomy "$autonomy" '.autonomy = $autonomy' "$out_dir/refinement.json" > "$CONTEXT_DIR/with-autonomy.json"
+          mv "$CONTEXT_DIR/with-autonomy.json" "$out_dir/refinement.json"
           if [[ "$verdict" != BLOCKED ]]; then
             flowforge_refine_render_body "$out_dir/refinement.json" "$CONTEXT_DIR/issue.json" > "$out_dir/body.md"
             jq -r '.title | gsub("[\r\n]+"; " ")' "$out_dir/refinement.json" > "$out_dir/title.txt"
@@ -468,8 +566,12 @@ jobs:
             echo "verdict=$verdict"
             echo "artifact=$artifact"
             echo "refinement_json=$(jq -c . "$out_dir/refinement.json")"
+            echo "autonomy_decision=$(jq -r '.autonomy.decision' "$out_dir/refinement.json")"
+            echo "effective_risk=$(jq -r '.autonomy.effective_risk' "$out_dir/refinement.json")"
+            echo "autonomy_reasons=$(jq -r '.autonomy.reasons | map(split(": ")[0]) | join(",")' "$out_dir/refinement.json")"
           } >> "$GITHUB_OUTPUT"
           cat "$out_dir/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          { echo; flowforge_autonomy_summary "$out_dir/refinement.json"; } >> "$GITHUB_STEP_SUMMARY"
 
       # Also on failure, so that a rejected output can be inspected.
       - name: Upload refinement result
@@ -521,6 +623,12 @@ jobs:
     # single FlowForge comment. This job never checks out code nor runs the agent.
     permissions:
       issues: write  # edit the Issue, switch its state label, create or update the comment
+    outputs:
+      autostart: ${{ steps.apply.outputs.autostart }}
+      autonomy_decision: ${{ steps.apply.outputs.decision }}
+      autonomy_reasons: ${{ steps.apply.outputs.reasons }}
+    # GITHUB_TOKEN only: a label it sets starts no workflow (anti-loop, docs/architecture.md
+    # §2.10). The App token is never used here for the Issue (Project sync only, below).
     env:
       GH_TOKEN: ${{ github.token }}
       ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -557,39 +665,91 @@ jobs:
           fi
 
           verdict="$(jq -r '.verdict' "$RESULT_DIR/refinement.json")"
-          case "$verdict" in
-            READY | NEEDS_CLARIFICATION)
-              jq -n --rawfile title "$RESULT_DIR/title.txt" --rawfile body "$RESULT_DIR/body.md" \
-                '{title: ($title | rtrimstr("\n")), body: $body}' \
-                | gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --input - --silent
-              if [[ "$verdict" == READY ]]; then
-                flowforge_set_state "$ISSUE_NUMBER" ""
-              else
-                flowforge_set_state "$ISSUE_NUMBER" agent:needs-clarification
-              fi
-              ;;
-            BLOCKED) echo "BLOCKED: Issue title, body and labels left unchanged." ;;
-            *) echo "::error::Unknown verdict '$verdict'."; exit 1 ;;
-          esac
-
-          # One comment per Issue, identified by its hidden marker and its author.
-          comment_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
-            | jq -rs --arg marker "$FLOWFORGE_REFINER_COMMENT_MARKER" \
-                'add // [] | .[] | select(.user.login == "github-actions[bot]" and (.body // "" | startswith($marker))) | .id' \
-            | head -n 1)"
-          if [[ -n "$comment_id" ]]; then
-            jq -n --rawfile body "$RESULT_DIR/comment.md" '{body: $body}' \
-              | gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" --input - --silent
-            action=updated
-          else
-            jq -n --rawfile body "$RESULT_DIR/comment.md" '{body: $body}' \
-              | gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" --input - --silent
-            action=created
+          # An artifact without a decision (older refine job) never starts anything.
+          decision="$(jq -r '.autonomy.decision // "NO_START"' "$RESULT_DIR/refinement.json")"
+          mode="$(jq -r '.autonomy.mode // "SUPERVISED"' "$RESULT_DIR/refinement.json")"
+          has_manual() { jq -e --arg l "$FLOWFORGE_MANUAL_LABEL" 'any(.labels[]; .name == $l)' "$1" >/dev/null; }
+          # G11 re-check: agent:manual added while the Refiner ran wins. The trace is re-rendered
+          # from the Issue as read above (same title and body, digest checked).
+          downgrade() {
+            echo "::notice::Issue #$ISSUE_NUMBER carries $FLOWFORGE_MANUAL_LABEL: no automatic start (D-MANUAL)."
+            flowforge_autonomy_downgrade "$RESULT_DIR/refinement.json"
+            flowforge_refine_render_body "$RESULT_DIR/refinement.json" "$RESULT_DIR/issue-now.json" > "$RESULT_DIR/body.md"
+            flowforge_refine_render_comment "$RESULT_DIR/refinement.json" > "$RESULT_DIR/comment.md"
+            decision=HUMAN_REQUIRED
+          }
+          # Defence in depth: AUTO_START only ever comes with SEMI_AUTO and READY.
+          if [[ "$decision" == AUTO_START && ( "$mode" != SEMI_AUTO || "$verdict" != READY ) ]]; then
+            echo "::warning::Inconsistent autonomy decision in the artifact: no automatic start."
+            decision=HUMAN_REQUIRED
           fi
+          if [[ "$decision" == AUTO_START ]] && has_manual "$RESULT_DIR/issue-now.json"; then
+            downgrade
+          fi
+
+          publish() {
+            case "$verdict" in
+              READY | NEEDS_CLARIFICATION)
+                jq -n --rawfile title "$RESULT_DIR/title.txt" --rawfile body "$RESULT_DIR/body.md" \
+                  '{title: ($title | rtrimstr("\n")), body: $body}' \
+                  | gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" --input - --silent
+                if [[ "$verdict" == READY ]]; then
+                  flowforge_set_state "$ISSUE_NUMBER" ""
+                else
+                  flowforge_set_state "$ISSUE_NUMBER" agent:needs-clarification
+                fi
+                ;;
+              BLOCKED) echo "BLOCKED: Issue title, body and labels left unchanged." ;;
+              *) echo "::error::Unknown verdict '$verdict'."; exit 1 ;;
+            esac
+
+            # One comment per Issue, identified by its hidden marker and its author.
+            comment_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments?per_page=100" \
+              | jq -rs --arg marker "$FLOWFORGE_REFINER_COMMENT_MARKER" \
+                  'add // [] | .[] | select(.user.login == "github-actions[bot]" and (.body // "" | startswith($marker))) | .id' \
+              | head -n 1)"
+            if [[ -n "$comment_id" ]]; then
+              jq -n --rawfile body "$RESULT_DIR/comment.md" '{body: $body}' \
+                | gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" --input - --silent
+              action=updated
+            else
+              jq -n --rawfile body "$RESULT_DIR/comment.md" '{body: $body}' \
+                | gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" --input - --silent
+              action=created
+            fi
+          }
+          publish
+
+          # AUTO_START: agent:ready is the LAST write, after a fresh read (agent:manual and state
+          # re-checked), and `autostart` is set only once the label is read back on the Issue.
+          # Any failure from here leaves `autostart` empty: the caller's develop job is skipped.
+          autostart=""
+          if [[ "$decision" == AUTO_START ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" > "$RESULT_DIR/issue-final.json"
+            flowforge_refine_preconditions "$RESULT_DIR/issue-final.json"
+            if has_manual "$RESULT_DIR/issue-final.json"; then
+              downgrade
+              publish
+            else
+              flowforge_set_state "$ISSUE_NUMBER" agent:ready
+              if ! gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" \
+                  | jq -e 'any(.labels[]; .name == "agent:ready")' >/dev/null; then
+                echo "::error::agent:ready is not on Issue #$ISSUE_NUMBER after the automatic start was decided; the Developer is not started. Apply the label by hand once the cause is fixed."
+                exit 1
+              fi
+              autostart=true
+            fi
+          fi
+          {
+            echo "autostart=$autostart"
+            echo "decision=$decision"
+            echo "reasons=$(jq -r '.autonomy.reasons // [] | map(split(": ")[0]) | join(",")' "$RESULT_DIR/refinement.json")"
+          } >> "$GITHUB_OUTPUT"
           {
             echo "### FlowForge refine — Issue #$ISSUE_NUMBER"
             echo "- Verdict: **$verdict**"
             echo "- FlowForge comment: $action"
+            echo "- Autonomy: \`$mode\` · decision **$decision** · automatic start: ${autostart:-no}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create Project token

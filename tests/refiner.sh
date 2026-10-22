@@ -3,6 +3,9 @@
 #   .github/scripts/flowforge-refine.sh  validation, preconditions, deterministic rendering
 #   agent-refine.yml  refine/"Resolve Issue context"   Issue read, preconditions, comments
 #   agent-refine.yml  publish/"Apply refinement"       race guard, title/body, label, comment
+#   agent-refine.yml  refine/"Validate and render refinement"   autonomy decision, fail-closed
+# Phase 9 (docs/autonomy-contract.md §9): scenarios S1-S13 of the autonomy decision and of the
+# automatic start, section A below.
 # `gh` is replaced by a stub on PATH that keeps the Issue in a file: no network, no token.
 # What only GitHub Actions can show (Claude Code run, permissions enforcement, artifacts) is
 # not tested here: see the Prompt 23 functional validation.
@@ -24,6 +27,7 @@ source "$refine_helper"
 step() { yq -e ".jobs.$1.steps[] | select(.name == \"$2\") | .run" "$wf"; }
 step refine "Resolve Issue context" > "$work/context.sh"
 step publish "Apply refinement" > "$work/apply.sh"
+step refine "Validate and render refinement" > "$work/result.sh"
 
 failures=0
 pass() { printf 'PASS  %s\n' "$1"; }
@@ -259,13 +263,21 @@ case "$*" in
     [[ -f "$s/issue.json" ]] || { echo "HTTP 404: Not Found" >&2; exit 1; }
     cat "$s/issue.json" ;;
   "api --paginate repos/owner/target/issues/1/comments?per_page=100") cat "$s/comments.json" ;;
-  "api --paginate repos/owner/target/labels?per_page=100") jq '[.[] | {name: .}]' "$s/repo-labels.json" ;;
+  "api --paginate repos/owner/target/labels?per_page=100")
+    [[ ! -f "$s/labels-fail" ]] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    jq '[.[] | {name: .}]' "$s/repo-labels.json" ;;
   "api --method PATCH repos/owner/target/issues/1 --input - --silent")
     cat > "$s/patch.json"
-    jq --slurpfile p "$s/patch.json" '. + $p[0]' "$s/issue.json" > "$s/tmp" && mv "$s/tmp" "$s/issue.json" ;;
+    jq --slurpfile p "$s/patch.json" '. + $p[0]' "$s/issue.json" > "$s/tmp" && mv "$s/tmp" "$s/issue.json"
+    # A human adds agent:manual while the publish job runs (S12).
+    if [[ -f "$s/manual-on-patch" ]]; then
+      jq '.labels += [{name: "agent:manual"}]' "$s/issue.json" > "$s/tmp" && mv "$s/tmp" "$s/issue.json"
+      rm -f "$s/manual-on-patch"
+    fi ;;
   "api --method PATCH repos/owner/target/issues/comments/"*) cat > "$s/comment-patched.json" ;;
   "api --method POST repos/owner/target/issues/1/comments --input - --silent") cat > "$s/comment-posted.json" ;;
   "issue edit 1 --repo owner/target "*)
+    [[ ! -f "$s/edit-fail" || "$*" != *agent:ready* ]] || { echo "HTTP 500" >&2; exit 1; }
     shift 5; add=""; remove=""
     while (( $# )); do
       case "$1" in --add-label) add="$2" ;; --remove-label) remove="$2" ;; esac
@@ -284,7 +296,7 @@ new_case() { # name, issue JSON (or "" for a missing Issue), comments JSON
   mkdir -p "$dir/result"
   [[ -z "$2" ]] || printf '%s\n' "$2" > "$dir/issue.json"
   printf '%s\n' "${3:-[]}" > "$dir/comments.json"
-  jq -n '["agent:needs-clarification","agent:ready","agent:running","agent:review","agent:blocked","agent:done","bug"]' \
+  jq -n '["agent:needs-clarification","agent:ready","agent:running","agent:review","agent:blocked","agent:done","agent:manual","bug"]' \
     > "$dir/repo-labels.json"
   touch "$dir/gh.log" "$dir/github_output" "$dir/summary" "$dir/github_env"
   echo "$dir"
@@ -406,11 +418,12 @@ expect "S  no write command allowed to the agent" \
   "$(grep -cE 'git (add|commit|push|switch|checkout)|gh (pr create|issue edit|issue comment|api)|Edit,|Write,' \
      <<<"$(sed 's/--disallowedTools.*//' <<<"$claude_args")" || true)" 0
 expect "S  no branch, push, PR or Developer start in the workflow" \
-  "$(grep -cE 'git push|git switch|gh pr create|gh workflow run|agent-develop' "$wf" || true)" 0
-expect "S  agent:ready never added by the workflow" "$(grep -cE 'set_state[^#]*agent:ready|add-label[^#]*agent:ready' "$wf" || true)" 0
+  "$(grep -vE '^[[:space:]]*#' "$wf" | grep -cE 'git push|git switch|gh pr create|gh workflow run|agent-develop' || true)" 0
+expect "S  agent:ready added in one place only: the publish job, on AUTO_START (Phase 9)" \
+  "$(grep -cE 'set_state[^#]*agent:ready|add-label[^#]*agent:ready' "$wf")/$(grep -cE 'set_state[^#]*agent:ready' "$work/apply.sh")" "1/1"
 prompt_step="$(step refine "Build Refiner prompt")"
 expect "S  SPEC.md presence decided by the workflow and given to the agent" \
-  "$(grep -c -e 'if \[\[ -f SPEC.md \]\]' -e 'echo "spec_present=$spec_present" >> "$GITHUB_OUTPUT"' -e '^- \$spec_md$' <<<"$prompt_step")" 3
+  "$(grep -c -e 'if \[\[ -f SPEC.md \]\]' -e 'echo "spec_present=$spec_present"$' -e '^- \$spec_md$' <<<"$prompt_step")" 3
 expect "S  validation uses the workflow's SPEC.md presence" \
   "$(yq '.jobs.refine.steps[] | select(.id == "result") | .env.SPEC_PRESENT' "$wf")/$(step refine "Validate and render refinement" | grep -c 'flowforge_refine_validate "$CONTEXT_DIR/output.json" "$SPEC_PRESENT"')" \
   '${{ steps.prompt.outputs.spec_present }}/1'
@@ -428,6 +441,319 @@ expect "S  Project tokens: organization projects only" \
   permission-organization-projects
 expect "S  caller: no write beyond issues" "$(j '.jobs.refine.permissions' "$caller")" \
   '{"contents":"read","issues":"write","pull-requests":"read"}'
+
+# --- A: autonomy decision and automatic start (Phase 9, docs/autonomy-contract.md §9) ----------
+# low_output: a LOW request every gate accepts (S2). Each scenario changes one thing.
+low_output() {
+  jq -n '{verdict: "READY", blocked_reason: "", title: "test: cover the service probes",
+    context: ["The probes have no test. `[provided]`"],
+    goal: "The service probes are covered by automated tests.",
+    scope: ["Tests for `GET /health`."], out_of_scope: ["Any change to the application code. `[provided]`"],
+    acceptance_criteria: ["A test asserts `GET /health` answers 200. `[provided]`",
+                          "`pytest` passes. `[observed]` (`CLAUDE.md`)"],
+    constraints: ["No new dependency. `[provided]`"], references: ["`tests/test_health.py`"],
+    open_questions: [], assumptions: [], notes_for_agents: [], proposed_labels: [],
+    added: "scope, 2 criteria", references_used: ["SPEC.md", "CLAUDE.md"],
+    spec_impact: "COMPLIANT", spec_references: ["`F-001` — Service probes (`CONFIRMED`): covered, unchanged.",
+                                                "`S-001` — Probes answer (`CONFIRMED`)."],
+    spec_changes: [], definition_of_done: ["Every criterion covered by a test.", "A Draft PR closes the Issue."],
+    risk_level: "LOW", risk_reasons: ["Tests only. `[provided]`"]}' | with_meta | jq '.schema_version = 3'
+}
+owner_issue() { issue_json '[]' "${1-Please add tests for the service probes.}" | jq '.user = {login: "owner", type: "User"}'; }
+semi_ctx() {
+  jq -n '{mode: "SEMI_AUTO", owner: "owner", actor: "owner", spec_check: "PASS",
+          spec_ids: ["F-001", "F-002", "R-014", "S-001"], repo_labels: ["agent:ready", "agent:manual"]}'
+}
+# decide <refinement> [issue] [commenters] [context]: prints "<decision> <reason codes,>".
+decide() {
+  printf '%s\n' "$1" > "$work/a-r.json"
+  printf '%s\n' "${2:-$(owner_issue)}" > "$work/a-i.json"
+  printf '%s\n' "${3:-[]}" > "$work/a-c.json"
+  printf '%s\n' "${4:-$(semi_ctx)}" > "$work/a-x.json"
+  if flowforge_autonomy_decide "$work/a-r.json" "$work/a-i.json" "$work/a-c.json" "$work/a-x.json" > "$work/a-out.json" 2>/dev/null; then
+    jq -r '"\(.decision) \(.reasons | map(split(": ")[0]) | join(","))"' "$work/a-out.json" | sed 's/ $//'
+  else
+    echo ERROR
+  fi
+}
+ctx() { semi_ctx | jq "$1"; }
+
+validate "A  S2 fixture is a valid READY" ok "$(low_output)"
+validate "A  risk fields absent: still valid (compatibility), decided as unknown" ok "$(low_output | jq 'del(.risk_level, .risk_reasons)')"
+expect "A  S1 SUPERVISED + LOW: HUMAN_REQUIRED (D-MODE)" "$(decide "$(low_output)" "" "" "$(ctx '.mode = "SUPERVISED"')")" "HUMAN_REQUIRED D-MODE"
+expect "A  S1 SUPERVISED: recorded as would start in SEMI_AUTO" "$(jq -r .would_auto_start "$work/a-out.json")" true
+expect "A  S2 SEMI_AUTO + LOW, owner, explicit: AUTO_START" "$(decide "$(low_output)")" "AUTO_START"
+expect "A  S2 risk LOW (proposed LOW, floor LOW), every gate PASS" \
+  "$(jq -r '"\(.effective_risk) \(.proposed_risk) \(.risk_floor) \([.gates[] | .result] | unique | join(","))"' "$work/a-out.json")" "LOW LOW LOW PASS"
+for t in "docs: document the probes" "refactor(health): extract the probe handler" "test(api): cover the probes"; do
+  expect "A  S2 title type '${t%%:*}' keeps LOW" "$(decide "$(low_output | jq --arg t "$t" '.title = $t')")" "AUTO_START"
+done
+
+with_impact() { low_output | jq --arg i "$1" '.spec_impact = $i | .spec_changes = ["Extend `F-001`. `[provided]`"]'; }
+expect "A  S3 NEW_FEATURE: HUMAN_REQUIRED (D-IMPACT, D-RISK-MEDIUM)" "$(decide "$(with_impact NEW_FEATURE)")" "HUMAN_REQUIRED D-IMPACT,D-RISK-MEDIUM"
+expect "A  S3 EXTENDS: HUMAN_REQUIRED (D-IMPACT, D-RISK-MEDIUM)" "$(decide "$(with_impact EXTENDS)")" "HUMAN_REQUIRED D-IMPACT,D-RISK-MEDIUM"
+expect "A  S3 feat: title: D-RISK-MEDIUM" "$(decide "$(low_output | jq '.title = "feat: add a probe"')")" "HUMAN_REQUIRED D-RISK-MEDIUM"
+expect "A  S3 fix: title (any bug fix): D-RISK-MEDIUM" "$(decide "$(low_output | jq '.title = "fix: probe status"')")" "HUMAN_REQUIRED D-RISK-MEDIUM"
+expect "A  S3 breaking test!: title: D-RISK-MEDIUM" "$(decide "$(low_output | jq '.title = "test!: rewrite probes tests"')")" "HUMAN_REQUIRED D-RISK-MEDIUM"
+expect "A  S3 untyped title: D-RISK-MEDIUM" "$(decide "$(low_output | jq '.title = "Cover the probes"')")" "HUMAN_REQUIRED D-RISK-MEDIUM"
+expect "A  S3 proposal MEDIUM raises a LOW floor" "$(decide "$(low_output | jq '.risk_level = "MEDIUM"')")" "HUMAN_REQUIRED D-RISK-MEDIUM"
+expect "A  S4 proposal HIGH: D-RISK-HIGH" "$(decide "$(low_output | jq '.risk_level = "HIGH"')")" "HUMAN_REQUIRED D-RISK-HIGH"
+
+expect "A  S4 keyword in the goal (token): D-RISK-HIGH: token" \
+  "$(decide "$(low_output | jq '.goal = "Tests read the API Token from the environment."')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  S4 matched keyword recorded" "$(jq -c .risk_floor_reasons "$work/a-out.json")/$(jq -r '.reasons[0]' "$work/a-out.json")" '["token"]/D-RISK-HIGH: token'
+expect "A  S4 ci: title: D-RISK-HIGH: type ci" "$(decide "$(low_output | jq '.title = "ci: run the probes tests"')"; jq -r '.reasons[0]' "$work/a-out.json")" \
+  "$(printf 'HUMAN_REQUIRED D-RISK-HIGH\nD-RISK-HIGH: type ci')"
+expect "A  S4 build: title: D-RISK-HIGH" "$(decide "$(low_output | jq '.title = "build: pin pytest"')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  S4 keyword only in the original request (terraform)" \
+  "$(decide "$(low_output)" "$(owner_issue 'Add tests, and tweak the Terraform module.')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  S4 French keyword in the original request (mot de passe)" \
+  "$(decide "$(low_output)" "$(owner_issue 'Tester le mot de passe oublié.')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  S4 path fragment in the references (.github/)" \
+  "$(decide "$(low_output | jq '.references += ["`.github/workflows/ci.yml`"]')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  S4 path fragment (.tf) inside a file name" \
+  "$(decide "$(low_output | jq '.scope += ["Read `main.tf`."]')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  S4 keywords match at a word start only (no hit inside 'unrolled', 'stockpile')" \
+  "$(decide "$(low_output | jq '.goal = "Tests are unrolled and kept in a stockpile."')")" "AUTO_START"
+expect "A  S4 case-insensitive keyword (DELETE)" \
+  "$(decide "$(low_output | jq '.scope += ["Cover DELETE /tasks."]')")" "HUMAN_REQUIRED D-RISK-HIGH"
+
+expect "A  S5 CONTRADICTS (NEEDS_CLARIFICATION): NO_START (D-VERDICT)" \
+  "$(decide "$(contradicts | with_meta)" | cut -d' ' -f1)" "NO_START"
+validate "A  S5 forged READY + CONTRADICTS still refused by the validator" ko "$(low_output | jq '.spec_impact = "CONTRADICTS"')"
+expect "A  S6 NEEDS_DECISION: NO_START" "$(decide "$(needs_output | with_meta)" | cut -d' ' -f1)" "NO_START"
+expect "A  S6 answer -> READY MODIFIES: HUMAN_REQUIRED (D-IMPACT, D-RISK-HIGH)" \
+  "$(decide "$(with_impact MODIFIES)")" "HUMAN_REQUIRED D-IMPACT,D-RISK-HIGH"
+expect "A  S6 BLOCKED: NO_START" "$(decide "$(blocked_output | with_meta)" | cut -d' ' -f1)" "NO_START"
+
+expect "A  S7 non-blocking question with a default: D-IMPLICIT" \
+  "$(decide "$(low_output | jq '.open_questions = [{question: "Cover HEAD too?", blocking: false, default: "No."}]')")" "HUMAN_REQUIRED D-IMPLICIT"
+expect "A  S7 [recommended] criterion: D-IMPLICIT" \
+  "$(decide "$(low_output | jq '.acceptance_criteria += ["The test runs under 1 s. `[recommended]`"]')")" "HUMAN_REQUIRED D-IMPLICIT"
+expect "A  S7 [recommended] decision outside the criteria (constraints): D-IMPLICIT" \
+  "$(decide "$(low_output | jq '.constraints += ["Use pytest fixtures. `[recommended]`"]')")" "HUMAN_REQUIRED D-IMPLICIT"
+expect "A  S7 unvalidated assumption: D-IMPLICIT" \
+  "$(decide "$(low_output | jq '.assumptions = ["`[assumption]` The probe path is stable."]')")" "HUMAN_REQUIRED D-IMPLICIT"
+expect "A  S7 cited item missing from SPEC.md (R-999): D-REFS" \
+  "$(decide "$(low_output | jq '.acceptance_criteria += ["`R-999` holds. `[provided]`"]')")" "HUMAN_REQUIRED D-REFS"
+expect "A  S7 no SPEC.md item cited: D-REFS" \
+  "$(decide "$(low_output | jq '.spec_references = ["Probes section, unchanged."]')")" "HUMAN_REQUIRED D-REFS"
+expect "A  S7 risk_level missing: D-RISK-UNKNOWN" "$(decide "$(low_output | jq 'del(.risk_level)')")" "HUMAN_REQUIRED D-RISK-UNKNOWN"
+expect "A  S7 risk_level not a known level: D-RISK-UNKNOWN, effective HIGH" \
+  "$(decide "$(low_output | jq '.risk_level = "low"')") $(jq -r .effective_risk "$work/a-out.json")" "HUMAN_REQUIRED D-RISK-UNKNOWN HIGH"
+expect "A  S7 owner input empty: D-OWNER" "$(decide "$(low_output)" "" "" "$(ctx '.owner = ""')")" "HUMAN_REQUIRED D-OWNER"
+expect "A  S7 SPEC.md check FAILED: D-SPEC" "$(decide "$(low_output)" "" "" "$(ctx '.spec_check = "FAILED"')")" "HUMAN_REQUIRED D-SPEC"
+expect "A  S7 SPEC.md check ERROR: D-SPEC" "$(decide "$(low_output)" "" "" "$(ctx '.spec_check = "ERROR"')")" "HUMAN_REQUIRED D-SPEC"
+expect "A  S7 forged READY without acceptance criteria: NO_START (D-INCOMPLETE)" \
+  "$(decide "$(low_output | jq '.acceptance_criteria = []')")" "NO_START D-INCOMPLETE"
+expect "A  S7 forged READY without Definition of Done: NO_START (D-INCOMPLETE)" \
+  "$(decide "$(low_output | jq '.definition_of_done = []')")" "NO_START D-INCOMPLETE"
+validate "A  S7 missing acceptance criteria refused by the validator" ko "$(low_output | jq '.acceptance_criteria = []')"
+validate "A  S7 missing Definition of Done refused by the validator" ko "$(low_output | jq '.definition_of_done = []')"
+expect "A  S7 every failed gate listed together (no short-circuit)" \
+  "$(decide "$(low_output | jq '.title = "feat: x" | .assumptions = ["`[assumption]` y"] | del(.risk_level)')" "" "" "$(ctx '.owner = "" | .mode = "SUPERVISED"')")" \
+  "HUMAN_REQUIRED D-MODE,D-IMPLICIT,D-RISK-UNKNOWN,D-OWNER"
+
+expect "A  S9 malformed context (label lookup result missing): evaluation error" \
+  "$(decide "$(low_output)" "" "" "$(ctx '.repo_labels = null')")" "ERROR"
+expect "A  S9 malformed context (SPEC.md ids missing): evaluation error" \
+  "$(decide "$(low_output)" "" "" "$(ctx 'del(.spec_ids)')")" "ERROR"
+expect "A  S9 error fallback: READY -> HUMAN_REQUIRED (D-ERROR), never AUTO_START" \
+  "$(flowforge_autonomy_error READY SEMI_AUTO | jq -r '"\(.decision) \(.reasons | join(",")) \(.would_auto_start)"')" "HUMAN_REQUIRED D-ERROR false"
+expect "A  S9 error fallback: not READY -> NO_START" "$(flowforge_autonomy_error NEEDS_CLARIFICATION SEMI_AUTO | jq -r .decision)" "NO_START"
+
+expect "A  S10 mode: exact SEMI_AUTO only" \
+  "$(for m in SEMI_AUTO SUPERVISED "" semi_auto AUTO 'SEMI_AUTO '; do flowforge_autonomy_mode "$m" 2>/dev/null; done | paste -sd,)" \
+  "SEMI_AUTO,SUPERVISED,SUPERVISED,SUPERVISED,SUPERVISED,SUPERVISED"
+expect "A  S10 unexpected mode value reported" "$(flowforge_autonomy_mode semi_auto 2>&1 >/dev/null | grep -c '::warning::')" 1
+expect "A  S10 back to SUPERVISED: D-MODE" "$(decide "$(low_output)" "" "" "$(ctx '.mode = "SUPERVISED"')")" "HUMAN_REQUIRED D-MODE"
+
+notion_body=$'<!-- flowforge:notion-page-id=0123456789abcdef0123456789abcdef -->\nPlease add tests for the service probes.'
+expect "A  S11 Notion: Bridge author + marker -> D-OWNER, D-NOTION" \
+  "$(decide "$(low_output)" "$(owner_issue "$notion_body" | jq '.user = {login: "flowforge-notion-bridge[bot]", type: "Bot"}')")" \
+  "HUMAN_REQUIRED D-OWNER,D-NOTION"
+owner_issue "$notion_body" > "$work/a-notion.json"
+low_output | with_meta > "$work/a-low.json"
+flowforge_refine_render_body "$work/a-low.json" "$work/a-notion.json" > "$work/a-notion-body.md"
+expect "A  S11 marker kept in the Original request of a refined body still detected" \
+  "$(decide "$(low_output)" "$(jq --rawfile b "$work/a-notion-body.md" '.body = $b' "$work/a-notion.json")")" "HUMAN_REQUIRED D-NOTION"
+
+expect "A  S12 Issue carries agent:manual: D-MANUAL" \
+  "$(decide "$(low_output)" "$(owner_issue | jq '.labels = [{name: "agent:manual"}]')")" "HUMAN_REQUIRED D-MANUAL"
+expect "A  S12 agent:manual missing on the repository: D-MANUAL-MISSING" \
+  "$(decide "$(low_output)" "" "" "$(ctx '.repo_labels = ["agent:ready"]')")" "HUMAN_REQUIRED D-MANUAL-MISSING"
+
+expect "A  S13 Issue opened by a collaborator: D-OWNER" \
+  "$(decide "$(low_output)" "$(owner_issue | jq '.user.login = "collaborator"')")" "HUMAN_REQUIRED D-OWNER"
+expect "A  S13 Refiner dispatched by a collaborator: D-OWNER" \
+  "$(decide "$(low_output)" "" "" "$(ctx '.actor = "collaborator"')")" "HUMAN_REQUIRED D-OWNER"
+expect "A  S13 collaborator comment: D-OWNER" \
+  "$(decide "$(low_output)" "" '[{"login": "owner", "type": "User"}, {"login": "collaborator", "type": "User"}]')" "HUMAN_REQUIRED D-OWNER"
+expect "A  S13 bot comment (e.g. an earlier Developer stop): D-OWNER" \
+  "$(decide "$(low_output)" "" '[{"login": "github-actions[bot]", "type": "Bot"}]')" "HUMAN_REQUIRED D-OWNER"
+expect "A  S13 owner's own comments only: AUTO_START" \
+  "$(decide "$(low_output)" "" '[{"login": "owner", "type": "User"}]')" "AUTO_START"
+expect "A  S13 logins compared case-insensitively (GitHub logins)" \
+  "$(decide "$(low_output)" "$(owner_issue | jq '.user.login = "Owner"')" "" "$(ctx '.actor = "OWNER"')")" "AUTO_START"
+expect "A  S13 an owner login that is a bot account never passes" \
+  "$(decide "$(low_output)" "$(owner_issue | jq '.user.type = "Bot"')")" "HUMAN_REQUIRED D-OWNER"
+
+# Trace: SUPERVISED renders exactly the v0.1.0 body and comment; SEMI_AUTO adds the record line.
+with_autonomy() { jq --slurpfile a "$2" '.autonomy = $a[0]' "$1"; }
+decide "$(low_output)" "" "" "$(ctx '.mode = "SUPERVISED"')" > /dev/null
+with_autonomy "$work/a-low.json" "$work/a-out.json" > "$work/a-sup.json"
+owner_issue > "$work/a-issue.json"
+expect "A  S1 SUPERVISED: Issue body identical to v0.1.0" \
+  "$(flowforge_refine_render_body "$work/a-sup.json" "$work/a-issue.json" | sha256sum)" \
+  "$(flowforge_refine_render_body "$work/a-low.json" "$work/a-issue.json" | sha256sum)"
+expect "A  S1 SUPERVISED: comment identical to v0.1.0" \
+  "$(flowforge_refine_render_comment "$work/a-sup.json" | sha256sum)" "$(flowforge_refine_render_comment "$work/a-low.json" | sha256sum)"
+decide "$(low_output)" > /dev/null
+with_autonomy "$work/a-low.json" "$work/a-out.json" > "$work/a-auto.json"
+expect "A  S2 record line" "$(flowforge_refine_render_body "$work/a-auto.json" "$work/a-issue.json" | grep '^- Autonomy:')" \
+  "- Autonomy: SEMI_AUTO · risk LOW (proposed LOW, floor LOW) · AUTO_START"
+expect "A  S2 comment: automatic start, merge stays human" \
+  "$(flowforge_refine_render_comment "$work/a-auto.json" | grep -c 'starts the Developer automatically.*The merge stays human')" 1
+decide "$(low_output | jq '.title = "ci: x"')" > /dev/null
+with_autonomy "$work/a-low.json" "$work/a-out.json" > "$work/a-human.json"
+expect "A  S4 record line names the decision and the reasons" \
+  "$(flowforge_refine_render_body "$work/a-human.json" "$work/a-issue.json" | grep '^- Autonomy:')" \
+  "- Autonomy: SEMI_AUTO · risk HIGH (proposed LOW, floor HIGH) · HUMAN_REQUIRED (D-RISK-HIGH: type ci)"
+expect "A  S4 comment: human validation, failed gate in plain words" \
+  "$(flowforge_refine_render_comment "$work/a-human.json" | grep -c -e 'a human may apply `agent:ready`' -e '^- the effective risk is HIGH (`D-RISK-HIGH`: type ci)$')" 2
+expect "A  run summary: gates table in every mode" \
+  "$(flowforge_autonomy_summary "$work/a-sup.json" | grep -c -e '^| G[0-9]* |' -e 'Would start automatically in `SEMI_AUTO`: yes')" 13
+
+# Validate-and-render step with the gh stub: decision computed in the real step, fail-closed.
+result_case() { # name, structured output, issue JSON, env...
+  local dir
+  dir="$(new_case "$1" "$3")"
+  mkdir -p "$dir/ctx/result"
+  printf '%s\n' "$3" > "$dir/ctx/issue.json"
+  echo '[]' > "$dir/ctx/commenters.json"
+  run "$dir" "$work/result.sh" CONTEXT_DIR="$dir/ctx" STRUCTURED_OUTPUT="$2" DIGEST=d SPEC_PRESENT=true \
+    SPEC_CHECK=PASS SPEC_IDS='["F-001","S-001"]' AUTONOMY_MODE=SEMI_AUTO AUTONOMY_OWNER=owner \
+    TRIGGERING_ACTOR=owner RUN_URL=https://run/1 "${@:4}"
+  echo "$dir"
+}
+agent_low="$(low_output | jq -c 'del(.schema_version, .repository, .issue, .author, .original_title, .input_digest, .run_url, .rules_sha, .refined_at, .spec_present)')"
+c="$(result_case r-auto "$agent_low" "$(owner_issue)")"
+expect "A  step: SEMI_AUTO LOW -> AUTO_START output, schema_version 3" \
+  "$(code "$c")/$(grep -c '^autonomy_decision=AUTO_START$' "$c/github_output")/$(jq -r .schema_version "$c/ctx/result/refinement.json")" "0/1/3"
+expect "A  step: record line rendered in the body" "$(grep -c '^- Autonomy: SEMI_AUTO · risk LOW' "$c/ctx/result/body.md")" 1
+expect "A  step: gates table in the run summary" "$(grep -c '^| G12 | PASS |' "$c/summary")" 1
+c="$(result_case r-sup "$agent_low" "$(owner_issue)" AUTONOMY_MODE=)"
+expect "A  S1 step: caller without the input (empty) -> SUPERVISED, HUMAN_REQUIRED (D-MODE)" \
+  "$(code "$c")/$(grep -c '^autonomy_decision=HUMAN_REQUIRED$' "$c/github_output")/$(grep -c '^autonomy_reasons=D-MODE$' "$c/github_output")/$(grep -c '^- Autonomy:' "$c/ctx/result/body.md" || true)" "0/1/1/0"
+c="$(new_case r-labels-fail "$(owner_issue)")"; touch "$c/labels-fail"
+mkdir -p "$c/ctx/result"; owner_issue > "$c/ctx/issue.json"; echo '[]' > "$c/ctx/commenters.json"
+run "$c" "$work/result.sh" CONTEXT_DIR="$c/ctx" STRUCTURED_OUTPUT="$agent_low" DIGEST=d SPEC_PRESENT=true \
+  SPEC_CHECK=PASS SPEC_IDS='["F-001","S-001"]' AUTONOMY_MODE=SEMI_AUTO AUTONOMY_OWNER=owner TRIGGERING_ACTOR=owner RUN_URL=x
+expect "A  S9 step: label lookup error -> D-ERROR, READY still rendered, run succeeds" \
+  "$(code "$c")/$(grep -c '^autonomy_decision=HUMAN_REQUIRED$' "$c/github_output")/$(grep -c '^autonomy_reasons=D-ERROR$' "$c/github_output")/$(grep -c '^verdict=READY$' "$c/github_output")" "0/1/1/1"
+c="$(result_case r-ids-missing "$agent_low" "$(owner_issue)" SPEC_IDS=)"
+expect "A  S9 step: SPEC.md ids missing -> D-ERROR, never AUTO_START" \
+  "$(code "$c")/$(grep -c '^autonomy_reasons=D-ERROR$' "$c/github_output")" "0/1"
+
+# Publish step: agent:ready last, read back, then autostart=true; every failure leaves it empty.
+prepare_auto() { # dir, autonomy file
+  with_autonomy "$work/a-low.json" "$2" > "$1/a.json"
+  prepare "$1" "$1/a.json"
+}
+autostart() { grep '^autostart=' "$1/github_output" | cut -d= -f2; }
+decide "$(low_output)" > /dev/null; cp "$work/a-out.json" "$work/a-auto-autonomy.json"
+c="$(new_case p-auto "$(owner_issue)")"
+prepare_auto "$c" "$work/a-auto-autonomy.json"
+run "$c" "$work/apply.sh"
+expect "A  S2 publish: agent:ready applied, autostart=true" "$(code "$c")/$(labels "$c")/$(autostart "$c")" '0/["agent:ready"]/true'
+expect "A  S2 publish: agent:ready is the last write, after body and comment" \
+  "$(grep -E '^(api --method|issue edit)' "$c/gh.log" | tail -n 1)" "issue edit 1 --repo owner/target --add-label agent:ready"
+expect "A  S2 publish: label read back after the write" \
+  "$(awk '/--add-label agent:ready/ {seen = 1; next} seen && /^api repos\/owner\/target\/issues\/1$/ {n++} END {print n + 0}' "$c/gh.log")" 1
+expect "A  S2 publish: final decision output" "$(grep -c '^decision=AUTO_START$' "$c/github_output")" 1
+
+run "$c" "$work/apply.sh"
+expect "A  S8 publish re-run after the start: refused, no write, no second start" \
+  "$(code "$c")/$(grep -c '^autostart=true$' "$c/github_output")" "1/1"
+
+c="$(new_case p-manual "$(owner_issue | jq '.labels = [{name: "agent:manual"}]')")"
+prepare_auto "$c" "$work/a-auto-autonomy.json"
+run "$c" "$work/apply.sh"
+expect "A  S12 publish: agent:manual at the first read -> no agent:ready, HUMAN_REQUIRED (D-MANUAL)" \
+  "$(code "$c")/$(labels "$c")/$(autostart "$c")/$(grep -c '^decision=HUMAN_REQUIRED$' "$c/github_output")" '0/["agent:manual"]//1'
+expect "A  S12 publish: comment and record re-rendered with D-MANUAL" \
+  "$(jq -r .body "$c/comment-posted.json" | grep -c 'carries `agent:manual`')/$(jq -r .body "$c/issue.json" | grep -c 'HUMAN_REQUIRED (D-MANUAL)')" "1/1"
+
+c="$(new_case p-manual-late "$(owner_issue)")"; touch "$c/manual-on-patch"
+prepare_auto "$c" "$work/a-auto-autonomy.json"
+run "$c" "$work/apply.sh"
+expect "A  S12 publish: agent:manual added during the publish -> no agent:ready, trace republished" \
+  "$(code "$c")/$(labels "$c")/$(autostart "$c")/$(jq -r .body "$c/issue.json" | grep -c 'HUMAN_REQUIRED (D-MANUAL)')" '0/["agent:manual"]//1'
+
+c="$(new_case p-nolabel "$(owner_issue)")"
+jq '. - ["agent:ready"]' "$c/repo-labels.json" > "$c/t" && mv "$c/t" "$c/repo-labels.json"
+prepare_auto "$c" "$work/a-auto-autonomy.json"
+run "$c" "$work/apply.sh"
+expect "A  S9 publish: agent:ready missing on the repository -> failure, autostart empty" \
+  "$(code "$c")/$(autostart "$c")/$(labels "$c")" "1//[]"
+c="$(new_case p-editfail "$(owner_issue)")"; touch "$c/edit-fail"
+prepare_auto "$c" "$work/a-auto-autonomy.json"
+run "$c" "$work/apply.sh"
+expect "A  S9 publish: label write error -> failure, autostart empty" "$(code "$c")/$(autostart "$c")" "1/"
+c="$(new_case p-race "$(owner_issue)")"
+prepare_auto "$c" "$work/a-auto-autonomy.json"
+jq '.body = "edited meanwhile"' "$c/issue.json" > "$c/t" && mv "$c/t" "$c/issue.json"
+run "$c" "$work/apply.sh"
+expect "A  S9 publish: Issue edited during the run -> nothing written, autostart empty" "$(code "$c")/$(writes "$c")/$(autostart "$c")" "1/0/"
+
+decide "$(low_output)" "" "" "$(ctx '.mode = "SUPERVISED"')" > /dev/null; cp "$work/a-out.json" "$work/a-sup-autonomy.json"
+c="$(new_case p-sup "$(owner_issue)")"
+prepare_auto "$c" "$work/a-sup-autonomy.json"
+run "$c" "$work/apply.sh"
+expect "A  S1 publish SUPERVISED: no agent:ready, autostart empty" "$(code "$c")/$(labels "$c")/$(autostart "$c")" '0/[]/'
+c="$(new_case p-forged "$(owner_issue)")"
+prepare_auto "$c" "$work/a-sup-autonomy.json"
+jq '.autonomy.decision = "AUTO_START"' "$c/result/refinement.json" > "$c/t" && mv "$c/t" "$c/result/refinement.json"
+run "$c" "$work/apply.sh"
+expect "A  publish: AUTO_START with mode SUPERVISED in the artifact -> no start" "$(labels "$c")/$(autostart "$c")" '[]/'
+c="$(new_case p-legacy "$(owner_issue)")"
+prepare "$c" "$work/a-low.json"
+run "$c" "$work/apply.sh"
+expect "A  publish: artifact without autonomy (older refine job) -> no start" "$(code "$c")/$(labels "$c")/$(autostart "$c")" '0/[]/'
+
+# Static guarantees of the automatic path.
+expect "A  inputs default to SUPERVISED and an empty owner" \
+  "$(yq '[.on.workflow_call.inputs.autonomy_mode.default, .on.workflow_call.inputs.autonomy_owner.default] | join("/")' "$wf")" "SUPERVISED/"
+expect "A  publish job: labels with GITHUB_TOKEN only" \
+  "$(yq '.jobs.publish.env.GH_TOKEN' "$wf")/$(yq '.jobs.publish.steps[] | select(.id == "apply") | .env | has("GH_TOKEN")' "$wf")" '${{ github.token }}/false'
+expect "A  refine job permissions unchanged (read-only)" "$(j '.jobs.refine.permissions' "$wf")" \
+  '{"contents":"read","issues":"read","pull-requests":"read"}'
+expect "A  autostart only from the publish job's verified label" \
+  "$(yq '.on.workflow_call.outputs.autostart.value' "$wf")/$(grep -c '^ *autostart=true$' "$work/apply.sh")" '${{ jobs.publish.outputs.autostart }}/1'
+expect "A  decision computed after validation, from workflow data (actor, mode, owner, SPEC check)" \
+  "$(yq '.jobs.refine.steps[] | select(.id == "result") | .env | [.TRIGGERING_ACTOR, .AUTONOMY_MODE, .AUTONOMY_OWNER, .SPEC_CHECK] | join(" ")' "$wf")" \
+  '${{ github.triggering_actor }} ${{ inputs.autonomy_mode }} ${{ inputs.autonomy_owner }} ${{ steps.prompt.outputs.spec_check }}'
+expect "A  SPEC.md checked before the agent runs" \
+  "$(yq -o=json '.jobs.refine.steps' "$wf" | jq '(map(.id == "prompt") | index(true)) < (map(.id == "claude") | index(true))')/$(grep -c 'flowforge-spec.sh" SPEC.md' <<<"$prompt_step")" "true/1"
+agent_caller="$root/examples/target-repository/flowforge-agent.yml"
+expect "A  caller passes the autonomy variables, SUPERVISED when unset" \
+  "$(yq '.jobs.refine.with | [.autonomy_mode, .autonomy_owner] | join(" ")' "$caller")" \
+  "\${{ vars.FLOWFORGE_AUTONOMY_MODE || 'SUPERVISED' }} \${{ vars.FLOWFORGE_AUTONOMY_OWNER }}"
+expect "A  caller develop job: needs refine, runs on autostart only, calls agent-develop.yml" \
+  "$(yq '.jobs.develop | [.needs, .if, (.uses | test("/agent-develop.yml@"))] | map(tostring) | join(" ")' "$caller")" \
+  "refine needs.refine.outputs.autostart == 'true' true"
+expect "A  caller develop job: exactly the Developer's permissions" \
+  "$(j '.jobs.develop.permissions' "$caller")" "$(j '.jobs.develop.permissions' "$agent_caller")"
+expect "A  caller develop job: same explicit secrets as flowforge-agent.yml" \
+  "$(j '.jobs.develop.secrets' "$caller")" "$(j '.jobs.develop.secrets' "$agent_caller")"
+expect "A  caller develop job: same App / Project inputs as flowforge-agent.yml" \
+  "$(j '.jobs.develop.with' "$caller" | jq -c '{app_client_id, project_number}')" "$(j '.jobs.develop.with' "$agent_caller" | jq -c '{app_client_id, project_number}')"
+expect "A  agent-develop.yml still requires agent:ready and an absent branch" \
+  "$(yq '.jobs.develop.steps[] | select(.id == "context") | .run' "$root/.github/workflows/agent-develop.yml" | grep -c -e 'does not carry the' -e 'already exists')" 2
+expect "A  no merge, auto-merge or ready-for-review anywhere" \
+  "$(grep -rhvE '^[[:space:]]*#' "$root/.github/workflows" "$root/examples" | grep -cE 'gh pr merge|enablePullRequestAutoMerge|gh pr ready [^-]*$|--auto' || true)" 0
+expect "A  agent:manual is not a state label" \
+  "$(bash -c 'source "$1"; printf "%s\n" "${FLOWFORGE_STATE_LABELS[@]}"' _ "$state_helper" | grep -c '^agent:manual$' || true)" 0
 
 echo
 if (( failures > 0 )); then
