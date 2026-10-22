@@ -2,31 +2,130 @@
 
 # 🔥 FlowForge
 
-> **Status: experimental — Phases 1–7 validated end to end, with reservations listed in each [milestone](docs/milestones/) (Notion Need → Issue → Refiner → Developer → Reviewer ⇄ Iterator → human merge, mirrored on a GitHub Project and back to Notion). Latest: Phase 7 — Notion ([closure](docs/milestones/phase7-notion-complete.md)). Now: Phase 8 — Specification (`SPEC.md` gate and SPEC-aware refinement, [contract](docs/spec-contract.md)).** Nothing here is production-ready.
+> **Status: experimental proof of concept, version `v0.1.0`.** Validated live on two target
+> repositories (`demo-api`, `demo-api-2`), with reservations listed in the
+> [milestones](docs/milestones/). Nothing here is production-ready.
+>
+> **New here?** Go to **[GETTING_STARTED.md](GETTING_STARTED.md)** to connect a repository.
 
-FlowForge is a **central repository** that orchestrates AI-assisted software development
-across several GitHub repositories: it configures them declaratively and provides the
-workflows and agent rules that turn a raw need into a refined Issue, then into a Draft Pull
-Request that a human merges.
+FlowForge is a **central GitHub repository** that runs AI coding agents (Claude Code) on other
+GitHub repositories, called *targets*. A need becomes a refined Issue, then a tested **Draft pull
+request**. A human validates that PR and merges it.
 
 ------
 
-## 📖 The problem
+## 📖 What FlowForge is
+
+### The problem
 
 Using a coding agent on one repository is easy. Using it on **many** repositories leads to:
 
-- copies of the same workflows, prompts and rules drifting apart in every repo;
-- hand-configured labels, permissions and branch protections, different in each repo;
-- no single place to improve the agent's behavior or tighten its permissions.
+- copies of the same workflows, prompts and rules that drift apart in every repository;
+- labels, permissions and branch protections configured by hand, different in each one;
+- no single place to improve the agents or tighten their permissions;
+- agents that judge a change against the Issue and the code only, with no record of what the
+  product is supposed to do.
 
-## 🎯 The approach: 1 FlowForge → N target repositories
+### The approach: 1 FlowForge → N targets
 
-| FlowForge owns (once) | Each target repository owns |
+| FlowForge provides, once | Each target keeps |
 |---|---|
-| Terraform module to onboard a repo | Its code and tests |
-| Reusable GitHub Actions workflows | Its CI |
-| Generic agent rules (`agents/`) | Its `CLAUDE.md` (project conventions) |
-| | A ~20-line `flowforge-agent.yml` calling FlowForge |
+| reusable GitHub Actions workflows (`workflow_call`) | its code, tests and CI |
+| generic agent rules ([`agents/`](agents/)) | its `CLAUDE.md`: stack, commands, conventions |
+| a Terraform module that configures an existing repository | its `SPEC.md`: the functional contract |
+| caller templates ([`examples/target-repository/`](examples/target-repository/)) | five thin callers, pinned to one FlowForge version |
+
+**Technologies**: GitHub Issues, GitHub Actions, GitHub Projects, GitHub Apps, Terraform
+(`integrations/github` provider), Claude Code through
+[`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action), Bash. A
+Notion intake is optional.
+
+### What FlowForge does not do
+
+- It does not **merge**, approve, mark a PR ready, or enable auto-merge. Agents open Draft PRs only.
+- It does not **start by itself**. Every agent run starts with a human action: a dispatched
+  workflow, or the `agent:ready` label applied by a human. Moving a Project card, or editing
+  Notion, never starts an agent.
+- It does not **decide what the product should do**. Agents cite `SPEC.md` and ask; contract
+  decisions belong to the project owner.
+- It does not **create or delete** repositories, and it manages no secret in Terraform.
+- It does not replace the target's CI.
+
+------
+
+## 🔀 How it works
+
+```text
+ Request ─► Refiner ─► human: agent:ready ─► Developer ─► Draft PR ─► Reviewer ⇄ Iterator
+ (Issue)    (on demand)                      (SPEC.md gate)            (≤ 3 Iterator passes)
+                                                                              │
+                         Done ◄── agent:done ◄── merge ◄── human validation ◄─┘
+```
+
+| Agent | What it does | What it never does |
+|---|---|---|
+| **Refiner** | rewrites a raw Issue into an executable one: goal, scope, acceptance criteria, Definition of Done, `SPEC.md` impact, open questions | write code, apply `agent:ready`, settle a contradiction with `SPEC.md` |
+| **Developer** | checks `SPEC.md`, implements the Issue with tests on `agent/<issue>-<slug>`, updates `SPEC.md` only when the Issue says so | push to the default branch, open anything but a Draft PR |
+| **Reviewer** | read-only: checks the PR against the Issue, `SPEC.md`, the code, the tests and CI; verdict `APPROVE` / `REQUEST_CHANGES` / `BLOCKED` | commit, approve in GitHub, merge |
+| **Iterator** | fixes the Reviewer's findings on the same PR branch, then hands back to the Reviewer | anything beyond the findings |
+
+**The project owner** validates `SPEC.md`, answers the Refiner's questions, checks the acceptance
+criteria and the Definition of Done, applies `agent:ready`, and approves and merges the PR.
+
+**`SPEC.md`** is the target's functional contract: features `F-xxx`, rules `R-xxx`, validation
+scenarios `S-xxx`. The Refiner classifies each request against it (`COMPLIANT`, `NEW_FEATURE`,
+`CONTRADICTS`, …). The Developer refuses to start without a valid one, and the Reviewer checks
+the PR against it. See the [contract](docs/spec-contract.md).
+
+**Acceptance criteria and Definition of Done** are written by the Refiner, validated by the
+owner before `agent:ready`, implemented by the Developer and checked one by one by the Reviewer.
+See the [refined Issue contract](docs/issue-contract.md).
+
+**GitHub Projects** gives a visual status per request. The workflows write it, one way:
+`Backlog → Refining → Ready → Developing → Review ⇄ Iteration → Human validation → Done`, plus
+an `Attention` field when a human must act. The board never drives the agents.
+
+------
+
+## ✅ Features (implemented and validated live)
+
+| Capability | Validated on | Details |
+|---|---|---|
+| Developer: Issue + `agent:ready` → Draft PR with tests | `demo-api` | [architecture §2.2](docs/architecture.md) |
+| Reviewer, read-only, with structured findings and a verdict | `demo-api` | [phase 3](docs/milestones/phase3-reviewer-e2e.md) |
+| Review cycle Reviewer ⇄ Iterator, bounded to 3 Iterator passes | `demo-api` | [phase 4](docs/milestones/phase4-iterator-e2e.md) |
+| One `agent:*` state label per Issue, `agent:done` after a human merge | `demo-api` | [phase 4.1](docs/milestones/phase41-hardening-e2e.md) |
+| Human merge gate enforced by a GitHub ruleset | `demo-api`, `demo-api-2` | [architecture §2.7](docs/architecture.md#27-human-merge-gate-phase-41) |
+| Delivery by a FlowForge GitHub App (target CI runs on agent PRs) | `demo-api`, `demo-api-2` | [architecture §2.10](docs/architecture.md) |
+| Refiner with `READY` / `NEEDS_CLARIFICATION` / `BLOCKED` | `demo-api`, `demo-api-2` | [phase 5](docs/milestones/phase5-refiner-e2e.md) |
+| GitHub Project status, written by the workflows | `demo-api`, `demo-api-2` | [phase 6](docs/milestones/phase6-github-projects-e2e.md) |
+| Optional Notion intake and status feedback | `demo-api`, `demo-api-2` | [phase 7](docs/milestones/phase7-notion-complete.md) |
+| `SPEC.md` contract gate before the Developer | `demo-api` (`PASS` path) | [spec-contract.md](docs/spec-contract.md) |
+| Requests refined against `SPEC.md` (`spec_impact`, cited items, DoD) | `demo-api`, `demo-api-2` | [phase 8](docs/milestones/phase8-specification-complete.md) |
+| Versioned consumption: module by Git tag, callers by full commit SHA | `demo-api`, `demo-api-2` | [onboarding §10](docs/target-onboarding.md) |
+
+What was **not** observed live (for example the gate's `FAILED` path in a real run, or some
+Iterator rules) is listed as reservations in each milestone and in the
+[Phase 8 closure](docs/milestones/phase8-specification-complete.md).
+
+------
+
+## 🚀 Quick start
+
+The full procedure is in **[GETTING_STARTED.md](GETTING_STARTED.md)**. In short:
+
+1. **Organization, once**: the FlowForge GitHub App, the secret `CLAUDE_CODE_OAUTH_TOKEN`, App
+   credentials, and optionally the organization Project.
+2. **`SPEC.md`**: run the [preparation mission](docs/preparation-projet-existant-pour-flowforge.md)
+   in the target, check it with `.github/scripts/flowforge-spec.sh`, and have the owner validate
+   and merge it.
+3. **Terraform**: instantiate `terraform/modules/target-repository` with
+   `?ref=v0.1.0`, in one state, then review the plan before applying.
+4. **Callers**: copy the five files of `examples/target-repository/`, pinned to the full SHA of
+   `v0.1.0`.
+5. **Checks**: run the readiness checks R1–R18 until none is `FAIL`.
+6. **First request**: open an Issue, run `flowforge-refine.yml`, validate the result, apply
+   `agent:ready`, run `flowforge-review-cycle.yml` on the Draft PR, then review and merge.
 
 ------
 
@@ -34,213 +133,99 @@ Using a coding agent on one repository is easy. Using it on **many** repositorie
 
 ![FlowForge architecture: Notion intake, GitHub Projects, agent orchestration with GitHub Actions, pull request and human validation, target repositories](docs/ArchitectureFLOWFORGE.png)
 
-Details: [docs/architecture.md](docs/architecture.md).
+```text
+ target repository                                  FlowForge (this repository)
+ ─────────────────                                  ───────────────────────────
+ .github/workflows/flowforge-*.yml  ── uses @SHA ─►  .github/workflows/agent-*.yml, review-cycle.yml
+ CLAUDE.md, SPEC.md, code, CI                         .github/scripts/  (state, SPEC gate, Project sync)
+ labels + ruleset  ◄── Terraform module ───────────  terraform/modules/target-repository
+                                                     agents/*.md      (rules, fetched at the same SHA)
+```
+
+Reusable workflows run in the **caller's** context (its repository and token). A run on one
+target can never write to another. Details:
+[docs/architecture.md](docs/architecture.md).
 
 ------
 
-## 🔀 Target workflow: Issue → Draft PR
+## 📚 Documentation
 
-```text
-GitHub Issue → label agent:ready → target workflow → FlowForge reusable workflow
-→ Claude Code → branch agent/<issue>-<slug> → code + tests → Draft PR → human validation
-```
-
-The agent never pushes to `main` and never merges. See [agents/developer.md](agents/developer.md).
-Claude only commits: the workflow verifies the commits, then pushes the branch and opens the
-Draft PR with the **FlowForge GitHub App** (one App for all targets), so the target's CI runs
-on agent PRs without manual approval. To connect a new repository, follow
-[docs/target-onboarding.md](docs/target-onboarding.md).
-
-Phase 3 adds a **Reviewer** between the Draft PR and the human review. It is defined in
-[agents/reviewer.md](agents/reviewer.md) and run by the reusable workflow
-`agent-review.yml`; its first end-to-end run on `demo-api` is validated
-([milestone](docs/milestones/phase3-reviewer-e2e.md)):
-
-```text
-Issue → Developer → Draft PR → Reviewer → APPROVE | REQUEST_CHANGES | BLOCKED → human review
-```
-
-The Reviewer is read-only: it produces structured findings and a verdict (one PR comment +
-a JSON artifact), never commits nor merges.
-
-Phase 4 defines an **Iterator** ([agents/iterator.md](agents/iterator.md)) that fixes the
-findings of a `REQUEST_CHANGES` review on the existing PR branch, then hands the PR back to
-the Reviewer, in a loop bounded to 3 iterations. One iteration is run by the reusable
-workflow `agent-iterate.yml`; the loop is orchestrated by `review-cycle.yml`, which only
-decides who runs and when:
-
-```text
-Issue → Developer → Draft PR → Reviewer → REQUEST_CHANGES → Iterator → Reviewer → …
-        stops on APPROVE, BLOCKED, or after 3 Iterator passes (MAX_ITERATIONS_REACHED)
-```
-
-The cycle never merges, never marks the PR ready for review: the final merge stays human.
-
-------
-
-## 🛡️ Human merge gate
-
-The last step is a **human** decision, enforced by GitHub, not only by convention. The
-Terraform module puts a ruleset on the target's default branch: pull request required, at
-least one GitHub approval, approvals dismissed by new pushes, no force push, no deletion, no
-bypass for FlowForge.
-
-```text
-Reviewer APPROVE → cycle APPROVED → PR still Draft and unmerged
-→ human: Ready for review → GitHub approval → merge → agent:done
-```
-
-A Reviewer `APPROVE` is an agent verdict posted as a PR comment; it is **not** a GitHub
-approval and does not count for the ruleset. Agent PRs are authored by the FlowForge GitHub
-App (`GITHUB_TOKEN` fallback), which cannot approve its own PRs; no FlowForge workflow
-approves, merges or enables auto-merge. Details: [docs/architecture.md §2.7](docs/architecture.md#27-human-merge-gate-phase-41).
-
-------
-
-## 🚀 Roadmap
-
-Phase 1 goal: make the flow above work end to end on one POC repository, `demo-api`
-(FastAPI + pytest), with the Issue *"Add GET /health"*. Plan: [docs/phase-1.md](docs/phase-1.md).
-
-| Phase | Status |
+| Document | Content |
 |---|---|
-| Phase 1 — Foundation | ✅ Done |
-| Phase 2 — Developer E2E | ✅ Done — tag `flowforge-phase2-e2e` |
-| Phase 3 — Reviewer | ✅ Done — tag `flowforge-phase3-reviewer-e2e` ([milestone](docs/milestones/phase3-reviewer-e2e.md)) |
-| Phase 4 — Iterator | ✅ Done, with reservations — tag `flowforge-phase4-iterator-e2e` ([milestone](docs/milestones/phase4-iterator-e2e.md)) |
-| Phase 4.1 — Hardening & lifecycle | ✅ Done, validated E2E, one reservation — tag `flowforge-phase4.1-hardening-e2e` ([milestone](docs/milestones/phase41-hardening-e2e.md)) |
-| Phase 5 — Refiner agent | ✅ Done, validated E2E, with reservations — tag `flowforge-phase5-refiner-e2e` ([milestone](docs/milestones/phase5-refiner-e2e.md)) |
-| Phase 6 — GitHub Projects / Kanban | ✅ Done, validated E2E, with reservations — tag `flowforge-phase6-github-projects-e2e` ([milestone](docs/milestones/phase6-github-projects-e2e.md)) |
-| Phase 7 — Notion | ✅ Done, validated E2E, with reservations ([closure](docs/milestones/phase7-notion-complete.md)); tag `flowforge-phase7-notion-e2e` after the closure merge |
-
-Phase 4.1 covers: Iterator partial delivery (#17), closed / merged PR = `NO_OP` (#18), Issue
-label lifecycle up to `agent:done` (#19), and the human merge gate (default-branch ruleset).
-Each is covered by offline tests and was validated live on `demo-api` on 2026-10-09.
-
-**Phase 5 — Refiner (done)**: turn a rough human need into a
-structured, executable Issue that the existing chain consumes. Started on demand
-(`gh workflow run flowforge-refine.yml -f issue_number=<n>` in the target); verdict `READY`,
-`NEEDS_CLARIFICATION` (label `agent:needs-clarification`) or `BLOCKED`. A human still applies
-`agent:ready`:
-
-```text
-rough human need → Refiner → structured Issue → Developer → Reviewer ⇄ Iterator → human
-```
-
-Refiner validated in isolation (Prompt 23, [milestone](docs/milestones/phase5-refiner-simple-cases.md))
-and end to end in the chain (Prompt 24, [milestone](docs/milestones/phase5-refiner-e2e.md)), then
-closed with reservations (Prompt 25, same milestone §13). The Refiner is optional: a hand-written
-`agent:ready` Issue still goes straight to the Developer.
-
-**Phase 6 — GitHub Projects / Kanban (done)**: the org Project `FlowForge Development` shows
-where each need is. The workflows write its status one way, best-effort, through the FlowForge
-App token; the Project never starts an agent:
-
-```text
-Backlog → Refining → Ready → Developing → Review ⇄ Iteration → Human validation → Done
-```
-
-Model ([kanban-model.md](docs/github-projects/kanban-model.md)), provisioning
-([provisioning.md](docs/github-projects/provisioning.md)), sync
-([synchronization.md](docs/github-projects/synchronization.md)); validated live on `demo-api`
-(#39 main E2E, #45 `Review → Iteration → Review`) and closed in Prompt 30
-([milestone](docs/milestones/phase6-github-projects-e2e.md) §19).
-
-**Phase 7 — Notion (done)**: a shared Notion `Needs` database where people without GitHub can
-write a need in plain words for a Project and one of its repositories. A maintainer submits it
-(`notion-submit.yml`): it becomes **one** raw GitHub Issue in `Backlog`, created by the dedicated
-Notion Bridge App. A central reconciler (`notion-sync.yml`, scheduled + on demand) mirrors its
-status, PR and completion back to Notion, one way. Notion never starts an agent, applies a label
-or merges; the Refiner still structures the need and a human still applies `agent:ready` and
-merges. Model ([model.md](docs/notion/model.md)), provisioning
-([provisioning.md](docs/notion/provisioning.md)), submission ([submission.md](docs/notion/submission.md)),
-feedback ([feedback.md](docs/notion/feedback.md)); validated live on `demo-api` and `demo-api-2`
-with two contributors and two Projects, closed in Prompt 36
-([milestone](docs/milestones/phase7-notion-complete.md)).
-
-**Future (not implemented)**: QA agent, Documentation
-agent, self-hosted runners, GitHub Project reconciliation job (the Notion reconciler exists).
+| [GETTING_STARTED.md](GETTING_STARTED.md) | practical guide: onboard a repository and run a first request |
+| [docs/target-onboarding.md](docs/target-onboarding.md) | detailed onboarding reference: readiness checks R1–R18, permissions, versions and updates |
+| [docs/spec-contract.md](docs/spec-contract.md) | the `SPEC.md` contract, the gate, how agents use it |
+| [docs/issue-contract.md](docs/issue-contract.md) | refined Issue format, *Ready* definition, labels |
+| [docs/preparation-projet-existant-pour-flowforge.md](docs/preparation-projet-existant-pour-flowforge.md) | mission to prepare `SPEC.md` in an existing target (French) |
+| [docs/architecture.md](docs/architecture.md) | components, flows, contract with targets, security model |
+| [agents/](agents/) | rules of the Refiner, Developer, Reviewer and Iterator |
+| [docs/github-projects/](docs/github-projects/) | Kanban model, provisioning, synchronization |
+| [docs/notion/](docs/notion/) | optional Notion intake: model, provisioning, submission, feedback |
+| [terraform/modules/target-repository/README.md](terraform/modules/target-repository/README.md) | module inputs, labels, ruleset, token permissions |
+| [docs/milestones/](docs/milestones/) | live validations, evidence and reservations, phase by phase |
 
 ------
 
-## 🛠️ Stack
+## ⚠️ Limitations
 
-| Area | Tool |
-|---|---|
-| GitHub configuration | Terraform + [`integrations/github`](https://registry.terraform.io/providers/integrations/github/latest) provider |
-| Orchestration | GitHub Actions reusable workflows (`workflow_call`) |
-| Agent runtime | Claude Code via [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) (automation mode) |
-| Project board | GitHub Projects (org Project, GraphQL via GitHub CLI) |
-| Quality | pre-commit, `terraform fmt` / `validate` / `test`, actionlint, Bash test suites (`tests/`) |
-
-------
-
-## 📁 Layout
-
-```text
-.github/workflows/agent-develop.yml   reusable Developer workflow (called by targets)
-.github/workflows/agent-review.yml    reusable Reviewer workflow (called by targets)
-.github/workflows/agent-iterate.yml   reusable Iterator workflow (one iteration per call)
-.github/workflows/review-cycle.yml    reusable bounded Reviewer ↔ Iterator loop (≤ 3 Iterator passes)
-.github/workflows/agent-lifecycle.yml reusable lifecycle workflow (Issue terminal state on PR close)
-.github/workflows/agent-refine.yml    reusable Refiner workflow (refines one Issue, read-only agent)
-.github/scripts/flowforge-state.sh    agent:* state label transitions (one state per Issue)
-.github/scripts/flowforge-spec.sh     SPEC.md contract check run before the Developer starts (Phase 8.1)
-.github/scripts/flowforge-refine.sh   Refiner result validation and refined body rendering
-.github/scripts/flowforge-project.sh  GitHub Project sync (one way, best-effort, stale guard)
-.github/workflows/notion-submit.yml   FlowForge-only Notion Need → GitHub Issue submission (Notion Bridge App)
-.github/workflows/notion-sync.yml     FlowForge-only GitHub → Notion status feedback (central reconciler)
-.github/scripts/flowforge-notion.sh   Notion submission rules (validation, sanitising, marker lookup)
-.github/scripts/flowforge-notion-sync.sh  Notion feedback (correlation, mapping, idempotent write-back)
-.github/ISSUE_TEMPLATE/feature.yml    agent-friendly issue form
-agents/developer.md                   generic Developer agent rules
-agents/reviewer.md                    generic Reviewer agent rules
-agents/iterator.md                    generic Iterator agent rules
-agents/refiner.md                     generic Refiner agent rules (Phase 5)
-examples/target-repository/           caller workflows to copy into a target
-terraform/                            root config + target-repository module (labels, ruleset…)
-docs/                                 architecture, target onboarding, refined Issue and SPEC.md contracts, phase plans, milestones
-docs/github-projects/                 Kanban model, Project provisioning, workflow → Project sync
-docs/notion/                          Notion model, provisioning, submission, feedback (Phase 7)
-scripts/github-projects/              maintainer CLI: bootstrap.sh (provision / --check), sync-issue.sh
-scripts/notion/                       maintainer CLI: bootstrap.sh (provision / --check), seed-test-data.sh
-config/github-project.json            generated, non-secret Project IDs (written by bootstrap.sh)
-config/notion.json                    generated, non-secret Notion IDs (written by scripts/notion/bootstrap.sh)
-config/notion-allowlist.json          repositories Notion submissions may target (hand-edited, reviewed by PR)
-tests/                                offline tests of the workflows' step scripts (run by pre-commit)
-```
+- **Experimental.** `v0.1.0` has no stability guarantee; a later `0.x` version may change inputs,
+  labels or behaviour.
+- **GitHub setup required.** The setup needs an organization, an organization owner for the App,
+  secrets and variables, and Terraform for each target. Rulesets on private repositories need a
+  paid GitHub plan, which is why the POC targets are public.
+- **Humans stay in the loop.** A human starts every refinement and review, applies `agent:ready`,
+  approves and merges. Nothing runs fully autonomously.
+- **Agents judge, the code checks structure.** The `SPEC.md` gate checks the file's structure,
+  not its meaning. Whether a change agrees with the contract is the agents' judgement, reviewed
+  by a human.
+- **POC specifics.** The FlowForge App is installable in its own organization only. Agents cannot
+  change `.github/workflows/`. Project sync is best-effort. Only Python / uv targets have been
+  exercised.
+- **Not verified live.** Some paths are tested offline only, see the milestones' reservations.
 
 ------
 
-## ✅ Local checks
+## 🛠️ Development of FlowForge itself
 
 ```bash
 pre-commit install            # once
-pre-commit run --all-files    # whitespace, EOF, YAML, JSON, private keys, terraform fmt/validate/test,
-                              # actionlint, and the tests/*.sh suites (no network, no token)
+pre-commit run --all-files    # YAML/JSON, private keys, terraform fmt/validate/test, actionlint, tests/*.sh
 ```
 
-The same hooks run in CI (`.github/workflows/ci.yml`) on every pull
-request and on pushes to `main`.
+The same hooks run in CI (`.github/workflows/ci.yml`) on every pull request and on pushes to
+`main`. Conventions and repository layout: [CLAUDE.md](CLAUDE.md).
+
+### 🗺️ History
+
+| Phase | Result |
+|---|---|
+| 1–2 Foundation, Developer E2E | ✅ tag `flowforge-phase2-e2e` |
+| 3 Reviewer | ✅ tag `flowforge-phase3-reviewer-e2e` |
+| 4 / 4.1 Iterator, hardening, merge gate | ✅ with reservations, tags `flowforge-phase4-iterator-e2e`, `flowforge-phase4.1-hardening-e2e` |
+| 5 Refiner | ✅ with reservations, tag `flowforge-phase5-refiner-e2e` |
+| 6 GitHub Projects | ✅ with reservations, tag `flowforge-phase6-github-projects-e2e` |
+| 7 Notion | ✅ with reservations, tag `flowforge-phase7-notion-e2e` |
+| 8 Specification (`SPEC.md`), onboarding, `v0.1.0` | ✅ with reservations ([closure](docs/milestones/phase8-specification-complete.md)) |
+
+**Not implemented**: QA agent, Documentation agent, self-hosted runners, automatic Refiner
+triggers, a GitHub Project reconciliation job.
+
+------
 
 ## 🔐 Security
 
-No token or secret is ever committed; Terraform reads `GITHUB_TOKEN` from the environment;
-workflows use minimal permissions; agents only open Draft PRs, and a default-branch ruleset
-requires a human approval to merge. See
-[docs/architecture.md §4](docs/architecture.md#4--security-model).
+No token or secret is ever committed. Terraform reads `GITHUB_TOKEN` from the environment and
+never manages Actions secrets. Workflows start from `permissions: {}`, and Issue content is
+treated as untrusted input. Agents open Draft PRs only, and a default-branch ruleset requires a
+human to merge. See [docs/architecture.md §4](docs/architecture.md#4--security-model).
 
 ## 💡 Inspiration
 
-FlowForge is inspired by [big-emotion/ferry](https://github.com/big-emotion/ferry), a
-GitHub Actions–native agent pipeline that turns Jira column moves into reviewed draft PRs,
-with no server and no daemon.
-
-Ideas borrowed from ferry: the split into specialized agents (Refiner, Developer, Reviewer,
-Iterator) and the rule that agents open Draft PRs but never merge. FlowForge reimplements them
-independently on GitHub Issues: a label (`agent:ready`) replaces the Jira column move, and one
-central repository serves several target repositories through reusable workflows. No ferry
-code is included.
+FlowForge is inspired by [big-emotion/ferry](https://github.com/big-emotion/ferry), a GitHub
+Actions–native agent pipeline that turns Jira column moves into reviewed draft PRs. Ideas
+borrowed: specialized agents (Refiner, Developer, Reviewer, Iterator) and Draft PRs that agents
+never merge. FlowForge reimplements them independently on GitHub Issues, with one central
+repository serving several targets. No ferry code is included.
 
 ## 📄 License
 

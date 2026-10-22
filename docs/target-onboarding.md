@@ -6,8 +6,9 @@
 > **Prerequisites**: admin access to the target repository; an organization owner for the
 > one-time organization setup (§1) and for adding the target to existing lists (§2.3, §2.4);
 > the target has its own CI (`pull_request` workflows).
-> **Reference installation**: `TiPunchLabs/demo-api` (§8). This is the single onboarding
-> reference; the future `GETTING_STARTED.md` will be derived from it.
+> **Reference installation**: `TiPunchLabs/demo-api` (§8). This is the single, detailed
+> onboarding reference. The step-by-step guide [GETTING_STARTED.md](../GETTING_STARTED.md) is
+> derived from it; when they differ, this document is right.
 
 ------
 
@@ -603,4 +604,4 @@ apply only after review. Never roll back by moving a tag.
 
 > **Document created on**: 2026-10-11
 > **Author**: FlowForge maintainers (Issue #34, Phase 8 Prompts 39, 39.1, 39.2, 40)
-> **Version**: 2.3 — §3 / §5 `SPEC.md` and callers merged before the first refinement, §10.4 interface check and optional inputs (second-target validation, Prompt 40)
+> **Version**: 2.4 — header links the practical guide `GETTING_STARTED.md` (Prompt 41); 2.3: §3 / §5 `SPEC.md` and callers merged before the first refinement, §10.4 interface check and optional inputs (Prompt 40)

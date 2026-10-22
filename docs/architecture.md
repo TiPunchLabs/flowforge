@@ -611,7 +611,7 @@ Issue only, never Notion, and is still started on demand.
 
 ```text
 human: gh workflow run flowforge-refine.yml -f issue_number=<n>      (target repository)
-        │ uses: agent-refine.yml@main
+        │ uses: agent-refine.yml@<full SHA> # vX.Y.Z  (§3.1)
         ▼
  refine job  (contents / issues / pull-requests: read, Claude token)
    Issue + comments ─► preconditions ─► checkout default branch (no credentials)

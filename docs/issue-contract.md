@@ -185,9 +185,9 @@ label per Issue).
   a label applied with `GITHUB_TOKEN` would not start the Developer: GitHub does not trigger
   workflows from events created by that token.
 
-**Future GitHub Project states** (not implemented): the Refiner owns the states before the
-Developer starts, and never moves an Issue past `Ready`. The model is defined in
-[github-projects/kanban-model.md](github-projects/kanban-model.md) (Phase 6, Prompt 26):
+**GitHub Project states** (implemented in Phase 6, written by the workflows): the Refiner owns
+the states before the Developer starts, and never moves an Issue past `Ready`. The model is
+defined in [github-projects/kanban-model.md](github-projects/kanban-model.md) (Prompt 26):
 
 | Project status | FlowForge state | Owner |
 |---|---|---|

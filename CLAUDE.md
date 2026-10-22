@@ -34,6 +34,8 @@ several **target** GitHub repositories. It provides, once, for all targets:
 - `docs/notion/submission.md` — Notion → GitHub submission (Prompt 33): workflow, checks, results, idempotence, credentials setup.
 - `docs/notion/feedback.md` — GitHub → Notion status feedback (Prompt 34): transport, mapping, anti-corruption, results, permissions.
 - `docs/milestones/phase7-notion-complete.md` — Phase 7 closure (Prompt 36): final architecture, sources of truth, reservations, exit criteria.
+- `docs/milestones/phase8-specification-complete.md` — Phase 8 closure (Prompt 41): capabilities, live evidence on both targets, open reservations.
+- `README.md` — entry point (what FlowForge does and does not do); `GETTING_STARTED.md` — practical onboarding guide derived from `docs/target-onboarding.md` (Prompt 41).
 
 Target flow: Issue + `agent:ready` → target's `flowforge-agent.yml` → `agent-develop.yml`
 → Claude Code → branch `agent/<issue>-<slug>` → code + tests → **Draft** PR → human merge.
@@ -89,7 +91,7 @@ Read `docs/architecture.md` before any structural change; `docs/phase-1.md` for 
   `run:` scripts — pass them through `env:`.
 - Secrets are declared explicitly in `workflow_call.secrets`; targets must not use `secrets: inherit`.
 
-## Current phase: Phase 8 (Specification) — 8.1 SPEC contract gate, 8.2 SPEC-aware refinement
+## Current phase: Phase 8 (Specification) — closed with reservations (Prompt 41)
 
 Phase 1 (foundation) and Phase 2 (Developer E2E) done: the first end-to-end run on `demo-api`
 was validated on 2026-10-06 (issue #3 → Draft PR #4, merged by a human), tag `flowforge-phase2-e2e`.
@@ -235,6 +237,7 @@ Prompt 40 (second-target onboarding, `demo-api-2`): R1–R18 replayed; initial `
 `v0.1.0`), PR #3 (+1 commit: title, undecided status code no longer `CONFIRMED`, coverage), IaC source `?ref=v0.1.0`;
 no FlowForge code change, onboarding §3 / §5 / §10.4 clarified; see `docs/milestones/phase8-second-target-onboarding.md`.
 Prompt 40.1 (2026-10-22, after the owner merged PR #3 / #4): Refiner live on `demo-api-2` from `v0.1.0` — #5 `READY` / `COMPLIANT`, #6 `NEEDS_CLARIFICATION` / `CONTRADICTS` on `R-004` (arbitration left to the owner), cards `Refining → Ready` / `Refining → Backlog` + `Needs clarification`; no Developer; verdict VALIDATED (Terraform plan pending, expected no changes).
+Prompt 41 (2026-10-22, documentation only): `README.md` rewritten as the entry point, `GETTING_STARTED.md` (steps 1–8 + troubleshooting, Terraform example validated against `v0.1.0`); closure `docs/milestones/phase8-specification-complete.md`: **PHASE 8 VALIDATED WITH RESERVATIONS** — live: gate `PASS` (demo-api run `39356037326`), Developer `SPEC.md` update (PR #60), Reviewer checker + card after `APPROVE` (run `39452791058`); open: gate `FAILED` / `ERROR` live, 38.1 summary block live, contradiction / finding / Iterator paths, non-Refiner runs from the pinned SHA, R14 / A-1 / A-2, `demo-api-2` plan.
 
 ## Out of scope for now
 
