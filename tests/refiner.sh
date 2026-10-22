@@ -518,6 +518,51 @@ expect "A  S4 keywords match at a word start only (no hit inside 'unrolled', 'st
 expect "A  S4 case-insensitive keyword (DELETE)" \
   "$(decide "$(low_output | jq '.scope += ["Cover DELETE /tasks."]')")" "HUMAN_REQUIRED D-RISK-HIGH"
 
+# Prohibition clauses (Prompt 44.2B.1): a ban on a change is not an operation, a change still is.
+# l1_output: demo-api #63 as refined in L1 (run 39835505094): the CLAUDE.md ban in the constraints
+# and a generic `[recommended]` Definition of Done item made it HUMAN_REQUIRED (D-IMPLICIT, D-RISK-HIGH).
+l1_output() {
+  low_output | jq '.title = "test: cover scenario S-001 (probes answer in sequence)"
+    | .constraints = ["Tests only: no change to src/, SPEC.md, README.md, pyproject.toml or uv.lock; no new package. [provided]",
+                      "Do not disable, skip, xfail or weaken any test. [observed] (CLAUDE.md)",
+                      "Do not modify .github/workflows/. [observed] (CLAUDE.md)"]
+    | .definition_of_done = ["Every acceptance criterion is met and covered by the new test. [recommended]",
+                             "`uv run pytest`, `uv run ruff check .` and `uv run ruff format --check .` pass. [observed] (CLAUDE.md)",
+                             "A Draft PR from an agent/<issue-number>-<slug> branch closes Issue #63. [observed] (CLAUDE.md, Developer rules)"]'
+}
+l1_issue() { owner_issue "$(printf '%s\n' 'Tests only. Add `tests/test_probes.py`.' \
+  'Tests only: no change to `src/`, `SPEC.md`, `README.md`, `pyproject.toml` or `uv.lock`; no new package.')"; }
+expect "A  L1 #63 as observed: G8 no longer HIGH, G7 still blocks the [recommended] DoD item" \
+  "$(decide "$(l1_output)" "$(l1_issue)"; jq -c .risk_floor_reasons "$work/a-out.json")" "$(printf 'HUMAN_REQUIRED D-IMPLICIT\n[]')"
+expect "A  L1 #63 with the request's own DoD only (refiner.md §5.4 item 7): AUTO_START" \
+  "$(decide "$(l1_output | jq '.definition_of_done |= .[1:]')" "$(l1_issue)")" "AUTO_START"
+expect "A  ban: request forbidding .github/workflows/ stays LOW" \
+  "$(decide "$(low_output)" "$(owner_issue 'Add a probes test. Do not modify `.github/workflows/`.')")" "AUTO_START"
+expect "A  ban: request changing .github/workflows/ is HIGH" \
+  "$(decide "$(low_output)" "$(owner_issue 'Add a probes test and run it from `.github/workflows/ci.yml`.')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  ban: request forbidding Terraform stays LOW (French)" \
+  "$(decide "$(low_output)" "$(owner_issue 'Ajouter un test. Ne pas modifier la configuration Terraform.')")" "AUTO_START"
+expect "A  ban: constraint and note forbidding Terraform stay LOW" \
+  "$(decide "$(low_output | jq '.constraints += ["Never edit `terraform/`. `[observed]` (`CLAUDE.md`)"] | .notes_for_agents += ["No change to the Terraform files."]')")" "AUTO_START"
+expect "A  ban: request changing Terraform is HIGH" \
+  "$(decide "$(low_output)" "$(owner_issue 'Update the Terraform module for the new probe.')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  ban: a sensitive original request is not masked by a reassuring scope" \
+  "$(decide "$(low_output | jq '.scope = ["Tests only. `[provided]`"]')" "$(owner_issue 'Add a deploy step to the CI workflow.')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  ban: a change written in the constraints is still HIGH" \
+  "$(decide "$(low_output | jq '.constraints += ["Update `.github/workflows/ci.yml` to run the new test."]')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "A  ban: a negation in the positive scope is still HIGH" \
+  "$(decide "$(low_output | jq '.scope += ["Do not modify `.github/workflows/`."]')")" "HUMAN_REQUIRED D-RISK-HIGH"
+for s in 'Do not modify the workflow unless needed.' 'Do not forget to update the workflow.' \
+         'Do not modify src/ and update the workflow.' 'Do not modify ci.yml, update the deploy workflow.' \
+         'Ne pas modifier src/ mais ajouter un workflow.' 'Do not modify src/, .github/ or terraform/.'; do
+  expect "A  ban: ambiguous or second operation stays HIGH: '$s'" \
+    "$(decide "$(low_output)" "$(owner_issue "Add a probes test. $s")")" "HUMAN_REQUIRED D-RISK-HIGH"
+done
+expect "A  ban: the decision rules stay in the deterministic helper" \
+  "$(grep -c 'FLOWFORGE_RISK_BAN' .github/scripts/flowforge-refine.sh)" 3
+expect "A  A2: the Refiner keeps a complete DoD and adds no restating item" \
+  "$(grep -c 'item that only restates them or the criteria' "$wf"; grep -c 'add nothing that' agents/refiner.md)" "$(printf '1\n1')"
+
 expect "A  S5 CONTRADICTS (NEEDS_CLARIFICATION): NO_START (D-VERDICT)" \
   "$(decide "$(contradicts | with_meta)" | cut -d' ' -f1)" "NO_START"
 validate "A  S5 forged READY + CONTRADICTS still refused by the validator" ko "$(low_output | jq '.spec_impact = "CONTRADICTS"')"

@@ -410,6 +410,9 @@ jobs:
             blocking question naming the SPEC.md item. READY requires definition_of_done, and
             spec_references when SPEC.md exists. spec_changes is filled exactly when a READY
             spec_impact is EXTENDS, NEW_FEATURE or MODIFIES.
+          - definition_of_done: keep the request's own completion conditions [provided]; add no
+            item that only restates them or the criteria; [recommended] only for a condition the
+            task needs and nobody stated (rules section 5.4, item 7).
           - risk_level: LOW, MEDIUM or HIGH per rules section 5.5, HIGH when unsure; risk_reasons
             says why. It is a proposal: the workflow can only raise it, and it decides nothing.
 

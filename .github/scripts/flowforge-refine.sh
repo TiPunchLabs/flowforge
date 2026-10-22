@@ -30,6 +30,12 @@ FLOWFORGE_RISK_KEYWORDS=(
   terraform .tf infra .github/ workflow pipeline ci/cd deploy docker migration migrat
   delete suppression drop truncate purge schema database "base de données"
 )
+# Prohibition clauses (autonomy contract §3.1): in the original request, the constraints and the
+# notes, a clause (cut at . ; , : ! ? before a space, and at line ends) that opens with a ban on a
+# change ("Do not modify …", "No change to …", "Ne pas modifier …") and holds no connective that
+# could carry a second operation ("but", "and", "unless", …) is not scanned. Anything else is.
+FLOWFORGE_RISK_BAN='^[[:space:]>*_`-]*([0-9]+[.)][[:space:]]+)?((do not|don.t|never|must not|should not|ne pas|ne jamais)[[:space:]]+(modify|change|edit|touch|alter|update|rewrite|remove|delete|modifier|changer|toucher|supprimer)|ne[[:space:]]+(modifiez|modifie|touchez|changez|supprimez)[[:space:]]+pas|(no|without|aucune?|sans|pas de)[[:space:]]+(changes?|modifications?|edits?|changements?)|sans[[:space:]]+(modifier|toucher))\b'
+FLOWFORGE_RISK_BAN_BREAK='\b(but|unless|except|instead|however|then|and|also|plus|mais|sauf|sinon|puis|et|aussi|ensuite|plutôt)\b'
 
 # Succeeds if the Issue $1 (JSON of the REST issues API) may be refined: an open Issue, not a
 # pull request, with no FlowForge state label other than agent:needs-clarification. An Issue
@@ -152,11 +158,14 @@ flowforge_autonomy_decide() {
   # shellcheck disable=SC2016  # jq program
   jq -ce --slurpfile issue "$issue" --slurpfile commenters "$commenters" --slurpfile ctx "$context" \
     --arg original "$original" --argjson keywords "$keywords" \
+    --arg ban "$FLOWFORGE_RISK_BAN" --arg ban_break "$FLOWFORGE_RISK_BAN_BREAK" \
     --arg manual "$FLOWFORGE_MANUAL_LABEL" --arg notion "$FLOWFORGE_NOTION_MARKER" '
     def rank: {LOW: 0, MEDIUM: 1, HIGH: 2}[.];
     def level: ["LOW", "MEDIUM", "HIGH"][.];
     def esc: gsub("(?<c>[.*+?^$|(){}\\[\\]\\\\])"; "\\\(.c)");
     def login: ascii_downcase | gsub("[^a-z0-9\\[\\]-]"; "");
+    def clauses: [splits("[.;,:!?](?=\\s|$)|\\n")];
+    def ban: test($ban; "i") and (test($ban_break; "i") | not);
     def gate($id; $pass; $code; $detail):
       {($id): {result: (if $pass then "PASS" else "BLOCKED" end), code: $code, detail: $detail}};
     $issue[0] as $issue | $commenters[0] as $commenters | $ctx[0] as $ctx
@@ -173,8 +182,11 @@ flowforge_autonomy_decide() {
     | (if $type.t | IN("ci", "build") then "HIGH"
        elif ($type.t | IN("test", "docs", "refactor")) and $type.b == "" then "LOW"
        else "MEDIUM" end) as $type_floor
-    | ([.title, .goal, .scope[], .acceptance_criteria[], .constraints[], .references[],
-        .spec_changes[], .notes_for_agents[], $original] | join("\n")) as $text
+    # A clause that only forbids a change is not an operation: dropped from the original
+    # request, the constraints and the notes. Positive fields are always scanned whole.
+    | ([.title, .goal, .scope[], .acceptance_criteria[], .references[], .spec_changes[],
+        ([.constraints[], .notes_for_agents[], $original][] | clauses[] | select(ban | not))]
+       | join("\n")) as $text
     | [$keywords[] as $k
        | select($text | test((if $k | test("^\\w") then "\\b" else "" end) + ($k | esc); "i")) | $k] as $hits
     | ([$impact_floor, $type_floor, (if $hits == [] then "LOW" else "HIGH" end)] | map(rank) | max) as $floor
