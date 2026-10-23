@@ -777,6 +777,16 @@ Details: [autonomy-contract.md](autonomy-contract.md).
   `if: autostart == 'true'`) calls `agent-develop.yml`, unchanged (it still requires
   `agent:ready` and an absent branch). No new workflow, permission, secret or event chain.
 - **Opt-out**: label `agent:manual` (control label, not a state); per target, the module input.
+- **Review (Prompt 45)**: the same refine caller run then reviews the delivery once: job `review`
+  (`needs: [refine, develop]`, only when `develop` outputs `head_sha`, i.e. this run pushed and
+  opened a Draft PR still open, draft and at that commit) calls `agent-review.yml` with
+  `expected_head_sha` / `expected_head_branch` / `expected_issue_number`. The Reviewer re-checks
+  that exact delivery (other branch or Issue: fails; head moved or out of draft:
+  `NO_OP DELIVERY_CHANGED`; FlowForge review of that commit already published:
+  `NO_OP ALREADY_REVIEWED`). The bot guard of `flowforge-review.yml` (PR events from bots start no
+  review, #34) is unchanged: this job is the only automatic path. `REQUEST_CHANGES` starts no
+  Iterator (the review cycle stays `workflow_dispatch`); `APPROVE` moves the card to *Human
+  validation*; merge stays human.
 
 ------
 
@@ -793,9 +803,10 @@ Details: [autonomy-contract.md](autonomy-contract.md).
 | `claude_code_oauth_token` | `CLAUDE_CODE_OAUTH_TOKEN` secret → FlowForge | Org secret (Selected repositories) or repo secret; passed explicitly, never `secrets: inherit` |
 | `app_client_id`, `app_private_key` | `FLOWFORGE_APP_CLIENT_ID` variable, `FLOWFORGE_APP_PRIVATE_KEY` secret → FlowForge (Developer, review cycle → Iterator) | Optional: FlowForge GitHub App delivery identity, one App for all targets (§2.10); empty = `GITHUB_TOKEN` delivery |
 | Job permissions | target caller | `contents: write`, `issues: write`, `pull-requests: write` (a called workflow can only narrow) |
-| `branch`, `pull_request` | FlowForge → target | `workflow_call` outputs |
+| `branch`, `pull_request`, `head_sha` | FlowForge → target | `workflow_call` outputs; `head_sha` = the commit this run delivered (empty otherwise), for the SEMI_AUTO `review` job only |
 | `flowforge-review.yml` | target (copied from `examples/`) | Calls `agent-review.yml` |
 | `pull_request_number` | target → FlowForge (Reviewer) | Only required input; base, head, Issue and CI are resolved from it |
+| `expected_head_sha`, `expected_head_branch`, `expected_issue_number` | SEMI_AUTO refine caller → FlowForge (Reviewer) | Optional (empty = no check): the automatic review only reviews that exact delivery, once (§2.14) |
 | Reviewer job permissions | target caller | `contents`, `issues`, `checks`, `statuses: read`; `pull-requests: write` (the comment only) |
 | `pull_request_number`, `iteration_number`, `max_iterations`, `review_json` | target → FlowForge (Iterator) | `review_json` = the Reviewer's `review.json`; base, head, Issue resolved from the PR |
 | Iterator job permissions | target caller | `contents: write` (the push job only), `issues: read`, `pull-requests: read` |

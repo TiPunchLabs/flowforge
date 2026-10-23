@@ -44,6 +44,7 @@ case "$*" in
   "issue view"*) answer '{"number": 1, "title": "t", "body": "b", "url": "u", "state": "OPEN"}' ;;
   *check-runs*) answer '[]' ;;
   *"/status"*) answer '{"state": "success", "statuses": []}' ;;
+  *"/comments"*) answer "${FAKE_COMMENTS:-[]}" ;;
   *) echo "gh stub: unexpected call: $*" >&2; exit 1 ;;
 esac
 EOF
@@ -83,7 +84,7 @@ expect "G  Claude runs only on the last state read OPEN" \
 expect "G  the result step needs the last state read OPEN" \
   "$(gate "Validate and render review result")" "always() && steps.recheck.outputs.state == 'OPEN'"
 expect "G  no-op step reads the latest known state" "$(gate "Record no-op")" \
-  "contains(fromJSON('[\"CLOSED\", \"MERGED\"]'), steps.recheck.outputs.state || steps.context.outputs.state)"
+  "contains(fromJSON('[\"CLOSED\", \"MERGED\", \"SKIPPED\"]'), steps.recheck.outputs.state || steps.context.outputs.state)"
 expect "G  publish needs a verdict (none on NO_OP)" \
   "$(yq '.jobs.publish.if' "$review_yml")" "always() && needs.review.outputs.verdict != ''"
 
@@ -150,6 +151,77 @@ expect "D  API failure on re-check: step fails, no state" "$(code "$c")/$(output
 c="$work/no-op-guard"
 run_step "$c" "$work/no_op.sh" "" "" STATE=OPEN RUN_URL=https://example.invalid/run
 expect "D  no-op step refuses an OPEN state" "$(code "$c")/$(output "$c" no_op_json)" 1/
+
+# --- Case F: automatic review guard (Phase 9, expected_head_sha from the SEMI_AUTO caller) -----
+# dpr <head sha> <isDraft> <head branch> <closing Issues JSON>: an OPEN PR context fixture.
+dpr() {
+  jq -cn --arg sha "$1" --argjson draft "$2" --arg b "$3" --argjson issues "$4" \
+    '{number: 2, title: "t", body: "b", url: "u", state: "OPEN", isCrossRepository: false,
+      isDraft: $draft, baseRefName: "main", headRefName: $b, headRefOid: $sha,
+      closingIssuesReferences: {nodes: [$issues[] | {number: .}]}}'
+}
+sha=0123456789abcdef
+delivery=(EXPECTED_HEAD_SHA="$sha" EXPECTED_HEAD_BRANCH=agent/1-feature EXPECTED_ISSUE_NUMBER=1)
+review_comment() { # author, reviewed commit -> one FlowForge review comment, as the publish job writes it
+  jq -cn --arg u "$1" --arg sha "$2" \
+    '[{user: {login: $u}, body: ("<!-- flowforge-review -->\n## FlowForge Review\n\nVerdict: **APPROVE**\n\nPull request: #2 · Issue: #1 · Reviewed commit: `" + $sha + "`")}]'
+}
+auto() { # case, context fixture, [comments JSON], [extra env...]
+  run_step "$work/$1" "$work/context.sh" "$2" "" "${delivery[@]}" FAKE_COMMENTS="${3:-[]}" "${@:4}"
+}
+summary_of() { printf '%s/%s/%s' "$(code "$work/$1")" "$(output "$work/$1" state)" "$(output "$work/$1" skip_reason)"; }
+
+auto f-ok "$(dpr "$sha" true agent/1-feature '[1]')"
+expect "F  delivered Draft PR, never reviewed: reviewed (OPEN)" "$(summary_of f-ok)" "0/OPEN/"
+expect "F  delivered Draft PR: earlier FlowForge reviews looked up" "$(grep -c '/comments' "$work/f-ok/gh.log")" 1
+auto f-other "$(dpr "$sha" true agent/1-feature '[1]')" "$(review_comment 'github-actions[bot]' fedcba9876543210)"
+expect "F  review of an older commit only: reviewed again (OPEN)" "$(summary_of f-other)" "0/OPEN/"
+auto f-done "$(dpr "$sha" true agent/1-feature '[1]')" "$(review_comment 'github-actions[bot]' "$sha")"
+expect "F  already reviewed at the delivered commit (APPROVE): NO_OP ALREADY_REVIEWED" "$(summary_of f-done)" "0/SKIPPED/ALREADY_REVIEWED"
+expect "F  already reviewed: stops before the CI snapshot" \
+  "$(grep -c 'check-runs' "$work/f-done/gh.log" || true)" 0
+auto f-rc "$(dpr "$sha" true agent/1-feature '[1]')" "$(review_comment 'github-actions[bot]' "$sha" | sed 's/APPROVE/REQUEST_CHANGES/')"
+expect "F  already reviewed at the delivered commit (REQUEST_CHANGES): NO_OP ALREADY_REVIEWED" "$(summary_of f-rc)" "0/SKIPPED/ALREADY_REVIEWED"
+auto f-spoof "$(dpr "$sha" true agent/1-feature '[1]')" "$(review_comment 'mallory' "$sha")"
+expect "F  a look-alike comment by someone else does not suppress the review" "$(summary_of f-spoof)" "0/OPEN/"
+auto f-moved "$(dpr fedcba9876543210 true agent/1-feature '[1]')"
+expect "F  head moved since the delivery: NO_OP DELIVERY_CHANGED" "$(summary_of f-moved)" "0/SKIPPED/DELIVERY_CHANGED"
+expect "F  head moved: no comment lookup" "$(grep -c '/comments' "$work/f-moved/gh.log" || true)" 0
+auto f-ready "$(dpr "$sha" false agent/1-feature '[1]')"
+expect "F  PR out of draft since the delivery: NO_OP DELIVERY_CHANGED" "$(summary_of f-ready)" "0/SKIPPED/DELIVERY_CHANGED"
+auto f-branch "$(dpr "$sha" true agent/9-other '[1]')"
+expect "F  PR on another branch: fails, nothing reviewed" "$(summary_of f-branch)" "1//"
+auto f-issue "$(dpr "$sha" true agent/1-feature '[7]')"
+expect "F  PR closing another Issue: fails" "$(summary_of f-issue)" "1//"
+auto f-two "$(dpr "$sha" true agent/1-feature '[1, 7]')"
+expect "F  PR closing two Issues: fails" "$(summary_of f-two)" "1//"
+auto f-none "$(dpr "$sha" true agent/1-feature '[]')"
+expect "F  PR closing no Issue: fails" "$(summary_of f-none)" "1//"
+auto f-noref "$(dpr "$sha" true agent/1-feature '[1]')" "[]" EXPECTED_HEAD_BRANCH=
+expect "F  expected sha without branch: fails" "$(summary_of f-noref)" "1//"
+auto f-comments "$(dpr "$sha" true agent/1-feature '[1]')" "FAIL:HTTP 502: Bad Gateway"
+expect "F  comment history unreadable: fails, never reviewed blind" "$(summary_of f-comments)" "1//"
+run_step "$work/f-closed" "$work/context.sh" "$(pr CLOSED)" "" "${delivery[@]}"
+expect "F  closed before the automatic review: existing NO_OP (CLOSED)" "$(summary_of f-closed)" "0/CLOSED/"
+run_step "$work/f-manual" "$work/context.sh" "$(dpr fedcba9876543210 false agent/9-other '[]')" ""
+expect "F  manual or cycle review (no expected_head_sha): no delivery check" \
+  "$(summary_of f-manual)/$(grep -c '/comments' "$work/f-manual/gh.log" || true)" "0/OPEN//0"
+for reason in ALREADY_REVIEWED DELIVERY_CHANGED; do
+  c="$work/f-noop-$reason"
+  run_step "$c" "$work/no_op.sh" "" "" STATE=SKIPPED SKIP_REASON="$reason" RUN_URL=https://example.invalid/run
+  expect "F  $reason: no_op_json (PR still OPEN)" \
+    "$(code "$c")/$(output "$c" no_op_json | jq -c '[.result, .reason, .state]')" "0/[\"NO_OP\",\"$reason\",\"OPEN\"]"
+  expect "F  $reason: summary points to a manual review" "$(grep -c 'A human may still dispatch one' "$c/summary")" 1
+done
+run_step "$work/f-noop-bad" "$work/no_op.sh" "" "" STATE=SKIPPED SKIP_REASON=WHATEVER RUN_URL=https://example.invalid/run
+expect "F  unknown skip reason: no-op step fails" "$(code "$work/f-noop-bad")" 1
+expect "F  delivery inputs reach the context step only through env" \
+  "$(yq '.jobs.review.steps[] | select(.name == "Resolve pull request context") | .env | keys | join(",")' "$review_yml")/$(grep -c '\${{ *inputs\.expected_' <<<"$(step "$review_yml" review "Resolve pull request context" run)" || true)" \
+  "EXPECTED_HEAD_SHA,EXPECTED_HEAD_BRANCH,EXPECTED_ISSUE_NUMBER/0"
+expect "F  bot guard of the PR-event caller untouched (anti-loop #34)" \
+  "$(grep -c "&& !endsWith(github.actor, '\[bot\]'))" "$root/examples/target-repository/flowforge-review.yml")/$(grep -c 'expected_head_sha' "$root/examples/target-repository/flowforge-review.yml" || true)" "1/0"
+expect "F  review cycle does not use the delivery guard (its own loop owns its reviews)" \
+  "$(grep -c 'expected_head_sha' "$cycle_yml" || true)" 0
 
 # --- Case E: review cycle -------------------------------------------------------------------
 for k in 1 2 3; do

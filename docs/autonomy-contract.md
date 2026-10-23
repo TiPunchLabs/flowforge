@@ -44,6 +44,8 @@
 10. [Minimal implementation plan](#10--minimal-implementation-plan-prompt-43)
 11. [Owner decisions](#11--owner-decisions-2026-10-22)
 12. [Acceptance criteria coverage](#12--acceptance-criteria-coverage)
+13. [Implementation notes (Prompt 43)](#13--implementation-notes-prompt-43)
+14. [Automatic review after an automatic start (Prompt 45)](#14--automatic-review-after-an-automatic-start-prompt-45)
 
 ------
 
@@ -273,6 +275,8 @@ SEMI_AUTO, LOW, owner, all gates pass
   owner dispatch ─► Refiner ─► READY ─► decision AUTO_START
                     publish: body + comment, re-check agent:manual, agent:ready (GITHUB_TOKEN, triggers nothing)
                     caller job `develop` (needs: refine, if autostart) ─► agent-develop.yml ─► Developer
+                    ─► Draft PR (head_sha) ─► caller job `review` (needs: develop, if head_sha)
+                    ─► agent-review.yml (that exact delivery, once) ─► verdict ─► human validation, human merge
 
 SEMI_AUTO, MEDIUM / HIGH / Notion / agent:manual / not the owner / any failed gate
   dispatch ─► Refiner ─► READY ─► decision HUMAN_REQUIRED (reasons) ─► no label
@@ -286,7 +290,8 @@ Contradiction / missing decision
 
 Downstream of `agent:ready` nothing changes: `agent:running` → `agent:review` / `agent:blocked`
 → human merge → `agent:done` ([architecture §2.6](architecture.md#26-issue-label-lifecycle-phase-41)).
-The review cycle stays `workflow_dispatch` (open decision, architecture §6).
+The review cycle stays `workflow_dispatch` (open decision, architecture §6): after a
+`REQUEST_CHANGES` of the automatic review (§14), a human dispatches it for the bounded Iterator loop.
 
 ### 5.2 Who does what
 
@@ -299,6 +304,7 @@ The review cycle stays `workflow_dispatch` (open decision, architecture §6).
 | Developer start | target caller job `develop`: `needs: refine`, `if: needs.refine.outputs.autostart == 'true'`, `uses: agent-develop.yml@<SHA>` | same run | the permissions `flowforge-agent.yml` already grants to `develop` |
 | `agent:manual` | a human with triage access, at any time | — | — |
 | Project card | existing events `refine-ready` then `develop-started` | same run | App token, Project only |
+| Review (Prompt 45, §14) | target caller job `review`: `needs: [refine, develop]`, `if:` autostart and `needs.develop.outputs.head_sha != ''`, `uses: agent-review.yml@<SHA>` with the expected delivery | same run | the permissions `flowforge-review.yml` already grants to `review` |
 
 The refine job's permissions are unchanged (read-only, Claude token). The new `develop` caller
 job gets **exactly** the permissions and secrets of `flowforge-agent.yml` — no permission is
@@ -323,7 +329,9 @@ Project / Notion syncs ignore it. It only blocks the automatic path; a human app
 | Label `agent:ready` missing on the repository | `flowforge_set_state` only warns; **new**: the publish job re-reads the Issue and sets `autostart=true` only if the label is really present |
 
 `autostart` is set **only** by a successful publish job, after the label is verified; any earlier
-failure leaves it empty, and the `develop` job is skipped.
+failure leaves it empty, and the `develop` job is skipped. The same holds one step later for the
+automatic review (§14.2): `head_sha` is empty unless this run delivered, and the `review` job is
+skipped.
 
 ### 5.4 Trace of the decision
 
@@ -594,8 +602,65 @@ decision is `D-MANUAL-MISSING`); **B — Developer**: before each run that can r
 (`flowforge-refine.yml` jobs `refine`, `publish`, `develop` → `agent-develop.yml`). The temporary
 branch is deleted afterwards; `SEMI_AUTO` is never left enabled on `demo-api`.
 
+## 14. 🔁 Automatic review after an automatic start (Prompt 45)
+
+The L3 run on `demo-api` #63 (run `40004574629`) delivered Draft PR #64, but no Reviewer ran:
+`flowforge-review.yml` ignores PR events whose actor is a bot (#34), and the App opens the PR.
+That guard stays. The review is chained **inside the same refine caller run**, like the
+Developer: no event, no new workflow, agent or permission.
+
+### 14.1 Mechanism
+
+| Step | Where | What |
+|---|---|---|
+| Delivery reference | `agent-develop.yml`, step *Push branch and open Draft PR* then *Record delivery* (best-effort) | records the pushed commit, then outputs `head_sha` only if this run pushed **and** opened the PR, and the PR read back is `OPEN`, draft, at that commit; any doubt or read error → empty |
+| Start | target caller job `review` | `needs: [refine, develop]`, `if: autostart == 'true' && develop.head_sha != '' && develop.pull_request != ''`, never `always()`: a failed or skipped Developer skips it |
+| Delivery check | `agent-review.yml` *Resolve pull request context*, when `expected_head_sha` is set | PR on `expected_head_branch` and closing exactly `expected_issue_number`, else **fails** (nothing reviewed); head ≠ `expected_head_sha` or not draft → `NO_OP DELIVERY_CHANGED`; a FlowForge review comment (by `github-actions[bot]`, marker) of that commit → `NO_OP ALREADY_REVIEWED`; comment history unreadable → fails |
+| Review | existing Reviewer, unchanged | SPEC.md, criteria, DoD, evidence, scope; one PR comment |
+| Result | existing jobs | `APPROVE`: card *Review → Human validation*, PR stays Draft, merge human. `REQUEST_CHANGES` / `BLOCKED`: comment only, no Iterator (a human dispatches `flowforge-review-cycle.yml`). Technical failure: the run fails, the PR and `agent:review` stay, a human dispatches `flowforge-review.yml` |
+
+Without `expected_head_sha` (manual dispatch, PR events from humans, the review cycle) nothing
+changes: no check, a human can always review again.
+
+### 14.2 Idempotence
+
+| Case | Outcome |
+|---|---|
+| Re-run all jobs | Refiner preconditions refuse (`agent:review`): `develop` and `review` skipped |
+| Re-run of `develop` | `agent-develop.yml` refuses (no `agent:ready`, branch exists): `review` skipped |
+| Re-run of `review` after a verdict | `NO_OP ALREADY_REVIEWED` (same commit already reviewed, whatever the verdict) |
+| Re-run of `review` after a technical failure | Reviews (no verdict was published) |
+| Review already in progress | Per-PR concurrency group queues the second; it then finds the first verdict: `NO_OP ALREADY_REVIEWED` |
+| PR reviewed by hand before | Same commit: `NO_OP ALREADY_REVIEWED`; new commit: `NO_OP DELIVERY_CHANGED` |
+| PR closed / merged before | Existing `NO_OP` (`PR_ALREADY_CLOSED` / `PR_ALREADY_MERGED`) |
+| PR number or commit not reliable | `head_sha` empty: `review` skipped, human path |
+
+### 14.3 E2E protocol (not run in Prompt 45)
+
+On a **new** LOW request, PR #64 untouched. Each live step needs the owner's go-ahead.
+
+1. FlowForge PR merged → full merge SHA. `demo-api` branch `test/phase9-semi-auto-e2e`: add a
+   `review` job identical to `examples/target-repository/flowforge-refine.yml` (gated also by
+   `inputs.allow_develop`), the Reviewer `setup_uv` / `allowed_tools` of `demo-api`'s
+   `flowforge-review.yml`, all three pins on the new SHA; actionlint; push the branch only.
+2. New Issue by the owner, tests only, every decision written (lesson of #63: "Only `<file>` may be
+   added or modified. No other repository file may change."), e.g. a test for `S-002`.
+3. L1 `SUPERVISED`, `allow_develop=false`: only `D-MODE`, `would_auto_start: true`; else stop.
+4. L3' `SEMI_AUTO`, `allow_develop=true`, dispatched once. Expected, in **one** run: G1–G12 PASS,
+   `AUTO_START`, `develop` → Draft PR, `head_sha` set, `review` → verdict, card
+   *Review → Human validation* on `APPROVE`.
+5. Evidence: run id, jobs, `refinement.json`, Developer summary (*Delivered commit*), Reviewer
+   artifact and comment (*Reviewed commit* = `head_sha`), label timeline, card, PR still Draft and
+   unmerged, no second Developer / Reviewer run.
+6. L4' "Re-run all jobs": refused, nothing new. Optional: re-run of the `review` job alone →
+   `NO_OP ALREADY_REVIEWED`.
+7. Stop conditions: any gate other than expected, `review` skipped with `head_sha` set, a second
+   review, a write outside the PR comment, any change of `main` or the ruleset → stop, keep
+   evidence, no recovery. Rollback: cancel the run, close the Draft PR without merging, remove a
+   left `agent:*` label, delete the test branch at the end.
+
 ------
 
 > **Document created on**: 2026-10-21
 > **Author**: xgueret, with Claude Code
-> **Version**: 0.3 (Prompt 43 implementation notes, §13)
+> **Version**: 0.4 (Prompt 45 automatic review, §14)

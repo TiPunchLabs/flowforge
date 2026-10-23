@@ -191,7 +191,8 @@ label per Issue).
 - `agent:ready` is a human decision in `SUPERVISED` (the default). A label applied with
   `GITHUB_TOKEN` does not start the Developer (GitHub does not trigger workflows from events
   created by that token): in `SEMI_AUTO`, after `AUTO_START`, the publish job applies it as its
-  last write and the refine caller's `develop` job starts the Developer in the same run.
+  last write and the refine caller's `develop` job starts the Developer in the same run; its
+  `review` job then reviews the delivered Draft PR once (merge stays human).
 - `agent:manual` is outside the state set: the state helper never adds or removes it, and it
   may stay on the Issue. It only forces the human path.
 
