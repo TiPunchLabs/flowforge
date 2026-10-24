@@ -345,6 +345,20 @@ flowforge_refine_records() {
   return "$rc"
 }
 
+# Prints, as a JSON array, the items of the "Assumptions" section of the refined body of the
+# Issue $1: the Refiner's own earlier output, handed back to the agent to re-evaluate one by one
+# (agents/refiner.md §4.1). [] on a first refinement or without the section. Only the generated
+# part is read: lines of the quoted Original request start with "> " and never match.
+flowforge_refine_previous_assumptions() {
+  flowforge_refine_is_refined "$1" || { echo '[]'; return 0; }
+  jq -r '.body // ""' "$1" | tr -d '\r' \
+    | awk -v stop="$FLOWFORGE_ORIGINAL_START" '
+        $0 == stop { exit }
+        /^## / { inside = ($0 == "## Assumptions"); next }
+        inside && /^- / { print substr($0, 3) }' \
+    | jq -Rnc '[inputs]'
+}
+
 # Prints the refined Issue body (docs/issue-contract.md §2) from the refinement file $1 (agent
 # output plus run metadata, see agent-refine.yml) and the Issue $2 as read before the run.
 # Agent strings are flattened to one line and cannot open an HTML comment, so they can never

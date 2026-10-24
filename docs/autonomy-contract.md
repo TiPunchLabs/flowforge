@@ -46,6 +46,7 @@
 12. [Acceptance criteria coverage](#12--acceptance-criteria-coverage)
 13. [Implementation notes (Prompt 43)](#13--implementation-notes-prompt-43)
 14. [Automatic review after an automatic start (Prompt 45)](#14--automatic-review-after-an-automatic-start-prompt-45)
+15. [Provided facts and stale assumptions (Prompt 45.2A.2)](#15--provided-facts-and-stale-assumptions-prompt-452a2)
 
 ------
 
@@ -661,6 +662,57 @@ On a **new** LOW request, PR #64 untouched. Each live step needs the owner's go-
 
 ------
 
+## 15. 🔖 Provided facts and stale assumptions (Prompt 45.2A.2)
+
+L1' on `demo-api` #65 (runs `40046358749`, `40048891810`) ended `HUMAN_REQUIRED (D-MODE, D-IMPLICIT)`
+twice, risk `LOW`. The second run had the owner's statement "verified on `main` at `d684829`"
+in the *Original request* and wrote it as `[provided]` in *Context* — yet kept, word for word, the
+`[assumption]` of the first run saying the same thing. G7 did its job; the refinement was wrong.
+
+### 15.1 Cause
+
+| # | Finding | Where |
+|---|---|---|
+| 1 | `[assumption]` was "not verified **or not verifiable**": a requester statement about runtime behaviour fit both `[provided]` and `[assumption]` | `agents/refiner.md` §4 (before) |
+| 2 | The previous refined body was given as the base ("refine again from it") with no rule to re-evaluate its assumptions: the section was carried over | `agent-refine.yml` prompt (before) |
+| 3 | The designed clarification channel is an Issue comment; the clarification was an edit of the *Original request* block, which the rules call "the first human version" — nothing flagged it as new | `agents/refiner.md` §8 |
+| 4 | The block is not immutable in code: it is carried over from the **current** body, so an edit survives, unattributed | `flowforge_refine_original` |
+
+### 15.2 Change
+
+- **Provenance ≠ verification** (`agents/refiner.md` §4, `docs/issue-contract.md` §4): `[provided]`
+  = stated by the requester (who, not truth); `[observed]` = checked by the Refiner in a named
+  source; `[assumption]` = introduced by the Refiner with neither. A requester fact is never
+  `[observed]`, never also an `[assumption]`, never trusted over `SPEC.md`, never lowers the risk
+  or settles a security point.
+- **Re-evaluate, never copy** (§4.1): the refined sections are the Refiner's own output; each
+  previous assumption is settled (by the request, a comment or a source read) or kept. The
+  workflow hands them to the agent as a separate list (`flowforge_refine_previous_assumptions`).
+- **Clarifications are comments** (§8): attributed by GitHub, checked by G9. Editing the quoted
+  block is still possible (write access, §7.2) and carried over as the Issue author's text.
+
+Unchanged: G1–G12 and `flowforge_autonomy_decide` (G7 still counts `open_questions`,
+`assumptions` and every `[recommended]` / `[assumption]` tag), the floors, G9, the schema
+(`refinement.json` v3), the rendering. A `[provided]` fact never skips the Developer's tests, the
+CI or the Reviewer. Tests: section PV of `tests/refiner.sh` (#65 fixture as observed → still
+`D-IMPLICIT`; as it should be → `AUTO_START`). The agent's behaviour itself is only shown live.
+
+### 15.3 Resuming L1' on `demo-api` #65 (after merge, owner's go-ahead)
+
+1. Merge this fix → full SHA `<FIX>`. On `test/phase9-semi-auto-e2e`, move the three pins of
+   `flowforge-refine.yml` to `<FIX>` (one commit), actionlint, push the branch only.
+2. #65 stays as it is (no comment needed: the owner's statement is already in the *Original
+   request*, written by the owner — Issue edit history). Pre-flight: open, no `agent:*` label, no
+   `agent/65*` branch, no PR, no other commenter.
+3. Dispatch once: `SUPERVISED`, `allow_develop=false`. PASS: G1, G3–G12 `PASS`, G2 `D-MODE` only,
+   risk `LOW`, `would_auto_start: true`, `assumptions: []`, the statement `[provided]` (not
+   `[observed]`), the stop-on-mismatch instruction kept, `added` naming the settled assumption,
+   `develop` / `review` skipped.
+4. G7 still blocking: record the exact item, stop (no rewording of #65 to pass). Then L3'
+   (§14.3) only with a new go-ahead.
+
+------
+
 > **Document created on**: 2026-10-21
 > **Author**: xgueret, with Claude Code
-> **Version**: 0.4 (Prompt 45 automatic review, §14)
+> **Version**: 0.5 (Prompt 45.2A.2 provided facts and stale assumptions, §15)

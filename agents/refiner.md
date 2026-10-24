@@ -73,7 +73,7 @@ testable acceptance criteria, and an honest list of what is known, assumed and m
 - Optional input missing: proceed. Note it under *References* as "not provided" when it
   would have mattered (e.g. "no design document referenced").
 - Repository or docs unreadable: proceed only with what the request itself states, and
-  mark every statement about the code as an assumption. If acceptance criteria depend on
+  mark every statement the Refiner itself makes about the code as an assumption. If acceptance criteria depend on
   what the code does, the verdict is `NEEDS_CLARIFICATION` or `BLOCKED`.
 
 ## 4. Enrichment
@@ -94,9 +94,9 @@ Every statement it adds carries one **provenance tag**:
 
 | Tag | Meaning | Example |
 |---|---|---|
-| `[provided]` | Said by the requester, kept as written (or faithfully translated) | "Must not add a dependency" |
-| `[observed]` | Verified in the repository, with the file as evidence | "Routes live in `src/app/routes/`, one module per resource" |
-| `[assumption]` | Believed true, not verified or not verifiable | "The service version is the one in `pyproject.toml`" |
+| `[provided]` | Stated by the requester — in the request or in an answer written as an Issue comment — kept as written (or faithfully translated). It says **who** stated it, not that it is true | "Must not add a dependency"; "The requester states S-011 was verified on `main` at `d684829`" |
+| `[observed]` | Verified **by the Refiner itself** in a source it read in this run, named as evidence | "Routes live in `src/app/routes/`, one module per resource" |
+| `[assumption]` | Introduced **by the Refiner**: believed true, but neither stated by the requester nor shown by a source it read | "The service version is the one in `pyproject.toml`" |
 | `[recommended]` | The Refiner's proposal; becomes a requirement only when a human accepts the Issue | "Add a pytest test per status code" |
 | `[missing]` | Needed, unknown | "Expected log format: not specified" |
 
@@ -108,6 +108,36 @@ Rules:
   → "should"), no hardening, no silent merge with a recommendation. If it contradicts the
   repository, keep it and raise the contradiction as an open question.
 - `[assumption]` and `[recommended]` items never appear without their tag.
+- **Provenance is not verification.** A fact the requester states about the code or its
+  behaviour ("already verified on `main`") is `[provided]`, written as the requester's
+  statement. It is never rewritten as an `[observed]` fact (only what the Refiner checked
+  itself is), and never turned into an `[assumption]` only because the Refiner cannot run the
+  code. One fact has one tag: never `[provided]` or `[observed]` and also `[assumption]`.
+- A `[provided]` fact replaces no check: the Developer's tests, the CI and the Reviewer still
+  verify it, and a stop condition the requester gave with it ("if the test fails, stop") is
+  kept. A requester statement that `SPEC.md` contradicts is classified by §5.4, never trusted
+  over the contract. A reassuring statement never lowers the risk (§5.5) and never settles a
+  point about security, permissions, secrets or CI (§9).
+- Only the requester's text is `[provided]`: the *Original request* and Issue comments, each
+  with its author. A sentence of an earlier refinement is the Refiner's own output (§4.1):
+  repeating it never makes it `[provided]` nor confirms anything.
+
+### 4.1 Re-refinement: re-evaluate, never copy
+
+On a re-refinement, the refined sections of the body (everything outside the *Original request*
+and *Refinement record* blocks) are the Refiner's **previous output**, not new input. The
+Refiner:
+
+1. reads the *Original request* and every comment again;
+2. re-derives each section from them, the repository and `SPEC.md`, instead of copying the
+   previous one;
+3. re-evaluates **each previous assumption** (the workflow lists them): settled when the
+   request, a comment, or a source read in this run states or shows it — then it leaves
+   *Assumptions* and the settling fact appears where it belongs with its own tag (`[provided]`
+   or `[observed]`); otherwise it stays;
+4. says in `added` which assumptions it settled and by what ("settled 1 assumption: requester
+   statement in the Original request"). Earlier record entries keep their own counts and GitHub
+   keeps the edit history: nothing is lost.
 
 ## 5. Non-invention
 
@@ -271,6 +301,13 @@ Reviewer or Iterator result.
 - **Never lose the original.** The original request is kept **verbatim** in the
   *Original request* section of the refined body, quoted. On a second refinement, that
   section is carried over unchanged: it always holds the first human version.
+- **Three sources, kept apart.** The *Original request* is the first human version; a later
+  clarification is an **Issue comment** by the requester (GitHub records its author, the
+  workflow passes it on, and the autonomy gate G9 accepts only the owner's); every other
+  section is the Refiner's own output (§4.1). Editing the quoted block is not a clarification
+  channel: GitHub does not say who edited a body, so the workflow carries the block over as it
+  is and treats its content as the Issue author's — the limit accepted in
+  [autonomy contract §7.2](../docs/autonomy-contract.md#72-limits-accepted-for-the-poc).
 - **Record the change.** The *Refinement record* section states: source, date (UTC), agent
   and rules version, what was added, the assumptions, the references used, the open
   questions, and the verdict ([contract §7](../docs/issue-contract.md#7--refinement-record)).

@@ -263,6 +263,12 @@ Prompt 45 (branch `feat/phase9-auto-review`): Developer output `head_sha` (step 
 still open, draft, at that commit); refine caller job `review` (`needs: [refine, develop]`) calls `agent-review.yml` with
 `expected_head_sha` / `expected_head_branch` / `expected_issue_number`: that exact delivery only, once (`NO_OP DELIVERY_CHANGED` /
 `ALREADY_REVIEWED`); bot guard of `flowforge-review.yml` unchanged, no Iterator chaining; contract §14. NOT VERIFIED LIVE.
+Prompt 45.2A.2 (branch `fix/phase9-refiner-provenance`, from `demo-api` #65 L1' runs `40046358749` / `40048891810`: the owner's
+"verified on main" statement was rendered `[provided]` yet the first run's `[assumption]` was copied, G7 `D-IMPLICIT`): provenance ≠
+verification (`agents/refiner.md` §4, issue contract §4: `[provided]` = who stated it, `[observed]` = checked by the Refiner, `[assumption]`
+= introduced by the Refiner; one fact one tag), re-refinement re-evaluates each previous assumption (§4.1), listed apart in the prompt by
+`flowforge_refine_previous_assumptions`; clarifications = owner comments (§8, G9), block edits stay the §7.2 limit; G1–G12, floors, schema v3
+unchanged; tests PV in `tests/refiner.sh`; contract §15 (cause, L1' resume). NOT VERIFIED LIVE.
 
 ## Out of scope for now
 
