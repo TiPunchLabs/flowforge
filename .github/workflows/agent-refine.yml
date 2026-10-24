@@ -273,6 +273,8 @@ jobs:
           }
           rules="$(raw agents/refiner.md)"
           contract="$(raw docs/issue-contract.md)"
+          # shellcheck source=/dev/null
+          source /dev/stdin <<<"$(raw .github/scripts/flowforge-refine.sh)"
 
           if [[ -f CLAUDE.md ]]; then
             claude_md="CLAUDE.md exists at the workspace root: read it first."
@@ -290,8 +292,6 @@ jobs:
             rc=0
             bash "$CONTEXT_DIR/flowforge-spec.sh" SPEC.md > /dev/null || rc=$?
             case "$rc" in 0) spec_check=PASS ;; 1) spec_check=FAILED ;; *) spec_check=ERROR ;; esac
-            # shellcheck source=/dev/null
-            source /dev/stdin <<<"$(raw .github/scripts/flowforge-refine.sh)"
             spec_ids="$(flowforge_refine_spec_ids SPEC.md)"
           else
             spec_present=false
@@ -339,7 +339,7 @@ jobs:
                   }
                 }
               },
-              "assumptions": { "type": "array", "items": { "type": "string" }, "description": "Each item starts with the [assumption] tag." },
+              "assumptions": { "type": "array", "items": { "type": "string" }, "description": "Each item starts with the [assumption] tag: a belief you introduce that neither the requester stated nor a file you read shows. Re-evaluated on every refinement, never copied." },
               "notes_for_agents": { "type": "array", "items": { "type": "string" } },
               "proposed_labels": { "type": "array", "items": { "type": "string" } },
               "added": { "type": "string", "description": "One line for the refinement record: what this refinement added or changed." },
@@ -389,9 +389,16 @@ jobs:
             workflow builds them itself (original request quoted verbatim on the first
             refinement and carried over unchanged afterwards; one record entry per run).
           - If the Issue body already follows the refined format, it is a previous refinement:
-            refine again from it, from its Original request and from the comments. Answers
-            given in comments are provided by the requester: tag what you take from them
-            [provided].
+            your own earlier output, never requester input (rules section 4.1). Refine again
+            from its Original request, the comments and the repository: re-derive every
+            section instead of copying it, and re-evaluate one by one the assumptions listed
+            at the end under "Assumptions of the previous refinement". Answers given in
+            comments are provided by their author: tag what you take from them [provided].
+          - Provenance is not verification (rules section 4): a fact the requester states,
+            in the request or a comment, is [provided] and written as the requester statement,
+            even if you cannot check it by running code; it is [observed] only if you checked
+            it yourself in a file you read. Never keep the same fact as [provided] or
+            [observed] and also as an [assumption].
 
           ## Structured output
 
@@ -438,6 +445,16 @@ jobs:
             jq -r 'if length == 0 then "No comments."
               else .[] | "--- @\(.author), \(.created_at)\n\(.body // "")" end' "$CONTEXT_DIR/comments.json"
             echo "</comments>"
+            echo
+            echo "## Assumptions of the previous refinement — your own earlier output, re-evaluate each"
+            echo
+            echo "Drop an assumption the Original request, a comment or a file you read now settles"
+            echo "(write the settling fact with its own tag); keep it only if it is still unsettled."
+            echo
+            echo "<previous-assumptions>"
+            flowforge_refine_previous_assumptions "$CONTEXT_DIR/issue.json" \
+              | jq -r 'if length == 0 then "None." else .[] | "- \(.)" end'
+            echo "</previous-assumptions>"
           } > "$prompt_file"
 
           delimiter="FLOWFORGE_$(openssl rand -hex 16)"
