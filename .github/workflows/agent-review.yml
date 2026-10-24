@@ -26,6 +26,12 @@
 # error. Its state is read twice (when the context is resolved, and again right before
 # Claude); if it is no longer OPEN, nothing is reviewed or published, `verdict` stays empty,
 # `no_op_json` explains why, and the run succeeds. NO_OP is not a Reviewer verdict.
+#
+# Automatic review (Phase 9, docs/autonomy-contract.md §14): the SEMI_AUTO refine caller passes
+# `expected_head_sha` (+ branch, Issue) from its own develop job. Only that exact delivery is
+# reviewed, once: another PR fails; a moved head / out-of-draft PR (DELIVERY_CHANGED) or a commit
+# already reviewed (ALREADY_REVIEWED) is a NO_OP. Without it (manual, PR events, review cycle):
+# unchanged.
 name: FlowForge — agent review
 
 on:
@@ -66,6 +72,28 @@ on:
         type: string
         required: false
         default: ""
+      # Automatic review (Phase 9): set only by the SEMI_AUTO refine caller, from the outputs of
+      # its own develop job. Empty (default, manual and cycle reviews): no delivery check.
+      expected_head_sha:
+        description: >-
+          Commit the Developer pushed and opened the Draft PR with. When set, the PR must be that
+          delivery: head branch `expected_head_branch`, exactly one closing Issue
+          `expected_issue_number`, else the run fails. A PR whose head moved or that left draft
+          (DELIVERY_CHANGED), or that already has a FlowForge review of this commit
+          (ALREADY_REVIEWED), is not reviewed (NO_OP).
+        type: string
+        required: false
+        default: ""
+      expected_head_branch:
+        description: Agent branch the Developer delivered; required with `expected_head_sha`.
+        type: string
+        required: false
+        default: ""
+      expected_issue_number:
+        description: Issue the Developer worked on; required with `expected_head_sha`.
+        type: number
+        required: false
+        default: 0
     secrets:
       # Long-lived token from `claude setup-token`. Callers pass it explicitly, e.g.
       #   claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -86,10 +114,11 @@ on:
         value: ${{ jobs.review.outputs.verdict }}
       no_op_json:
         description: >-
-          Set only when the pull request was no longer OPEN and nothing was reviewed:
-          {"schema_version": 1, "result": "NO_OP", "reason": "PR_ALREADY_CLOSED" or
-          "PR_ALREADY_MERGED", "repository", "pull_request", "state", "run_url"} as compact
-          JSON. Empty otherwise.
+          Set only when nothing was reviewed because the pull request was no longer OPEN, or
+          (automatic review only) was not the expected delivery any more:
+          {"schema_version": 1, "result": "NO_OP", "reason": "PR_ALREADY_CLOSED",
+          "PR_ALREADY_MERGED", "DELIVERY_CHANGED" or "ALREADY_REVIEWED", "repository",
+          "pull_request", "state", "run_url"} as compact JSON. Empty otherwise.
         value: ${{ jobs.review.outputs.no_op_json }}
       result_artifact:
         description: Name of the artifact holding review.json and review.md.
@@ -132,6 +161,10 @@ jobs:
     steps:
       - name: Resolve pull request context
         id: context
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.expected_head_sha }}
+          EXPECTED_HEAD_BRANCH: ${{ inputs.expected_head_branch }}
+          EXPECTED_ISSUE_NUMBER: ${{ inputs.expected_issue_number }}
         # PR and Issue content is untrusted input: it is only read through jq into files,
         # never interpolated with ${{ }} inside a script.
         run: |
@@ -148,7 +181,7 @@ jobs:
               query($owner: String!, $name: String!, $number: Int!) {
                 repository(owner: $owner, name: $name) {
                   pullRequest(number: $number) {
-                    number title body url state isCrossRepository
+                    number title body url state isCrossRepository isDraft
                     baseRefName headRefName headRefOid
                     closingIssuesReferences(first: 10) { nodes { number } }
                   }
@@ -197,6 +230,44 @@ jobs:
             issue_note="Several Issues are linked to the pull request (${issues[*]}); FlowForge expects exactly one."
           fi
           printf '%s\n' "$issue_note" > "$CONTEXT_DIR/issue-note.txt"
+
+          # Automatic review (expected_head_sha set): only the exact delivery of the caller's
+          # develop job is reviewed, once. Another PR fails; a delivery changed since (new head,
+          # out of draft) or already reviewed at this commit is a NO_OP. Manual reviews are free.
+          if [[ -n "${EXPECTED_HEAD_SHA:-}" ]]; then
+            if [[ -z "${EXPECTED_HEAD_BRANCH:-}" || "${EXPECTED_ISSUE_NUMBER:-0}" == 0 ]]; then
+              echo "::error::Automatic review: expected_head_branch and expected_issue_number are required with expected_head_sha."
+              exit 1
+            fi
+            if [[ "$(jq -r '.headRefName' "$CONTEXT_DIR/pr.json")" != "$EXPECTED_HEAD_BRANCH" ]]; then
+              echo "::error::Automatic review: PR #$PR_NUMBER is not on the delivered branch '$EXPECTED_HEAD_BRANCH'; nothing reviewed."
+              exit 1
+            fi
+            if [[ "$issue_number" != "$EXPECTED_ISSUE_NUMBER" ]]; then
+              echo "::error::Automatic review: PR #$PR_NUMBER does not close exactly Issue #$EXPECTED_ISSUE_NUMBER; nothing reviewed."
+              exit 1
+            fi
+            skip=""
+            if [[ "$(jq -r '.headRefOid' "$CONTEXT_DIR/pr.json")" != "$EXPECTED_HEAD_SHA" \
+                  || "$(jq -r '.isDraft' "$CONTEXT_DIR/pr.json")" != "true" ]]; then
+              skip=DELIVERY_CHANGED
+            else
+              # A read error fails the step: never reviewed twice on an unknown history.
+              gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" \
+                > "$CONTEXT_DIR/pr-comments.json"
+              if jq -se --arg marker '<!-- flowforge-review -->' --arg sha "Reviewed commit: \`$EXPECTED_HEAD_SHA\`" \
+                  'add // [] | any(.[]; .user.login == "github-actions[bot]"
+                     and (.body // "" | startswith($marker) and contains($sha)))' \
+                  "$CONTEXT_DIR/pr-comments.json" >/dev/null; then
+                skip=ALREADY_REVIEWED
+              fi
+            fi
+            if [[ -n "$skip" ]]; then
+              echo "::notice::Automatic review of PR #$PR_NUMBER skipped ($skip); a human may still dispatch a review."
+              { echo "state=SKIPPED"; echo "skip_reason=$skip"; } >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
 
           # CI is informative, not essential to start: a snapshot of the head commit's checks.
           head_sha="$(jq -r '.headRefOid' "$CONTEXT_DIR/pr.json")"
@@ -480,35 +551,50 @@ jobs:
           esac
           echo "state=$state" >> "$GITHUB_OUTPUT"
 
-      # The pull request is no longer reviewable: a business outcome, the job succeeds.
+      # The pull request is no longer reviewable (or, automatic review only, no longer the
+      # expected delivery): a business outcome, the job succeeds.
       # No review, no comment, no artifact; the result only goes to the step summary and to
       # the `no_op_json` output (consumed by review-cycle.yml).
       - name: Record no-op
         id: no_op
-        if: contains(fromJSON('["CLOSED", "MERGED"]'), steps.recheck.outputs.state || steps.context.outputs.state)
+        if: contains(fromJSON('["CLOSED", "MERGED", "SKIPPED"]'), steps.recheck.outputs.state || steps.context.outputs.state)
         env:
           STATE: ${{ steps.recheck.outputs.state || steps.context.outputs.state }}
+          SKIP_REASON: ${{ steps.context.outputs.skip_reason }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          pr_state="$STATE"
           case "$STATE" in
-            CLOSED) reason=PR_ALREADY_CLOSED; text="closed" ;;
-            MERGED) reason=PR_ALREADY_MERGED; text="merged" ;;
+            CLOSED) reason=PR_ALREADY_CLOSED; text="already closed" ;;
+            MERGED) reason=PR_ALREADY_MERGED; text="already merged" ;;
+            SKIPPED)
+              pr_state=OPEN
+              case "$SKIP_REASON" in
+                DELIVERY_CHANGED) reason=$SKIP_REASON; text="no longer the delivered Draft PR (new head or out of draft)" ;;
+                ALREADY_REVIEWED) reason=$SKIP_REASON; text="already reviewed at the delivered commit" ;;
+                *) echo "::error::Unexpected skip reason '$SKIP_REASON'."; exit 1 ;;
+              esac
+              ;;
             *) echo "::error::Unexpected state '$STATE' for a no-op."; exit 1 ;;
           esac
           no_op_json="$(jq -cn --arg reason "$reason" --arg repository "$GITHUB_REPOSITORY" \
-            --argjson pr "$PR_NUMBER" --arg state "$STATE" --arg run_url "$RUN_URL" \
+            --argjson pr "$PR_NUMBER" --arg state "$pr_state" --arg run_url "$RUN_URL" \
             '{schema_version: 1, result: "NO_OP", reason: $reason, repository: $repository,
               pull_request: $pr, state: $state, run_url: $run_url}')"
 
-          echo "::notice::Pull request #$PR_NUMBER is already $text: nothing to review (NO_OP)."
+          echo "::notice::Pull request #$PR_NUMBER is $text: nothing to review (NO_OP)."
           echo "no_op_json=$no_op_json" >> "$GITHUB_OUTPUT"
           {
             echo "## FlowForge Review"
             echo
             echo "Result: **NO_OP** (\`$reason\`)"
             echo
-            echo "Pull request #$PR_NUMBER is already $text: it no longer requires or allows review."
+            if [[ "$STATE" == SKIPPED ]]; then
+              echo "Pull request #$PR_NUMBER is $text: no automatic review. A human may still dispatch one (flowforge-review.yml)."
+            else
+              echo "Pull request #$PR_NUMBER is $text: it no longer requires or allows review."
+            fi
             echo
             echo "- Reviewer: NOT EXECUTED"
             echo "- PR comment: NOT PUBLISHED"

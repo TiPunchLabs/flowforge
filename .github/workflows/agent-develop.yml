@@ -91,6 +91,13 @@ on:
       pull_request:
         description: Number of the Draft PR opened by the agent, empty if none.
         value: ${{ jobs.develop.outputs.pull_request }}
+      head_sha:
+        description: >-
+          Commit this run pushed and opened the Draft PR with, read back as the head of that
+          open Draft PR; empty otherwise (no delivery, partial delivery, PR changed). The
+          SEMI_AUTO refine caller reviews exactly this delivery (agent-review.yml
+          expected_head_sha); nothing else uses it.
+        value: ${{ jobs.develop.outputs.head_sha }}
 
 # Nothing by default; each job requests only what it needs.
 permissions: {}
@@ -112,6 +119,7 @@ jobs:
     outputs:
       branch: ${{ steps.context.outputs.branch }}
       pull_request: ${{ steps.finalize.outputs.pull_request }}
+      head_sha: ${{ steps.delivery_ref.outputs.head_sha }}
     env:
       GH_TOKEN: ${{ github.token }}
       ISSUE_NUMBER: ${{ inputs.issue_number }}
@@ -435,6 +443,7 @@ jobs:
           git -c credential.helper= push \
             "https://x-access-token:${GH_TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git" \
             "HEAD:refs/heads/$BRANCH"
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           gh pr create --repo "$GITHUB_REPOSITORY" --draft \
             --base "$BASE_BRANCH" --head "$BRANCH" \
             --title "$(cat "$RUNNER_TEMP/flowforge-pr-title.txt")" \
@@ -495,6 +504,28 @@ jobs:
             echo "- Draft PR: ${number:+#}${number:-none}"
             echo "- Label: \`${label:-none}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The delivery reference handed to an automatic review (output `head_sha`): only when this
+      # run pushed and opened the Draft PR, and that PR is still open, draft, at the pushed commit.
+      # Best-effort: a read error leaves `head_sha` empty (no automatic review), never fails a
+      # delivery the Issue already records as agent:review.
+      - name: Record delivery
+        id: delivery_ref
+        if: always() && steps.running.outcome == 'success' && steps.deliver.outcome == 'success' && steps.finalize.outputs.pull_request != ''
+        continue-on-error: true
+        env:
+          PR_NUMBER: ${{ steps.finalize.outputs.pull_request }}
+          PUSHED_SHA: ${{ steps.deliver.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          pr="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state,isDraft,headRefOid)"
+          if [[ -n "$PUSHED_SHA" ]] && jq -e --arg sha "$PUSHED_SHA" \
+              '.state == "OPEN" and .isDraft == true and .headRefOid == $sha' <<<"$pr" >/dev/null; then
+            echo "head_sha=$PUSHED_SHA" >> "$GITHUB_OUTPUT"
+            echo "- Delivered commit: \`$PUSHED_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Draft PR #$PR_NUMBER is not the commit this run pushed (${PUSHED_SHA:-none}); no delivery reference for an automatic review."
+          fi
 
       # Minted after Claude Code ended, like the delivery token.
       - name: Create Project token (result)

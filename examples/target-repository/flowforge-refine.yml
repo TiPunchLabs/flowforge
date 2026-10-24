@@ -19,7 +19,8 @@
 # FLOWFORGE_AUTONOMY_MODE=SEMI_AUTO and FLOWFORGE_AUTONOMY_OWNER=<owner login>, managed by the
 # target-repository Terraform module, a LOW-risk request opened and dispatched by the owner that
 # passes every gate gets `agent:ready` from the workflow, and the `develop` job below starts the
-# Developer in the same run. Unset variables = SUPERVISED. Opt out per Issue: label agent:manual.
+# Developer in the same run; once it delivers the Draft PR, the `review` job reviews it once.
+# Unset variables = SUPERVISED. Opt out per Issue: label agent:manual.
 #
 # Prerequisite: the same CLAUDE_CODE_OAUTH_TOKEN secret as flowforge-agent.yml, and the
 # agent:needs-clarification / agent:manual labels (target-repository Terraform module).
@@ -80,6 +81,39 @@ jobs:
       # allowed_tools: "Bash(uv sync:*),Bash(uv run pytest:*),Bash(uv run ruff:*)"
       app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
       project_number: ${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}
+    secrets:
+      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}
+
+  # SEMI_AUTO only: one review of the Draft PR the develop job above delivered, in the same run.
+  # The only automatic path to the Reviewer: PR events sent by bots (the App opens the PR) still
+  # start no review (flowforge-review.yml). Runs only when develop reports a verified delivery
+  # (`head_sha`); agent-review.yml re-checks that exact delivery (branch, Issue, head commit,
+  # draft) and skips one already reviewed. Same job as flowforge-review.yml (permissions,
+  # inputs, secrets: keep both in sync). APPROVE moves the card to Human validation; merge stays
+  # human. REQUEST_CHANGES: dispatch flowforge-review-cycle.yml by hand for the bounded Iterator loop.
+  review:
+    needs: [refine, develop]
+    if: >-
+      needs.refine.outputs.autostart == 'true'
+      && needs.develop.outputs.head_sha != '' && needs.develop.outputs.pull_request != ''
+    uses: OWNER/flowforge/.github/workflows/agent-review.yml@main
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: write
+      checks: read
+      statuses: read
+    with:
+      pull_request_number: ${{ fromJSON(needs.develop.outputs.pull_request) }}
+      expected_head_sha: ${{ needs.develop.outputs.head_sha }}
+      expected_head_branch: ${{ needs.develop.outputs.branch }}
+      expected_issue_number: ${{ fromJSON(inputs.issue_number) }}
+      # Project-specific: the same values as in flowforge-review.yml.
+      # setup_uv: true
+      # allowed_tools: "Bash(uv sync --locked),Bash(uv run pytest:*),Bash(uv run ruff check .),Bash(uv run ruff format --check .)"
+      project_number: ${{ fromJSON(vars.FLOWFORGE_PROJECT_NUMBER || '0') }}
+      app_client_id: ${{ vars.FLOWFORGE_APP_CLIENT_ID }}
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       app_private_key: ${{ secrets.FLOWFORGE_APP_PRIVATE_KEY }}

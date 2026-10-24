@@ -256,6 +256,13 @@ then outputs `autostart`; refine caller job `develop`; module label `agent:manua
 Prompt 44.2B.1 (fix of the `demo-api` #63 L1 false positives, run `39835505094`): keyword floor skips prohibition clauses
 of the constraints / notes / original request (`FLOWFORGE_RISK_BAN`, contract §3.1), positive fields still scanned whole;
 G7 unchanged (strict), the Refiner keeps a complete Definition of Done without restating items (`agents/refiner.md` §5.4).
+Prompt 44.2 (live, `demo-api` #63, branch `test/phase9-semi-auto-e2e`): L1 `D-MODE` only, L2 `D-MANUAL` only, L3 first real `AUTO_START`
+(run `40004574629`) → Draft PR #64 (only `tests/test_probes.py`, CI 114 passed), L4 re-run refused; the Reviewer was skipped (bot guard #34)
+and dispatched by hand → `APPROVE` (run `40009476542`), card Human validation, PR not merged.
+Prompt 45 (branch `feat/phase9-auto-review`): Developer output `head_sha` (step *Record delivery*: this run pushed and opened a Draft PR
+still open, draft, at that commit); refine caller job `review` (`needs: [refine, develop]`) calls `agent-review.yml` with
+`expected_head_sha` / `expected_head_branch` / `expected_issue_number`: that exact delivery only, once (`NO_OP DELIVERY_CHANGED` /
+`ALREADY_REVIEWED`); bot guard of `flowforge-review.yml` unchanged, no Iterator chaining; contract §14. NOT VERIFIED LIVE.
 
 ## Out of scope for now
 

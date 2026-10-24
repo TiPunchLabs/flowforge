@@ -140,6 +140,50 @@ expect "App token has no issues permission (anti-loop rule 1)" \
 expect "App token only used by the push step" \
   "$(grep -c 'steps.app_token.outputs.token' "$wf")" 1
 
+# --- Delivery reference for an automatic review (Phase 9, Prompt 45): "Record delivery" ------
+yq -e '.jobs.develop.steps[] | select(.name == "Record delivery") | .run' "$wf" > "$work/record.sh"
+mkdir -p "$work/rbin"
+cat > "$work/rbin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "pr view 5 --repo owner/target --json state,isDraft,headRefOid")
+    [[ "$FAKE_PR" != FAIL ]] || { echo "HTTP 502" >&2; exit 1; }
+    printf '%s\n' "$FAKE_PR" ;;
+  *) echo "gh stub: unexpected call: $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$work/rbin/gh"
+record() { # case, PR fixture (or FAIL), pushed sha -> prints "<exit>/<head_sha output>"
+  local dir="$work/record-$1"
+  mkdir -p "$dir"; : > "$dir/out"; : > "$dir/summary"
+  set +e
+  env PATH="$work/rbin:$PATH" GITHUB_REPOSITORY=owner/target GITHUB_OUTPUT="$dir/out" \
+    GITHUB_STEP_SUMMARY="$dir/summary" FAKE_PR="$2" PR_NUMBER=5 PUSHED_SHA="$3" \
+    bash --noprofile --norc -eo pipefail "$work/record.sh" > "$dir/log" 2>&1
+  printf '%s/%s' "$?" "$(sed -n 's/^head_sha=//p' "$dir/out")"
+  set -e
+}
+prj() { jq -cn --arg s "$1" --argjson d "$2" --arg h "$3" '{state: $s, isDraft: $d, headRefOid: $h}'; }
+expect "R  open Draft PR at the pushed commit: delivery reference set" "$(record ok "$(prj OPEN true abc123)" abc123)" "0/abc123"
+expect "R  PR head is not the pushed commit: no reference" "$(record moved "$(prj OPEN true def456)" abc123)" "0/"
+expect "R  PR no longer draft: no reference" "$(record ready "$(prj OPEN false abc123)" abc123)" "0/"
+expect "R  PR closed meanwhile: no reference" "$(record closed "$(prj CLOSED true abc123)" abc123)" "0/"
+expect "R  no pushed commit recorded: no reference" "$(record nosha "$(prj OPEN true abc123)" "")" "0/"
+expect "R  PR unreadable: step fails, no reference (best-effort step)" "$(record down FAIL abc123)" "1/"
+expect "R  Record delivery is best-effort (never fails a delivery)" \
+  "$(yq '.jobs.develop.steps[] | select(.name == "Record delivery") | .continue-on-error' "$wf")" true
+expect "R  only after this run pushed and opened the PR" \
+  "$(yq '.jobs.develop.steps[] | select(.name == "Record delivery") | .if' "$wf")" \
+  "always() && steps.running.outcome == 'success' && steps.deliver.outcome == 'success' && steps.finalize.outputs.pull_request != ''"
+push_run="$(yq '.jobs.develop.steps[] | select(.name == "Push branch and open Draft PR") | .run' "$wf")"
+line() { grep -nF -- "$1" <<<"$push_run" | head -n 1 | cut -d: -f1; }
+expect "R  pushed commit recorded right after the push, before the PR is opened" \
+  "$(( $(line 'HEAD:refs/heads/$BRANCH') < $(line 'echo "head_sha=$(git rev-parse HEAD)"') \
+       && $(line 'echo "head_sha=$(git rev-parse HEAD)"') < $(line 'gh pr create') ))" 1
+expect "R  workflow output head_sha comes from Record delivery only" \
+  "$(yq '.jobs.develop.outputs.head_sha' "$wf")/$(yq '.on.workflow_call.outputs.head_sha.value' "$wf")" \
+  '${{ steps.delivery_ref.outputs.head_sha }}/${{ jobs.develop.outputs.head_sha }}'
+
 echo
 if (( failures > 0 )); then
   echo "$failures developer delivery test(s) failed."

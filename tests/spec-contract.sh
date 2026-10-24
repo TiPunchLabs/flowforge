@@ -278,9 +278,10 @@ expect "T9 state change and Claude Code run only if every earlier step succeeded
   "$(yq '[.jobs.develop.steps[] | select(.name == "Mark issue as running" or .name == "Run Claude Code") | has("if")] | any' "$dev")" false
 # Steps that may run after a failure (always / failure / !cancelled) must depend on the
 # running state having been set, or on a token minted by a step that does not run then.
+# Phase 9 (Prompt 45): + "Record delivery" (automatic review reference), 6 in all.
 overrides="$(yq -r ".jobs.develop.steps | .[$gate:] | .[] | select((.if // \"\") | test(\"always|failure|cancelled\")) | .if" "$dev")"
 expect "T9 every status-override step after the gate needs 'running' (or its skipped token)" \
-  "$(grep -c . <<<"$overrides")/$(grep -vcE "steps\.running\.outcome == 'success'|steps\.project_token_start\.outputs\.token != ''" <<<"$overrides" || true)" "5/0"
+  "$(grep -c . <<<"$overrides")/$(grep -vcE "steps\.running\.outcome == 'success'|steps\.project_token_start\.outputs\.token != ''" <<<"$overrides" || true)" "6/0"
 expect "T9 the Project start token is minted only on success" \
   "$(yq '.jobs.develop.steps[] | select(.id == "project_token_start") | .if | test("always|failure|cancelled")' "$dev")" false
 c="$(new_case gate-no-write)"; add_repo "$c" owner/target-a

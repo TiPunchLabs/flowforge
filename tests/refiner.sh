@@ -793,6 +793,28 @@ expect "A  caller develop job: same explicit secrets as flowforge-agent.yml" \
   "$(j '.jobs.develop.secrets' "$caller")" "$(j '.jobs.develop.secrets' "$agent_caller")"
 expect "A  caller develop job: same App / Project inputs as flowforge-agent.yml" \
   "$(j '.jobs.develop.with' "$caller" | jq -c '{app_client_id, project_number}')" "$(j '.jobs.develop.with' "$agent_caller" | jq -c '{app_client_id, project_number}')"
+# Prompt 45: Developer -> Reviewer in the same run, only after a verified SEMI_AUTO delivery.
+review_caller="$root/examples/target-repository/flowforge-review.yml"
+expect "A  caller review job: after refine and develop, on autostart + a verified delivery only" \
+  "$(yq '.jobs.review | [(.needs | join(",")), .if] | join(" | ")' "$caller")" \
+  "refine,develop | needs.refine.outputs.autostart == 'true' && needs.develop.outputs.head_sha != '' && needs.develop.outputs.pull_request != ''"
+expect "A  caller review job: never always() (a failed or skipped Developer skips the review)" \
+  "$(yq '.jobs.review.if | test("always|failure|cancelled")' "$caller")" false
+expect "A  caller review job: calls agent-review.yml at the same pin as the other jobs" \
+  "$(yq '[.jobs[].uses | sub("/\.github/workflows/agent-[a-z]+\.yml@"; "@")] | unique | length' "$caller")/$(yq '.jobs.review.uses | test("/agent-review.yml@")' "$caller")" "1/true"
+expect "A  caller review job: exactly the Reviewer's permissions (no widening)" \
+  "$(j '.jobs.review.permissions' "$caller")" "$(j '.jobs.review.permissions' "$review_caller")"
+expect "A  caller review job: same explicit secrets as flowforge-review.yml" \
+  "$(j '.jobs.review.secrets' "$caller")" "$(j '.jobs.review.secrets' "$review_caller")"
+expect "A  caller review job: same App / Project inputs as flowforge-review.yml" \
+  "$(j '.jobs.review.with' "$caller" | jq -c '{app_client_id, project_number}')" "$(j '.jobs.review.with' "$review_caller" | jq -c '{app_client_id, project_number}')"
+expect "A  caller review job: the delivery comes from develop, the Issue from the dispatch" \
+  "$(j '.jobs.review.with' "$caller" | jq -c '[.pull_request_number, .expected_head_sha, .expected_head_branch, .expected_issue_number]')" \
+  '["${{ fromJSON(needs.develop.outputs.pull_request) }}","${{ needs.develop.outputs.head_sha }}","${{ needs.develop.outputs.branch }}","${{ fromJSON(inputs.issue_number) }}"]'
+expect "A  SUPERVISED / label path unchanged: flowforge-agent.yml has no review job" \
+  "$(yq '.jobs | keys | join(",")' "$agent_caller")" develop
+expect "A  the refine caller has no event trigger (a bot cannot start the chain)" \
+  "$(j '.on | keys' "$caller")" '["workflow_dispatch"]'
 expect "A  agent-develop.yml still requires agent:ready and an absent branch" \
   "$(yq '.jobs.develop.steps[] | select(.id == "context") | .run' "$root/.github/workflows/agent-develop.yml" | grep -c -e 'does not carry the' -e 'already exists')" 2
 expect "A  no merge, auto-merge or ready-for-review anywhere" \
