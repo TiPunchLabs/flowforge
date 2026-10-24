@@ -117,7 +117,7 @@ Contract changes to make in `SPEC.md`, in the same PR:
 | Constraints | ✅ | `[provided]` ones copied with their meaning intact; `[observed]` ones with evidence; "none known" if none |
 | References | ✅ | What was used; explicitly "none provided" for an absent reference that matters |
 | Open questions | when any | Each marked `blocking` / `non-blocking`; a non-blocking one states its default |
-| Assumptions | when any | Every `[assumption]` the specification relies on |
+| Assumptions | when any | Every `[assumption]` the specification relies on — the Refiner's own beliefs, re-evaluated on each refinement (§4) |
 | Notes for agents | — | Hints only: never a requirement that is not also in Scope / Acceptance criteria |
 | Proposed labels | ✅ | Proposals; the Refiner never applies them (§6) |
 | Original request | ✅ | Verbatim quote of the first human version; carried over unchanged on re-refinement |
@@ -139,6 +139,20 @@ refused rather than guessed (restore it from the Issue edit history).
 Every statement the Refiner adds is tagged — `[provided]`, `[observed]`, `[assumption]`,
 `[recommended]`, `[missing]` — as defined in [refiner rules §4](../agents/refiner.md#4-enrichment).
 `[recommended]` items become requirements only when a human applies `agent:ready`.
+
+A tag records **provenance**, not truth:
+
+| Tag | Who | Verified by the Refiner? |
+|---|---|---|
+| `[provided]` | the requester (Original request, or an Issue comment, with its author) | no — the Developer's tests, the CI and the Reviewer still check it |
+| `[observed]` | the Refiner, from a source it read in this run (named) | yes |
+| `[assumption]` | the Refiner, with no requester statement and no source | no |
+
+A fact the requester states ("verified on `main` at `<sha>`") is `[provided]`, never `[observed]`,
+and never also an `[assumption]`. On a re-refinement the earlier refined sections are the
+Refiner's own output: each previous assumption is re-evaluated, not copied
+([refiner rules §4.1](../agents/refiner.md#41-re-refinement-re-evaluate-never-copy)). Later
+clarifications are Issue comments, not edits of the *Original request* block (§7).
 
 ## 5. ✅ Ready definition
 
@@ -230,6 +244,12 @@ The last section of the body. Fields:
 
 On a second refinement the record gains a new entry; earlier entries and the *Original
 request* are kept. The Refiner never edits comments, other Issues or Pull Requests.
+
+The body keeps three sources apart: the *Original request* (first human version, carried over
+as it is), the clarifications (Issue comments, attributed by GitHub, G9 in `SEMI_AUTO`), and the
+refined sections (the Refiner's output, re-derived on each run). An assumption settled by a
+clarification leaves *Assumptions*; *Added* names it, and the earlier entry keeps the earlier
+count.
 
 ## 8. 🔌 Future sources: GitHub Projects and Notion
 

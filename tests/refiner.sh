@@ -5,7 +5,7 @@
 #   agent-refine.yml  publish/"Apply refinement"       race guard, title/body, label, comment
 #   agent-refine.yml  refine/"Validate and render refinement"   autonomy decision, fail-closed
 # Phase 9 (docs/autonomy-contract.md §9): scenarios S1-S13 of the autonomy decision and of the
-# automatic start, section A below.
+# automatic start, section A below; provenance and stale assumptions (§15), section PV.
 # `gh` is replaced by a stub on PATH that keeps the Issue in a file: no network, no token.
 # What only GitHub Actions can show (Claude Code run, permissions enforcement, artifacts) is
 # not tested here: see the Prompt 23 functional validation.
@@ -821,6 +821,222 @@ expect "A  no merge, auto-merge or ready-for-review anywhere" \
   "$(grep -rhvE '^[[:space:]]*#' "$root/.github/workflows" "$root/examples" | grep -cE 'gh pr merge|enablePullRequestAutoMerge|gh pr ready [^-]*$|--auto' || true)" 0
 expect "A  agent:manual is not a state label" \
   "$(bash -c 'source "$1"; printf "%s\n" "${FLOWFORGE_STATE_LABELS[@]}"' _ "$state_helper" | grep -c '^agent:manual$' || true)" 0
+
+# --- PV: provenance and stale assumptions (Prompt 45.2A.2, agents/refiner.md §4 / §4.1) ---------
+# demo-api #65, run 40048891810: the owner's statement "verified on main at d684829" was in the
+# Original request and rendered [provided] in the context, yet the [assumption] of the first run
+# was copied word for word. pv65_observed is that agent output; pv65_fixed is what the rules now
+# ask (the settled assumption dropped, nothing else changed).
+cat > "$work/pv65-request.md" <<'EOF'
+Tests only. `SPEC.md` scenario `S-011` (covers `F-006`, `R-007`) reads: GIVEN a task with `priority: high` and `due_date: 2030-05-17`, WHEN a client sends `PATCH {"title": "New"}`, THEN only the title changes; AND a following `PUT {"title": "x"}` yields `priority: medium` and `due_date: null`. Today the two halves are tested apart (`test_patch_keeps_absent_fields`, `test_put_without_due_date_clears_it` in `tests/test_tasks.py`); no test follows the scenario as written, on one task.
+
+What to do:
+- Add one test, `test_patch_keeps_then_put_clears`, in a new file `tests/test_put_patch.py`, using the existing `client` fixture of `tests/conftest.py`.
+- With that client, create the task with `POST /tasks` and the body `{"title": "Example", "priority": "high", "due_date": "2030-05-17"}`; assert 201 and keep the returned `id`.
+- On that same task, send `PATCH {"title": "New"}`; assert 200 and the exact JSON body `{"id": <id>, "title": "New", "completed": false, "priority": "high", "due_date": "2030-05-17"}`.
+- Then, on that same task, send `PUT {"title": "x"}`; assert 200 and the exact JSON body `{"id": <id>, "title": "x", "completed": false, "priority": "medium", "due_date": null}`.
+- Give the test a one-line docstring and the module a docstring, like the existing tests, with full type hints.
+
+Decisions already taken (nothing left to decide):
+- Tests only: no change to `src/`, `SPEC.md`, `README.md`, `pyproject.toml` or `uv.lock`; no new package.
+- `tests/test_tasks.py` and `tests/conftest.py` stay unchanged.
+- Only tests/test_put_patch.py may be added or modified. No other repository file may change.
+- The test asserts the response of each request only; it sends no other request.
+- This request is compliant with `F-006`, `R-007` and `S-011` as they are; it changes no requirement.
+- Verified on demo-api main at commit d684829: the existing implementation already satisfies S-011. The observed sequence is HTTP 201 on creation, HTTP 200 after PATCH while retaining priority and due date, then HTTP 200 after PUT with priority set to medium and due_date set to null. The requested work is test coverage only. If the new test exposes a mismatch, report the failure and stop; do not modify src/ or any other file to make the test pass.
+
+Done when:
+- the new test passes with the whole suite: `uv run pytest`;
+- `uv run ruff check .` and `uv run ruff format --check .` pass;
+- a Draft PR closes this Issue.
+EOF
+cat > "$work/pv65.json" <<'EOF'
+{
+  "verdict": "READY",
+  "blocked_reason": "",
+  "title": "test: cover scenario S-011 (PATCH keeps fields, PUT clears them)",
+  "context": [
+    "SPEC.md scenario S-011 (covers F-006, R-007) chains a PATCH that keeps absent fields and a PUT that resets them, on one task. `[provided]`",
+    "The two halves are tested apart today: `test_patch_keeps_absent_fields` and `test_put_without_due_date_clears_it`. No test follows S-011 as written on one task. `[observed]` (`tests/test_tasks.py` lines 233 and 743)",
+    "The `client` fixture yields a TestClient on a fresh app per test. `[observed]` (`tests/conftest.py`)",
+    "`tests/test_put_patch.py` does not exist yet; this Issue creates it. `[observed]` (`tests/` listing)",
+    "The requester states the implementation already satisfies S-011 (verified on main at d684829). `[provided]`"
+  ],
+  "goal": "One new test follows S-011 as written, on a single task: PATCH keeps the absent fields, then PUT resets them to their defaults. `[provided]`",
+  "scope": [
+    "Create `tests/test_put_patch.py` with a module docstring. `[provided]`",
+    "Add `test_patch_keeps_then_put_clears(client: TestClient) -> None` with a one-line docstring and full type hints, using the `client` fixture. `[provided]`",
+    "The test POSTs `/tasks` with `{\"title\": \"Example\", \"priority\": \"high\", \"due_date\": \"2030-05-17\"}`, asserts 201 and keeps the returned `id`. `[provided]`",
+    "On that task it sends `PATCH {\"title\": \"New\"}` and asserts 200 and the exact body `{\"id\": <id>, \"title\": \"New\", \"completed\": false, \"priority\": \"high\", \"due_date\": \"2030-05-17\"}`. `[provided]`",
+    "On that same task it sends `PUT {\"title\": \"x\"}` and asserts 200 and the exact body `{\"id\": <id>, \"title\": \"x\", \"completed\": false, \"priority\": \"medium\", \"due_date\": null}`. `[provided]`",
+    "The test asserts only the response of each request and sends no other request. `[provided]`"
+  ],
+  "out_of_scope": [
+    "Any change to `src/`, `SPEC.md`, `README.md`, `pyproject.toml` or `uv.lock`, and any new package. `[provided]`",
+    "Any change to `tests/test_tasks.py` or `tests/conftest.py`. `[provided]`",
+    "Any file other than `tests/test_put_patch.py`. `[provided]`",
+    "Extra requests in the test (for example a GET to re-read the task). `[provided]`",
+    "Any change to a requirement: the request is compliant with F-006, R-007 and S-011 as they are. `[provided]`",
+    "If the new test exposes a mismatch, report the failure and stop; do not modify `src/` or any other file to make it pass. `[provided]`"
+  ],
+  "acceptance_criteria": [
+    "`tests/test_put_patch.py` exists and contains `test_patch_keeps_then_put_clears`, which uses the `client` fixture. `[provided]`",
+    "POST `/tasks` with the given body returns 201, and the returned `id` is reused for both following requests. `[provided]`",
+    "GIVEN the created task WHEN `PATCH {\"title\": \"New\"}` THEN 200 and the body is exactly `{\"id\": <id>, \"title\": \"New\", \"completed\": false, \"priority\": \"high\", \"due_date\": \"2030-05-17\"}`. `[provided]`",
+    "GIVEN that same task WHEN `PUT {\"title\": \"x\"}` THEN 200 and the body is exactly `{\"id\": <id>, \"title\": \"x\", \"completed\": false, \"priority\": \"medium\", \"due_date\": null}`. `[provided]`",
+    "The module and the test each have a docstring (one line for the test), and the test has full type hints. `[provided]`",
+    "`git diff` shows only `tests/test_put_patch.py` added. `[provided]`",
+    "`uv run pytest` passes with the whole suite, including the new test. `[provided]`",
+    "`uv run ruff check .` and `uv run ruff format --check .` pass. `[provided]`"
+  ],
+  "constraints": [
+    "Tests only: no change to `src/`, `SPEC.md`, `README.md`, `pyproject.toml` or `uv.lock`, and no new package. `[provided]`",
+    "Do not modify `tests/test_tasks.py` or `tests/conftest.py`. `[provided]`",
+    "Only `tests/test_put_patch.py` may be added or modified; no other repository file may change. `[provided]`",
+    "Do not modify `.github/workflows/`. `[observed]` (`CLAUDE.md`)",
+    "Never disable, skip, xfail or weaken an existing test. `[observed]` (`CLAUDE.md`)",
+    "Full type hints and a docstring on every module and function (Ruff `D`, Google style), with no obvious inline comments. `[observed]` (`CLAUDE.md`)",
+    "Tests use the `client` fixture and never rely on state left by another test. `[observed]` (`CLAUDE.md`)",
+    "Conventional Commits, branch `agent/65-<slug>`, and no push to `main`. `[observed]` (`CLAUDE.md`)"
+  ],
+  "references": [
+    "Issue #65",
+    "`SPEC.md` (S-011, F-006, R-007)",
+    "`tests/conftest.py` (`client` fixture)",
+    "`tests/test_tasks.py` (`test_patch_keeps_absent_fields`, `test_put_without_due_date_clears_it`)",
+    "`CLAUDE.md`",
+    "No design document provided."
+  ],
+  "open_questions": [],
+  "assumptions": [
+    "[assumption] The current implementation already satisfies S-011, so the new test passes without any change to `src/`. The two existing tests cover each half separately."
+  ],
+  "notes_for_agents": [
+    "Follow the style of `tests/test_tasks.py`: `from fastapi.testclient import TestClient`, a module docstring, and `client: TestClient` with `-> None`.",
+    "The request fixes the assertions to the exact response bodies, so compare the full JSON dict."
+  ],
+  "proposed_labels": [
+    "agent:ready (to be applied by a human)",
+    "type:test"
+  ],
+  "added": "Re-refined: verified S-011, F-006 and R-007 in SPEC.md and the existing tests and fixture; kept the structure, added the stop-on-mismatch instruction to out of scope.",
+  "references_used": [
+    "SPEC.md",
+    "CLAUDE.md",
+    "tests/conftest.py",
+    "tests/test_tasks.py",
+    "tests/ (directory listing)",
+    "Issue #65"
+  ],
+  "spec_impact": "COMPLIANT",
+  "spec_references": [
+    "S-011 — PUT clears, PATCH keeps (scenario): the test follows it as written.",
+    "F-006 — Task modification (`CONFIRMED`): the feature covered by the scenario.",
+    "R-007 — Replace vs partial update (`CONFIRMED`): PUT resets omitted fields to defaults, PATCH changes only the fields sent; the test preserves it."
+  ],
+  "spec_changes": [],
+  "definition_of_done": [
+    "The new test passes with the whole suite: `uv run pytest`. `[provided]`",
+    "`uv run ruff check .` and `uv run ruff format --check .` pass. `[provided]`",
+    "A Draft PR closes this Issue. `[provided]`"
+  ],
+  "risk_level": "LOW",
+  "risk_reasons": [
+    "Tests only: a single new test file, no change to application code, SPEC.md, dependencies or CI. `[provided]`"
+  ]
+}
+EOF
+pv65_observed() { with_meta < "$work/pv65.json" | jq '.schema_version = 3 | .issue = 65 | .author = "owner"'; }
+pv65_fixed() { pv65_observed | jq '.assumptions = []'; }
+pv65_issue() {
+  owner_issue "$(cat "$work/pv65-request.md")" \
+    | jq '.number = 65 | .title = "test: cover scenario S-011 (PATCH keeps fields, PUT clears them)"'
+}
+pv_ctx() { ctx ".spec_ids += [\"F-006\", \"R-007\", \"S-011\"] $1"; }
+pv_decide() { decide "$1" "${2:-$(pv65_issue)}" "${3:-[]}" "${4:-$(pv_ctx '')}"; }
+provided_line='The requester states the implementation already satisfies S-011 (verified on main at d684829). `[provided]`'
+
+expect "PV #65 fixture: the requester statement is rendered [provided] in the context" \
+  "$(pv65_observed | jq --arg l "$provided_line" '[.context[] | select(. == $l)] | length')" 1
+expect "PV 3  #65 as observed live (statement [provided] + copied [assumption]): still D-IMPLICIT" \
+  "$(pv_decide "$(pv65_observed)")" "HUMAN_REQUIRED D-IMPLICIT"
+expect "PV 3  #65 as observed live, SUPERVISED: D-MODE + D-IMPLICIT, would not start" \
+  "$(pv_decide "$(pv65_observed)" "" "" "$(pv_ctx '| .mode = "SUPERVISED"')") $(jq -r .would_auto_start "$work/a-out.json")" \
+  "HUMAN_REQUIRED D-MODE,D-IMPLICIT false"
+expect "PV 1  #65 fixed (statement [provided], no stale assumption): AUTO_START" \
+  "$(pv_decide "$(pv65_fixed)")" "AUTO_START"
+expect "PV 1  #65 fixed: risk LOW, every gate PASS" \
+  "$(jq -r '"\(.effective_risk) \([.gates[] | .result] | unique | join(","))"' "$work/a-out.json")" "LOW PASS"
+expect "PV 1  #65 fixed, SUPERVISED (the L1 expected result): D-MODE only, would start" \
+  "$(pv_decide "$(pv65_fixed)" "" "" "$(pv_ctx '| .mode = "SUPERVISED"')") $(jq -r .would_auto_start "$work/a-out.json")" \
+  "HUMAN_REQUIRED D-MODE true"
+expect "PV 2  an [observed] fact with its evidence does not block G7" \
+  "$(pv_decide "$(pv65_fixed | jq '.context += ["`test_put_patch.py` is absent. `[observed]` (`tests/` listing)"]')")" "AUTO_START"
+expect "PV 3  an [assumption] tag inside any refined field still blocks G7" \
+  "$(pv_decide "$(pv65_fixed | jq '.context += ["`[assumption]` The fixture resets the store."]')")" "HUMAN_REQUIRED D-IMPLICIT"
+expect "PV 3  a [recommended] item still blocks G7" \
+  "$(pv_decide "$(pv65_fixed | jq '.notes_for_agents += ["Use a parametrised test. `[recommended]`"]')")" "HUMAN_REQUIRED D-IMPLICIT"
+
+# Re-refinement: the previous assumptions are handed back to the agent, separately.
+pv65_issue | jq '.user.login = "owner"' > "$work/pv-raw.json"
+pv65_observed > "$work/pv-r1.json"
+flowforge_refine_render_body "$work/pv-r1.json" "$work/pv-raw.json" > "$work/pv-body1.md"
+jq --rawfile b "$work/pv-body1.md" '.body = $b' "$work/pv-raw.json" > "$work/pv-refined.json"
+expect "PV 4  previous assumptions listed from the refined body" \
+  "$(flowforge_refine_previous_assumptions "$work/pv-refined.json" | jq -c 'map(startswith("[assumption] The current implementation already satisfies S-011"))')" '[true]'
+pv65_fixed > "$work/pv-r2.json"
+flowforge_refine_render_body "$work/pv-r2.json" "$work/pv-refined.json" > "$work/pv-body2.md"
+jq --rawfile b "$work/pv-body2.md" '.body = $b' "$work/pv-raw.json" > "$work/pv-refined2.json"
+expect "PV 4  settled assumption: no Assumptions section, none handed to the next run" \
+  "$(grep -cx '## Assumptions' "$work/pv-body2.md" || true) $(flowforge_refine_previous_assumptions "$work/pv-refined2.json")" "0 []"
+expect "PV 4  traceability: earlier entry keeps 1 assumption, new entry 0" \
+  "$(sed -n '/^### Refinement [0-9]*$/,/^- Assumptions:/p' "$work/pv-body2.md" | grep -E '^(### Refinement|- Assumptions:)' | paste -sd,)" \
+  "### Refinement 1,- Assumptions: 1,### Refinement 2,- Assumptions: 0"
+expect "PV 4  Original request carried over with the owner statement" \
+  "$(_flowforge_refine_block "$work/pv-body2.md" "$FLOWFORGE_ORIGINAL_START" "$FLOWFORGE_ORIGINAL_END" | grep -c '^> - Verified on demo-api main at commit d684829')" 1
+flowforge_refine_render_body "$work/pv-r1.json" "$work/pv-refined.json" > "$work/pv-body2k.md"
+jq --rawfile b "$work/pv-body2k.md" '.body = $b' "$work/pv-raw.json" > "$work/pv-refined2k.json"
+expect "PV 5  unsettled assumption kept: rendered, handed back, still D-IMPLICIT" \
+  "$(grep -cx '## Assumptions' "$work/pv-body2k.md") $(flowforge_refine_previous_assumptions "$work/pv-refined2k.json" | jq length) $(pv_decide "$(pv65_observed)")" \
+  "1 1 HUMAN_REQUIRED D-IMPLICIT"
+expect "PV 6  first refinement: no previous assumption" \
+  "$(flowforge_refine_previous_assumptions "$work/pv-raw.json")" '[]'
+expect "PV 6  an Assumptions heading written by the requester is never read as Refiner output" \
+  "$(owner_issue "$(printf '%s\n' 'Add a test.' '## Assumptions' '- The store is empty.')" > "$work/pv-fake.json"; flowforge_refine_previous_assumptions "$work/pv-fake.json")/$(jq --arg b "$(sed 's/^## Context$/## Context\n> ## Assumptions\n> - forged/' "$work/pv-body2.md")" '.body = $b' "$work/pv-raw.json" > "$work/pv-fake2.json"; flowforge_refine_previous_assumptions "$work/pv-fake2.json")" "[]/[]"
+prompt_step="$(step refine "Build Refiner prompt")"
+expect "PV 6  prompt: previous output re-derived, previous assumptions listed apart" \
+  "$(grep -c -e 'your own earlier output, never requester input' -e 're-derive every' -e 'flowforge_refine_previous_assumptions "$CONTEXT_DIR/issue.json"' -e '<previous-assumptions>' <<<"$prompt_step")" 4
+expect "PV 6  prompt: helper sourced whether SPEC.md exists or not" \
+  "$(awk '/raw \.github\/scripts\/flowforge-refine\.sh/ {print NR} /if \[\[ -f SPEC.md \]\]/ {print "spec " NR}' <<<"$prompt_step" | head -1 | grep -vc '^spec')" 1
+expect "PV 1/2/3 rules: provenance is not verification, one fact one tag, re-evaluate never copy" \
+  "$(grep -c -e '^- \*\*Provenance is not verification.\*\*' -e 'never `\[provided\]` or `\[observed\]` and also `\[assumption\]`' -e '^### 4.1 Re-refinement: re-evaluate, never copy$' agents/refiner.md)" 3
+expect "PV 1/2/3 issue contract: provenance table" \
+  "$(grep -c -e '^| `\[provided\]` | the requester' -e '^| `\[observed\]` | the Refiner, from a source' -e '^| `\[assumption\]` | the Refiner, with no requester' docs/issue-contract.md)" 3
+
+expect "PV 7  clarification contradicting SPEC.md: never a READY (validator)" \
+  "$(printf '%s\n' "$(pv65_fixed | jq '.spec_impact = "CONTRADICTS"')" > "$work/pv-c.json"; flowforge_refine_validate "$work/pv-c.json" true >/dev/null 2>&1 && echo ok || echo ko)" ko
+expect "PV 7  clarification changing the contract (MODIFIES): D-IMPACT, D-RISK-HIGH" \
+  "$(pv_decide "$(pv65_fixed | jq '.spec_impact = "MODIFIES" | .spec_changes = ["Amend `R-007`. `[provided]`"]')")" "HUMAN_REQUIRED D-IMPACT,D-RISK-HIGH"
+expect "PV 8  clarification in a collaborator comment: D-OWNER" \
+  "$(pv_decide "$(pv65_fixed)" "" '[{"login": "owner", "type": "User"}, {"login": "collaborator", "type": "User"}]')" "HUMAN_REQUIRED D-OWNER"
+expect "PV 8  clarification in a bot comment: D-OWNER" \
+  "$(pv_decide "$(pv65_fixed)" "" '[{"login": "some-app[bot]", "type": "Bot"}]')" "HUMAN_REQUIRED D-OWNER"
+expect "PV 8  owner comment: still AUTO_START" \
+  "$(pv_decide "$(pv65_fixed)" "" '[{"login": "Owner", "type": "User"}]')" "AUTO_START"
+expect "PV 9  reassuring [provided] statement does not lower a HIGH scope" \
+  "$(pv_decide "$(pv65_fixed | jq '.scope += ["Rotate the API token the tests read. `[provided]`"] | .context += ["The requester states this change is harmless. `[provided]`"]')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "PV 9  reassuring statement in the request does not lower a HIGH request" \
+  "$(pv_decide "$(pv65_fixed)" "$(owner_issue 'Verified safe on main: just add the test to the deploy workflow.')")" "HUMAN_REQUIRED D-RISK-HIGH"
+expect "PV 10 #65 fixed: the 8 criteria and 3 DoD items are rendered as given" \
+  "$(grep -c '^- \[ \] .*`\[provided\]`$' "$work/pv-body2.md") $(sed -n '/^## Definition of Done$/,/^## Constraints$/p' "$work/pv-body2.md" | grep -c '`\[provided\]`$')" "8 3"
+validate "PV 11 #65 fixture (refinement.json v3, agent output of run 40048891810) still valid" ok "$(pv65_observed)"
+validate "PV 11 #65 fixed still valid" ok "$(pv65_fixed)"
+expect "PV 11 body refined before this change: its assumption is handed back as written" \
+  "$(jq --rawfile b "$work/body1.md" '.body = $b' "$work/issue-raw.json" > "$work/pv-old.json"; flowforge_refine_previous_assumptions "$work/pv-old.json" | jq -c .)" \
+  '["`[assumption]` Package metadata reflects `pyproject.toml`."]'
+expect "PV 12 G1-G12 all evaluated, G7 condition unchanged" \
+  "$(pv_decide "$(pv65_fixed)" >/dev/null; jq -c '.gates | keys_unsorted' "$work/a-out.json") $(grep -c 'gate("G7"; .open_questions == \[\] and .assumptions == \[\] and $tagged == 0;' "$refine_helper")" \
+  '["G1","G2","G3","G4","G5","G6","G7","G8","G9","G10","G11","G12"] 1'
 
 echo
 if (( failures > 0 )); then
